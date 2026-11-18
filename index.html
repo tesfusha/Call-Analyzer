@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Call Analyzer - ETH</title>
+    <meta name="description" content="Minimalist call-log companion with call history, analytics, dual-SIM usage breakdown, quiet-contact reminders, and CSV/JSON import/export." />
+    <meta property="og:title" content="Call Analyzer - ETH" />
+    <meta property="og:description" content="Minimalist call-log companion with call history, analytics, dual-SIM usage breakdown, quiet-contact reminders, and CSV/JSON import/export." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#2B2E34" media="(prefers-color-scheme: dark)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CallETH" />
+    <link rel="icon" type="image/png" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (function () {
+        try {
+          var pref = JSON.parse(localStorage.getItem('callanalyzer.theme.v3') || 'null');
+          var darkVariant = JSON.parse(localStorage.getItem('callanalyzer.preferredDarkTheme.v1') || 'null');
+          if (darkVariant !== 'dark' && darkVariant !== 'dark-gray') darkVariant = 'dark-gray';
+          var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+          var systemDark = Boolean(mql && mql.matches);
+          var hasManualOverride = pref === 'light' || pref === 'dark' || pref === 'dark-gray';
+          var resolved = hasManualOverride ? pref : systemDark ? darkVariant : 'light';
+          var isDark = resolved === 'dark' || resolved === 'dark-gray';
+          var root = document.documentElement;
+          root.classList.toggle('dark', isDark);
+          root.classList.toggle('dark-gray', resolved === 'dark-gray');
+          root.style.colorScheme = isDark ? 'dark' : 'light';
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          if (hasManualOverride) {
+            var activeColor = resolved === 'light' ? '#FFFFFF' : resolved === 'dark-gray' ? '#2B2E34' : '#08246B';
+            for (var i = 0; i < metas.length; i++) {
+              metas[i].setAttribute('content', activeColor);
+            }
+          } else {
+            var darkColor = darkVariant === 'dark' ? '#08246B' : '#2B2E34';
+            for (var j = 0; j < metas.length; j++) {
+              var media = metas[j].getAttribute('media') || '';
+              if (media.indexOf('light') !== -1) metas[j].setAttribute('content', '#FFFFFF');
+              if (media.indexOf('dark') !== -1) metas[j].setAttribute('content', darkColor);
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

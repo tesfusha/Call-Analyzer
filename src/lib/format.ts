@@ -1,0 +1,119 @@
+const AVATAR_COLORS = [
+  '#08246B',
+  '#FF6A00',
+  '#2F7FDB',
+  '#D49A1F',
+  '#2F9E8F',
+  '#C15BA5',
+  '#6FA832',
+  '#5A6B8C',
+];
+
+export function formatDuration(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  if (whole === 0) return '0s';
+  const hours = Math.floor(whole / 3600);
+  const mins = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  if (mins > 0) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  return `${secs}s`;
+}
+
+export function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function formatDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function dayKey(timestamp: number): string {
+  const d = new Date(timestamp);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function dayLabel(timestamp: number, now: Date = new Date()): string {
+  const key = dayKey(timestamp);
+  const todayKey = dayKey(now.getTime());
+  if (key === todayKey) return 'Today';
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (key === dayKey(yesterday.getTime())) return 'Yesterday';
+  return new Date(timestamp).toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+type GraphemeSegmenter = {
+  segment: (input: string) => Iterable<{ segment: string }>;
+};
+
+let cachedSegmenter: GraphemeSegmenter | null | undefined;
+
+function getGraphemeSegmenter(): GraphemeSegmenter | null {
+  if (cachedSegmenter !== undefined) return cachedSegmenter;
+  try {
+    const Seg = (
+      Intl as unknown as {
+        Segmenter?: new (
+          locales?: string | string[],
+          options?: { granularity: 'grapheme' },
+        ) => GraphemeSegmenter;
+      }
+    ).Segmenter;
+    cachedSegmenter = Seg ? new Seg(undefined, { granularity: 'grapheme' }) : null;
+  } catch {
+    cachedSegmenter = null;
+  }
+  return cachedSegmenter;
+}
+
+export function splitGraphemes(input: string): string[] {
+  if (!input) return [];
+  const segmenter = getGraphemeSegmenter();
+  if (segmenter) {
+    return Array.from(segmenter.segment(input), (item) => item.segment);
+  }
+  return Array.from(input);
+}
+
+export function firstGraphemes(input: string, count: number): string {
+  return splitGraphemes(input).slice(0, count).join('');
+}
+
+export function initials(name: string | null, number: string): string {
+  const trimmed = name?.trim() ?? '';
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const first = firstGraphemes(parts[0], 1);
+      const second = firstGraphemes(parts[1], 1);
+      return `${first}${second}`.toLocaleUpperCase();
+    }
+    return firstGraphemes(trimmed, 2).toLocaleUpperCase();
+  }
+  const digits = number.replace(/\D/g, '');
+  return digits.slice(-2) || '#';
+}
+
+export function avatarColor(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}

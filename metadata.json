@@ -1,0 +1,6 @@
+{
+  "name": "Call Analyzer - ETH",
+  "description": "Minimalist call-log companion with call history, analytics, dual-SIM usage breakdown, quiet-contact reminders, and CSV/JSON import/export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

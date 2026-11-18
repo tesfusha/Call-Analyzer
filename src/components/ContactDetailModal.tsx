@@ -1,0 +1,962 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import {
+  Cake,
+  CalendarPlus,
+  Check,
+  Clock,
+  Copy,
+  Download,
+  MessageSquare,
+  Phone,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneOutgoing,
+  Plus,
+  Star,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react';
+import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { CustomSelect } from '@/src/components/CustomSelect';
+import {
+  DEFAULT_RELATIONSHIP_TAGS,
+  daysUntilAnnualDate,
+  getContactKey,
+} from '@/src/lib/contacts';
+import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
+import {
+  buildBirthdayWish,
+  buildHolidayWish,
+  formatEthiopianShort,
+  getEthiopianMonthName,
+  getHolidaysInGregorianYearOrUpcoming,
+} from '@/src/lib/ethiopianCalendar';
+import { downloadTextFile } from '@/src/lib/export';
+import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import {
+  buildScheduledCallIcs,
+  formatScheduledCountdown,
+  formatScheduledLabel,
+  toDateTimeLocalValue,
+  tomorrowAtHour,
+} from '@/src/lib/schedule';
+import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
+import { useCalls } from '@/src/store/CallsContext';
+import type {
+  CalendarKind,
+  CallDirection,
+  CallRecord,
+  ContactBirthday,
+  ContactEvent,
+  ContactProfile,
+} from '@/src/types/call';
+
+const GREGORIAN_MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function DirectionIcon({ direction }: { direction: CallDirection }) {
+  if (direction === 'incoming') return <PhoneIncoming size={13} className="text-[#4FA3F7] shrink-0" />;
+  if (direction === 'outgoing') return <PhoneOutgoing size={13} className="text-[#FF6A00] shrink-0" />;
+  return <PhoneMissed size={13} className="text-[#EF4444] shrink-0" />;
+}
+
+function formatAnnualDate(month: number, day: number, calendar: CalendarKind, year?: number): string {
+  const monthLabel =
+    calendar === 'ethiopian'
+      ? getEthiopianMonthName(month, 'english')
+      : (GREGORIAN_MONTHS[month - 1] ?? `Month ${month}`);
+  const suffix = calendar === 'ethiopian' ? ' EC' : '';
+  return `${monthLabel} ${day}${year ? `, ${year}` : ''}${suffix}`;
+}
+
+export function ContactDetailModal({
+  contactNumber,
+  onClose,
+  onSelectCall,
+  onCallBack,
+}: {
+  contactNumber: string | null;
+  onClose: () => void;
+  onSelectCall: (call: CallRecord) => void;
+  onCallBack: (number: string) => void;
+}) {
+  const {
+    calls,
+    contacts,
+    scheduledCalls,
+    favorites,
+    tariffs,
+    simLabels,
+    privacyMode,
+    toggleFavorite,
+    upsertContactProfile,
+    removeContactProfile,
+    scheduleCall,
+    completeScheduledCall,
+    snoozeScheduledCall,
+    showNotice,
+  } = useCalls();
+
+  const contactKey = contactNumber ? getContactKey(contactNumber) : '';
+  const profile = contactKey ? contacts[contactKey] : undefined;
+
+  useLockBodyScroll(Boolean(contactNumber));
+  const prefersReducedMotion = useReducedMotion();
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+
+  const contactScheduled = useMemo(() => {
+    if (!contactNumber) return [];
+    return scheduledCalls
+      .filter((s) => s.status === 'pending' && getContactKey(s.number) === contactKey)
+      .sort((a, b) => a.scheduledFor - b.scheduledFor);
+  }, [scheduledCalls, contactNumber, contactKey]);
+
+  const contactCalls = useMemo(() => {
+    if (!contactNumber) return [];
+    return calls
+      .filter((c) => getContactKey(c.number) === contactKey)
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }, [calls, contactNumber, contactKey]);
+
+  const stats = useMemo(() => {
+    let totalDuration = 0;
+    let incoming = 0;
+    let outgoing = 0;
+    let missed = 0;
+    let spendEtb = 0;
+    const sims = new Set<string>();
+    contactCalls.forEach((c) => {
+      totalDuration += c.duration;
+      if (c.direction === 'incoming') incoming += 1;
+      else if (c.direction === 'outgoing') outgoing += 1;
+      else missed += 1;
+      spendEtb += estimateCallCostEtb(c, tariffs);
+      if (c.sim) sims.add(c.sim);
+    });
+    const answered = incoming + outgoing;
+    return {
+      totalCalls: contactCalls.length,
+      totalDuration,
+      avgDuration: answered > 0 ? Math.round(totalDuration / answered) : 0,
+      incoming,
+      outgoing,
+      missed,
+      spendEtb: Number(spendEtb.toFixed(2)),
+      sims: [...sims],
+    };
+  }, [contactCalls, tariffs]);
+
+  const initialName = useMemo(() => {
+    if (profile?.name?.trim()) return profile.name.trim();
+    const namedCall = contactCalls.find((c) => c.name?.trim());
+    return namedCall?.name?.trim() || contactNumber || '';
+  }, [profile, contactCalls, contactNumber]);
+
+  const initialTag = useMemo(() => {
+    if (profile?.tag?.trim()) return profile.tag.trim();
+    const taggedCall = contactCalls.find((c) => c.tag?.trim());
+    return taggedCall?.tag?.trim() || '';
+  }, [profile, contactCalls]);
+
+  const [activeCategory, setActiveCategory] = useState<'overview' | 'profile' | 'history'>('overview');
+  const [name, setName] = useState('');
+  const [tag, setTag] = useState('');
+  const [notes, setNotes] = useState('');
+  const [hasBirthday, setHasBirthday] = useState(false);
+  const [bdayCalendar, setBdayCalendar] = useState<CalendarKind>('gregorian');
+  const [bdayMonth, setBdayMonth] = useState(1);
+  const [bdayDay, setBdayDay] = useState(1);
+  const [bdayYear, setBdayYear] = useState('');
+  const [events, setEvents] = useState<ContactEvent[]>([]);
+  const [newEvtTitle, setNewEvtTitle] = useState('');
+  const [newEvtCalendar, setNewEvtCalendar] = useState<CalendarKind>('ethiopian');
+  const [newEvtMonth, setNewEvtMonth] = useState(1);
+  const [newEvtDay, setNewEvtDay] = useState(1);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState(() =>
+    toDateTimeLocalValue(Date.now() + 60 * 60_000),
+  );
+  const [scheduleNote, setScheduleNote] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    if (!contactNumber) return;
+    setActiveCategory('overview');
+    setName(initialName);
+    setTag(initialTag);
+    setNotes(profile?.notes ?? '');
+    if (profile?.birthday) {
+      setHasBirthday(true);
+      setBdayCalendar(profile.birthday.calendar);
+      setBdayMonth(profile.birthday.month);
+      setBdayDay(profile.birthday.day);
+      setBdayYear(profile.birthday.year ? String(profile.birthday.year) : '');
+    } else {
+      setHasBirthday(false);
+      setBdayCalendar('gregorian');
+      setBdayMonth(1);
+      setBdayDay(1);
+      setBdayYear('');
+    }
+    setEvents(profile?.events ?? []);
+    setNewEvtTitle('');
+    setScheduleOpen(false);
+    setScheduleAt(toDateTimeLocalValue(Date.now() + 60 * 60_000));
+    setScheduleNote('');
+    setConfirmDelete(false);
+  }, [contactNumber, initialName, initialTag, profile]);
+
+  useEffect(() => {
+    if (!contactNumber) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [contactNumber, onClose]);
+
+  useEffect(() => {
+    if (bodyScrollRef.current) {
+      bodyScrollRef.current.scrollTop = 0;
+    }
+  }, [activeCategory, contactNumber]);
+
+  const nextHoliday = useMemo(
+    () => getHolidaysInGregorianYearOrUpcoming(new Date(), 90, 'english')[0] ?? null,
+    [],
+  );
+
+  const safeNumber = contactNumber ?? '';
+  const displayName = name.trim() || safeNumber;
+  const isFav =
+    Boolean(contactNumber) &&
+    (favorites.has(safeNumber) || favorites.has(contactKey));
+
+  const bdayCountdown = hasBirthday
+    ? daysUntilAnnualDate(bdayMonth, bdayDay, bdayCalendar)
+    : null;
+
+  const handleSaveProfile = () => {
+    if (!contactNumber) return;
+    const birthday: ContactBirthday | null = hasBirthday
+      ? {
+          calendar: bdayCalendar,
+          month: Math.max(1, Math.min(bdayCalendar === 'ethiopian' ? 13 : 12, bdayMonth)),
+          day: Math.max(1, Math.min(bdayCalendar === 'ethiopian' ? 30 : 31, bdayDay)),
+          year: bdayYear.trim() ? Number(bdayYear) || undefined : undefined,
+        }
+      : null;
+
+    const nextProfile: ContactProfile = {
+      key: contactKey,
+      number: profile?.number || contactCalls[0]?.number || contactNumber,
+      name: name.trim() || contactNumber,
+      tag: tag.trim(),
+      birthday,
+      events,
+      notes: notes.trim(),
+      updatedAt: Date.now(),
+    };
+    upsertContactProfile(nextProfile);
+    showNotice(`Saved ${nextProfile.name}'s profile.`);
+  };
+
+  const handleAddEvent = () => {
+    if (!newEvtTitle.trim()) return;
+    const item: ContactEvent = {
+      id: `evt-${Date.now()}`,
+      title: newEvtTitle.trim(),
+      calendar: newEvtCalendar,
+      month: newEvtMonth,
+      day: newEvtDay,
+    };
+    setEvents((prev) => [...prev, item]);
+    setNewEvtTitle('');
+  };
+
+  const suggestedWish =
+    bdayCountdown !== null && bdayCountdown <= 14
+      ? buildBirthdayWish(displayName, 'Birthday', tag)
+      : nextHoliday
+        ? buildHolidayWish(nextHoliday.name, displayName, tag)
+        : buildBirthdayWish(displayName, 'Birthday', tag);
+
+  const handleCopyWish = async () => {
+    try {
+      await navigator.clipboard.writeText(suggestedWish);
+      showNotice('Wish message copied.');
+    } catch {
+      showNotice('Clipboard unavailable in this browser.');
+    }
+  };
+
+  const maxBdayMonth = bdayCalendar === 'ethiopian' ? 13 : 12;
+  const maxEvtMonth = newEvtCalendar === 'ethiopian' ? 13 : 12;
+
+  const categories: Array<CategoryItem<'overview' | 'profile' | 'history'>> = [
+    { key: 'overview', label: 'Overview', icon: User },
+    { key: 'profile', label: 'Profile & Events', icon: Cake },
+    { key: 'history', label: 'Call History', icon: Phone, count: contactCalls.length },
+  ];
+
+  const activeHeading =
+    activeCategory === 'overview'
+      ? 'Contact Overview & Actions'
+      : activeCategory === 'profile'
+        ? 'Profile, Birthday & Special Events'
+        : 'Call History with Contact';
+
+  return (
+    <AnimatePresence>
+      {contactNumber && (
+        <motion.div
+          key="contact-detail-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#08246B]/55 dark:bg-black/75 p-0 sm:p-4 overscroll-contain"
+          onClick={onClose}
+        >
+          <motion.div
+            key="contact-detail-dialog"
+            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 18, scale: 0.985 }}
+            animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
+            transition={{ duration: prefersReducedMotion ? 0.12 : 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col h-[86vh] sm:h-[650px] max-h-[92vh] overflow-hidden shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Contact details for ${displayName}`}
+          >
+            {/* Pinned Header + Tabs */}
+            <div className="shrink-0 p-5 pb-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center text-base font-bold text-white shrink-0"
+                    style={{ backgroundColor: avatarColor(contactNumber) }}
+                  >
+                    {initials(displayName, contactNumber)}
+                  </div>
+                  <div className="min-w-0 space-y-0.5">
+                    <h2 className="text-lg font-bold text-[#08246B] dark:text-white truncate">
+                      {displayName}
+                    </h2>
+                    <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums truncate">
+                      {maskPhoneNumber(contactCalls[0]?.number || contactNumber, privacyMode)} ·{' '}
+                      {detectCarrier(contactNumber)}
+                      {stats.sims.length > 0
+                        ? ` · ${stats.sims.map((s) => (s === 'SIM 1' || s === 'SIM 2' ? formatSimDisplay(s, simLabels) : s)).join(', ')}`
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleFavorite(contactNumber)}
+                    aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
+                  >
+                    <Star
+                      size={18}
+                      className={isFav ? 'text-[#FF6A00] fill-[#FF6A00]' : 'text-[#8A93A0] dark:text-[var(--dark-text-secondary)]'}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close contact details"
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <CategoryTabs
+                items={categories}
+                activeKey={activeCategory}
+                onChange={setActiveCategory}
+                ariaLabel="Contact profile categories"
+                variant="inset"
+              />
+            </div>
+
+            {/* Dedicated Scrollable Body */}
+            <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
+              <CategoryPanel activeKey={activeCategory} label={activeHeading} transitionStyle="fade">
+                <div className="pb-2 border-b border-[#DDE4EA]/70 dark:border-[var(--dark-border)]">
+                  <h3 className="text-sm font-bold text-[#08246B] dark:text-white">
+                    {activeHeading}
+                  </h3>
+                </div>
+                {activeCategory === 'overview' && (
+          <div className="space-y-4">
+        {/* Action Strip */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onCallBack(contactCalls[0]?.number || contactNumber)}
+            className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <Phone size={14} />
+            Call
+          </button>
+          <button
+            type="button"
+            onClick={() => setScheduleOpen((prev) => !prev)}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <Clock size={14} className="text-[#FF6A00]" />
+            Schedule call
+          </button>
+          <a
+            href={`sms:${contactCalls[0]?.number || contactNumber}?body=${encodeURIComponent(suggestedWish)}`}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <MessageSquare size={14} className="text-[#FF6A00]" />
+            SMS Wish
+          </a>
+          <button
+            type="button"
+            onClick={() => void handleCopyWish()}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <Copy size={14} />
+            Copy Wish
+          </button>
+        </div>
+
+        {scheduleOpen && (
+          <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-[#08246B] dark:text-white">
+                Schedule a call with {displayName}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { label: 'In 15m', ts: () => Date.now() + 15 * 60_000 },
+                  { label: 'In 1h', ts: () => Date.now() + 60 * 60_000 },
+                  { label: 'Tomorrow 9 AM', ts: () => tomorrowAtHour(9) },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      scheduleCall({
+                        number: contactCalls[0]?.number || contactNumber,
+                        name: displayName,
+                        scheduledFor: preset.ts(),
+                        note: scheduleNote || null,
+                      });
+                      setScheduleOpen(false);
+                    }}
+                    className="min-h-[32px] px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="datetime-local"
+                value={scheduleAt}
+                onChange={(e) => setScheduleAt(e.target.value)}
+                aria-label="Scheduled call date and time"
+                className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono text-[#08246B] dark:text-white"
+              />
+              <input
+                type="text"
+                value={scheduleNote}
+                onChange={(e) => setScheduleNote(e.target.value)}
+                placeholder="Topic / reason (optional)"
+                className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  const parsed = Date.parse(scheduleAt);
+                  if (Number.isNaN(parsed)) return;
+                  scheduleCall({
+                    number: contactCalls[0]?.number || contactNumber,
+                    name: displayName,
+                    scheduledFor: parsed,
+                    note: scheduleNote || null,
+                  });
+                  setScheduleOpen(false);
+                }}
+                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap"
+              >
+                Save scheduled call
+              </button>
+            </div>
+          </div>
+        )}
+
+        {contactScheduled.length > 0 && (
+          <div className="rounded-2xl bg-[#FFF0E6]/70 dark:bg-[#FF6A00]/10 border border-[#FF6A00]/30 p-3.5 space-y-2">
+            <p className="text-xs font-semibold text-[#FF6A00]">
+              Scheduled calls ({contactScheduled.length})
+            </p>
+            <div className="divide-y divide-[#FF6A00]/20">
+              {contactScheduled.map((item) => (
+                <div key={item.id} className="py-2 first:pt-0 last:pb-0 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[#08246B] dark:text-white tabular-nums">
+                      {formatScheduledCountdown(item.scheduledFor)} · {formatScheduledLabel(item)}
+                    </p>
+                    {item.note && (
+                      <p className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">{item.note}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => snoozeScheduledCall(item.id, 15)}
+                      className="min-h-[32px] px-2 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[11px] font-semibold text-[#08246B] dark:text-white"
+                    >
+                      +15m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        downloadTextFile(
+                          `call-${item.id}.ics`,
+                          buildScheduledCallIcs(item),
+                          'text/calendar;charset=utf-8',
+                        );
+                        showNotice('Saved .ics calendar file.');
+                      }}
+                      aria-label="Download calendar invite"
+                      className="min-h-[32px] px-2 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[#08246B] dark:text-white flex items-center"
+                    >
+                      <Download size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => completeScheduledCall(item.id)}
+                      aria-label="Mark scheduled call done"
+                      className="min-h-[32px] px-2 rounded-lg bg-[#FF6A00] text-white text-[11px] font-semibold flex items-center gap-1"
+                    >
+                      <Check size={12} />
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* KPI Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-0.5">
+            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">Total calls</p>
+            <p className="text-lg font-bold tabular-nums text-[#08246B] dark:text-white">
+              {stats.totalCalls}
+            </p>
+            <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
+              {stats.incoming} in · {stats.outgoing} out · {stats.missed} missed
+            </p>
+          </div>
+          <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-0.5">
+            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">Talk time</p>
+            <p className="text-lg font-bold tabular-nums text-[#08246B] dark:text-white">
+              {formatDuration(stats.totalDuration)}
+            </p>
+            <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
+              Avg {formatDuration(stats.avgDuration)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-0.5">
+            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">Est. spend</p>
+            <p className="text-lg font-bold tabular-nums text-[#FF6A00]">
+              {formatEtb(stats.spendEtb)}
+            </p>
+            <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">Outgoing airtime</p>
+          </div>
+          <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-0.5">
+            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">Last call</p>
+            <p className="text-sm font-bold tabular-nums text-[#08246B] dark:text-white truncate">
+              {contactCalls[0] ? formatDateTime(contactCalls[0].timestamp) : 'No calls'}
+            </p>
+            {contactCalls[0] && (
+              <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
+                {formatEthiopianShort(contactCalls[0].timestamp)} EC
+              </p>
+            )}
+          </div>
+        </div>
+          </div>
+        )}
+
+        {/* Profile, Tags, Birthday & Events Editor */}
+        {activeCategory === 'profile' && (
+        <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Display name
+              </span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Contact name"
+                className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+              />
+            </label>
+
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Relationship tag
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {DEFAULT_RELATIONSHIP_TAGS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTag(tag === preset ? '' : preset)}
+                    className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                      tag.toLowerCase() === preset.toLowerCase()
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+                <input
+                  type="text"
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  placeholder="Custom tag..."
+                  className="flex-1 min-w-[90px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-1.5 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Birthday */}
+          <div className="space-y-2 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Cake size={15} className="text-[#FF6A00]" />
+                <span className="text-xs font-semibold text-[#08246B] dark:text-white">
+                  Birthday
+                </span>
+                {bdayCountdown !== null && (
+                  <span className="text-xs font-medium text-[#FF6A00] tabular-nums">
+                    {bdayCountdown === 0 ? 'Today!' : `In ${bdayCountdown} days`}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setHasBirthday((prev) => !prev)}
+                className="min-h-[34px] px-3 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white"
+              >
+                {hasBirthday ? 'Remove birthday' : 'Set birthday'}
+              </button>
+            </div>
+
+            {hasBirthday && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <CustomSelect
+                  ariaLabel="Birthday calendar system"
+                  value={bdayCalendar}
+                  variant="surface"
+                  fullWidth
+                  compact
+                  options={[
+                    { value: 'gregorian', label: 'Gregorian' },
+                    { value: 'ethiopian', label: 'Ethiopian' },
+                  ]}
+                  onChange={(val) => {
+                    const nextCal = val as CalendarKind;
+                    setBdayCalendar(nextCal);
+                    if (nextCal === 'gregorian' && bdayMonth > 12) setBdayMonth(12);
+                  }}
+                />
+                <CustomSelect
+                  ariaLabel="Birthday month"
+                  value={String(bdayMonth)}
+                  variant="surface"
+                  fullWidth
+                  compact
+                  options={Array.from({ length: maxBdayMonth }, (_, idx) => idx + 1).map((m) => ({
+                    value: String(m),
+                    label:
+                      bdayCalendar === 'ethiopian'
+                        ? getEthiopianMonthName(m, 'english')
+                        : GREGORIAN_MONTHS[m - 1],
+                  }))}
+                  onChange={(val) => setBdayMonth(Number(val))}
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={bdayCalendar === 'ethiopian' ? 30 : 31}
+                  value={bdayDay}
+                  onChange={(e) => setBdayDay(Math.max(1, Number(e.target.value) || 1))}
+                  aria-label="Birthday day"
+                  placeholder="Day"
+                  className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
+                />
+                <input
+                  type="number"
+                  value={bdayYear}
+                  onChange={(e) => setBdayYear(e.target.value)}
+                  aria-label="Birth year optional"
+                  placeholder="Year (opt.)"
+                  className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Custom Events */}
+          <div className="space-y-2 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
+            <div className="flex items-center gap-2">
+              <CalendarPlus size={15} className="text-[#FF6A00]" />
+              <span className="text-xs font-semibold text-[#08246B] dark:text-white">
+                Special events & anniversaries ({events.length})
+              </span>
+            </div>
+
+            {events.length > 0 && (
+              <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)]">
+                {events.map((evt) => {
+                  const days = daysUntilAnnualDate(evt.month, evt.day, evt.calendar);
+                  return (
+                    <div key={evt.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <span className="font-semibold text-[#08246B] dark:text-white">
+                          {evt.title}
+                        </span>
+                        <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] ml-2 tabular-nums">
+                          {formatAnnualDate(evt.month, evt.day, evt.calendar, evt.year)} ·{' '}
+                          <span className="text-[#FF6A00]">
+                            {days === 0 ? 'Today!' : `in ${days}d`}
+                          </span>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEvents((prev) => prev.filter((item) => item.id !== evt.id))}
+                        aria-label={`Remove ${evt.title}`}
+                        className="p-1.5 text-[#DC2626] dark:text-[#F28B82] hover:opacity-75"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] gap-2">
+              <input
+                type="text"
+                value={newEvtTitle}
+                onChange={(e) => setNewEvtTitle(e.target.value)}
+                placeholder="Event title (e.g. Work anniversary)"
+                className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs text-[#08246B] dark:text-white"
+              />
+              <CustomSelect
+                ariaLabel="Event calendar"
+                value={newEvtCalendar}
+                variant="surface"
+                compact
+                options={[
+                  { value: 'ethiopian', label: 'EC' },
+                  { value: 'gregorian', label: 'GC' },
+                ]}
+                onChange={(val) => {
+                  const nextCal = val as CalendarKind;
+                  setNewEvtCalendar(nextCal);
+                  if (nextCal === 'gregorian' && newEvtMonth > 12) setNewEvtMonth(12);
+                }}
+              />
+              <CustomSelect
+                ariaLabel="Event month"
+                value={String(newEvtMonth)}
+                variant="surface"
+                compact
+                options={Array.from({ length: maxEvtMonth }, (_, idx) => idx + 1).map((m) => ({
+                  value: String(m),
+                  label:
+                    newEvtCalendar === 'ethiopian'
+                      ? getEthiopianMonthName(m, 'english')
+                      : GREGORIAN_MONTHS[m - 1],
+                }))}
+                onChange={(val) => setNewEvtMonth(Number(val))}
+              />
+              <input
+                type="number"
+                min={1}
+                max={newEvtCalendar === 'ethiopian' ? 30 : 31}
+                value={newEvtDay}
+                onChange={(e) => setNewEvtDay(Math.max(1, Number(e.target.value) || 1))}
+                className="w-16 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
+              />
+              <button
+                type="button"
+                onClick={handleAddEvent}
+                className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#FF6A00] hover:text-white flex items-center justify-center gap-1 whitespace-nowrap"
+              >
+                <Plus size={14} />
+                Add
+              </button>
+            </div>
+          </div>
+
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              Contact notes
+            </span>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Personal or work context..."
+              className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white resize-none focus:outline-none focus:border-[#FF6A00]"
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            {profile ? (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      removeContactProfile(profile.key);
+                      setConfirmDelete(false);
+                      onClose();
+                    }}
+                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-xs font-semibold text-white whitespace-nowrap"
+                  >
+                    Confirm delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="min-h-[42px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#FCA5A5] dark:border-[#EF4444]/40 text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#FEE2E2]/40 dark:hover:bg-[#EF4444]/10 flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Trash2 size={14} />
+                  Delete contact
+                </button>
+              )
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={handleSaveProfile}
+              className="min-h-[42px] px-5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap"
+            >
+              Save contact profile
+            </button>
+          </div>
+        </div>
+        )}
+
+        {/* Contact's Call History */}
+        {activeCategory === 'history' && (
+        <div className="space-y-2.5">
+          <h3 className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+            All calls with {displayName} ({contactCalls.length})
+          </h3>
+          {contactCalls.length === 0 ? (
+            <p className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
+              No calls logged with this number yet.
+            </p>
+          ) : (
+            <div className="rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden">
+              {contactCalls.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onSelectCall(c)}
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between gap-3 text-left hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-[#08246B] dark:text-white tabular-nums">
+                      <DirectionIcon direction={c.direction} />
+                      <span className="capitalize">{c.direction}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{formatDateTime(c.timestamp)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                        {formatEthiopianShort(c.timestamp)} EC
+                      </span>
+                    </div>
+                    {(c.note || c.sim) && (
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        {[
+                          c.sim ? formatSimDisplay(c.sim, simLabels) : '',
+                          c.note ? maskPrivateText(c.note, privacyMode) : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-mono tabular-nums text-[#08246B] dark:text-white">
+                      {c.duration > 0 ? formatDuration(c.duration) : '0s'}
+                    </p>
+                    {c.direction === 'outgoing' && c.duration > 0 && (
+                      <p className="text-[11px] font-mono tabular-nums text-[#FF6A00]">
+                        {formatEtb(estimateCallCostEtb(c, tariffs))}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        )}
+        </CategoryPanel>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}

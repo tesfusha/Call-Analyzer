@@ -1,0 +1,344 @@
+{
+  "entities": {
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Private user workspace storing preferences, tariffs, SIM labels, calendar defaults, and reminder settings.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 254
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "passwordHint": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "termsAccepted": {
+          "type": "boolean"
+        },
+        "termsAcceptedAt": {
+          "type": "integer"
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["dark", "dark-gray", "light"]
+        },
+        "notificationsEnabled": {
+          "type": "boolean"
+        },
+        "privacyMode": {
+          "type": "boolean"
+        },
+        "tariffs": {
+          "type": "object"
+        },
+        "simLabels": {
+          "type": "object"
+        },
+        "calendarPrefs": {
+          "type": "object"
+        },
+        "reminderPrefs": {
+          "type": "object"
+        },
+        "favorites": {
+          "type": "array"
+        },
+        "dismissedMissedIds": {
+          "type": "array"
+        },
+        "voiceBundles": {
+          "type": "object"
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "theme",
+        "notificationsEnabled",
+        "privacyMode",
+        "tariffs",
+        "simLabels",
+        "calendarPrefs",
+        "reminderPrefs",
+        "favorites",
+        "dismissedMissedIds",
+        "syncedAt"
+      ]
+    },
+    "CallRecord": {
+      "title": "CallRecord",
+      "description": "A single call log entry owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "number": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["incoming", "outgoing", "missed"]
+        },
+        "sim": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "duration": {
+          "type": "integer"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "tag": {
+          "type": "string",
+          "maxLength": 48
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "number",
+        "direction",
+        "timestamp",
+        "duration",
+        "syncedAt"
+      ]
+    },
+    "ContactProfile": {
+      "title": "ContactProfile",
+      "description": "Contact details, relationship tag, birthday, events, and notes owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "number": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "tag": {
+          "type": "string",
+          "maxLength": 48
+        },
+        "birthday": {
+          "type": "object"
+        },
+        "events": {
+          "type": "array"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "updatedAt": {
+          "type": "integer"
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "key",
+        "ownerUid",
+        "number",
+        "name",
+        "tag",
+        "events",
+        "notes",
+        "updatedAt",
+        "syncedAt"
+      ]
+    },
+    "ScheduledCall": {
+      "title": "ScheduledCall",
+      "description": "Scheduled callback or planned call reminder owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "number": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "scheduledFor": {
+          "type": "integer"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "sourceCallId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "completed", "dismissed"]
+        },
+        "notifiedAt": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "integer"
+        },
+        "syncedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "number",
+        "scheduledFor",
+        "status",
+        "createdAt",
+        "syncedAt"
+      ]
+    },
+    "RegisteredUser": {
+      "title": "RegisteredUser",
+      "description": "Basic registered user account summary (name, email, avatar, registration & activity timestamps) for admin analytics without customer or call-log PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 254
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "authProvider": {
+          "type": "string",
+          "enum": ["google", "password"],
+          "maxLength": 24
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "registeredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastActiveAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "registeredAt",
+        "lastActiveAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserWorkspace"
+      },
+      "description": "User workspace preferences, tariffs, SIM labels, calendar defaults, and reminder controls."
+    },
+    "/users/{userId}/calls/{callId}": {
+      "schema": {
+        "$ref": "#/entities/CallRecord"
+      },
+      "description": "User's synced call log records."
+    },
+    "/users/{userId}/contacts/{contactId}": {
+      "schema": {
+        "$ref": "#/entities/ContactProfile"
+      },
+      "description": "User's synced contact profiles, birthdays, events, and tags."
+    },
+    "/users/{userId}/scheduledCalls/{scheduleId}": {
+      "schema": {
+        "$ref": "#/entities/ScheduledCall"
+      },
+      "description": "User's synced callback reminders and scheduled calls."
+    },
+    "/userRegistry/{userId}": {
+      "schema": {
+        "$ref": "#/entities/RegisteredUser"
+      },
+      "description": "Basic registered user account summaries for admin daily/weekly/monthly stats; excludes all customer contacts and call data."
+    }
+  }
+}

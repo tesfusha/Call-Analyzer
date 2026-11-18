@@ -1,0 +1,508 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'tesfutilahun33@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBoundedString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isNullableString(val, maxLen) {
+      return val == null || (val is string && val.size() <= maxLen);
+    }
+
+    function isValidTariffs(t) {
+      return t is map
+        && t.keys().hasAll(['sim1RatePerMin', 'sim2RatePerMin', 'billingMode', 'monthlyBudgetEtb'])
+        && t.keys().hasOnly(['sim1RatePerMin', 'sim2RatePerMin', 'billingMode', 'monthlyBudgetEtb'])
+        && t.sim1RatePerMin is number && t.sim1RatePerMin >= 0 && t.sim1RatePerMin <= 1000
+        && t.sim2RatePerMin is number && t.sim2RatePerMin >= 0 && t.sim2RatePerMin <= 1000
+        && t.billingMode in ['per-second', 'per-minute']
+        && t.monthlyBudgetEtb is number && t.monthlyBudgetEtb >= 0 && t.monthlyBudgetEtb <= 1000000;
+    }
+
+    function isValidSimLabels(s) {
+      return s is map
+        && s.keys().hasAll(['sim1Label', 'sim2Label'])
+        && s.keys().hasOnly(['sim1Label', 'sim2Label'])
+        && isBoundedString(s.sim1Label, 1, 40)
+        && isBoundedString(s.sim2Label, 1, 40);
+    }
+
+    function isValidCalendarPrefs(c) {
+      return c is map
+        && c.keys().hasAll(['defaultLang', 'defaultGeezNumerals', 'dateDisplay'])
+        && c.keys().hasOnly(['defaultLang', 'defaultGeezNumerals', 'dateDisplay'])
+        && c.defaultLang in ['english', 'amharic']
+        && c.defaultGeezNumerals is bool
+        && c.dateDisplay in ['ec-first', 'both'];
+    }
+
+    function isValidReminderPrefs(r) {
+      return r is map
+        && r.keys().hasAll([
+          'callbackDelayMinutes',
+          'eventLeadDays',
+          'quietContactDays',
+          'quietHoursEnabled',
+          'quietStartHour',
+          'quietEndHour'
+        ])
+        && r.keys().hasOnly([
+          'callbackDelayMinutes',
+          'eventLeadDays',
+          'quietContactDays',
+          'quietHoursEnabled',
+          'quietStartHour',
+          'quietEndHour'
+        ])
+        && r.callbackDelayMinutes is int && r.callbackDelayMinutes >= 5 && r.callbackDelayMinutes <= 1440
+        && r.eventLeadDays is int && r.eventLeadDays >= 0 && r.eventLeadDays <= 60
+        && r.quietContactDays is int && r.quietContactDays >= 3 && r.quietContactDays <= 180
+        && r.quietHoursEnabled is bool
+        && r.quietStartHour is int && r.quietStartHour >= 0 && r.quietStartHour <= 23
+        && r.quietEndHour is int && r.quietEndHour >= 0 && r.quietEndHour <= 23;
+    }
+
+    function isValidStringList(arr, maxItems) {
+      return arr is list
+        && arr.size() <= maxItems
+        && (arr.size() == 0 || (arr[0] is string && arr[0].size() <= 128));
+    }
+
+    function isValidVoiceBundleSlot(b) {
+      return b is map
+        && b.keys().hasAll(['enabled', 'name', 'totalMinutes', 'priceEtb', 'startedAt', 'expiresAt'])
+        && b.keys().hasOnly(['enabled', 'name', 'totalMinutes', 'priceEtb', 'startedAt', 'expiresAt'])
+        && b.enabled is bool
+        && isBoundedString(b.name, 0, 60)
+        && b.totalMinutes is number && b.totalMinutes >= 0 && b.totalMinutes <= 100000
+        && b.priceEtb is number && b.priceEtb >= 0 && b.priceEtb <= 1000000
+        && b.startedAt is int && b.startedAt >= 0
+        && b.expiresAt is int && b.expiresAt >= 0;
+    }
+
+    function isValidVoiceBundles(vb) {
+      return vb is map
+        && vb.keys().hasAll(['sim1', 'sim2'])
+        && vb.keys().hasOnly(['sim1', 'sim2'])
+        && isValidVoiceBundleSlot(vb.sim1)
+        && isValidVoiceBundleSlot(vb.sim2);
+    }
+
+    function isValidUserWorkspace(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'email',
+          'theme',
+          'notificationsEnabled',
+          'privacyMode',
+          'tariffs',
+          'simLabels',
+          'calendarPrefs',
+          'reminderPrefs',
+          'favorites',
+          'dismissedMissedIds',
+          'syncedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'email',
+          'phone',
+          'passwordHint',
+          'termsAccepted',
+          'termsAcceptedAt',
+          'theme',
+          'notificationsEnabled',
+          'privacyMode',
+          'tariffs',
+          'simLabels',
+          'calendarPrefs',
+          'reminderPrefs',
+          'favorites',
+          'dismissedMissedIds',
+          'voiceBundles',
+          'syncedAt'
+        ])
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && isBoundedString(data.displayName, 0, 120)
+        && isBoundedString(data.email, 0, 254)
+        && (!('email' in request.auth.token) || !(request.auth.token.email is string) || data.email == request.auth.token.email)
+        && (!('phone' in data) || isNullableString(data.phone, 40))
+        && (!('passwordHint' in data) || isNullableString(data.passwordHint, 120))
+        && (!('termsAccepted' in data) || data.termsAccepted is bool)
+        && (!('termsAcceptedAt' in data) || data.termsAcceptedAt == null || (data.termsAcceptedAt is int && data.termsAcceptedAt >= 0))
+        && data.theme in ['dark', 'dark-gray', 'light']
+        && data.notificationsEnabled is bool
+        && data.privacyMode is bool
+        && isValidTariffs(data.tariffs)
+        && isValidSimLabels(data.simLabels)
+        && isValidCalendarPrefs(data.calendarPrefs)
+        && isValidReminderPrefs(data.reminderPrefs)
+        && isValidStringList(data.favorites, 200)
+        && isValidStringList(data.dismissedMissedIds, 500)
+        && (!('voiceBundles' in data) || isValidVoiceBundles(data.voiceBundles))
+        && data.syncedAt == request.time;
+    }
+
+    function isValidRegisteredUser(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'email',
+          'registeredAt',
+          'lastActiveAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'email',
+          'phone',
+          'authProvider',
+          'photoURL',
+          'registeredAt',
+          'lastActiveAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && isBoundedString(data.displayName, 0, 120)
+        && isBoundedString(data.email, 1, 254)
+        && (!('email' in request.auth.token) || !(request.auth.token.email is string) || data.email == request.auth.token.email)
+        && (!('phone' in data) || isNullableString(data.phone, 40))
+        && (!('authProvider' in data) || data.authProvider == null || data.authProvider in ['google', 'password'])
+        && (!('photoURL' in data) || isNullableString(data.photoURL, 500))
+        && data.registeredAt is timestamp
+        && data.lastActiveAt is timestamp;
+    }
+
+    function isValidCallRecord(data, userId, callId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerUid',
+          'number',
+          'direction',
+          'timestamp',
+          'duration',
+          'syncedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'ownerUid',
+          'number',
+          'name',
+          'direction',
+          'sim',
+          'timestamp',
+          'duration',
+          'note',
+          'tag',
+          'syncedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == callId
+        && data.ownerUid == request.auth.uid
+        && data.ownerUid == userId
+        && isBoundedString(data.number, 1, 40)
+        && (!('name' in data) || isNullableString(data.name, 120))
+        && data.direction in ['incoming', 'outgoing', 'missed']
+        && (!('sim' in data) || data.sim == null || data.sim in ['SIM 1', 'SIM 2'])
+        && data.timestamp is int && data.timestamp >= 0
+        && data.duration is int && data.duration >= 0 && data.duration <= 864000
+        && (!('note' in data) || isNullableString(data.note, 500))
+        && (!('tag' in data) || isNullableString(data.tag, 48))
+        && data.syncedAt == request.time;
+    }
+
+    function isValidBirthday(b) {
+      return b == null || (
+        b is map
+        && b.keys().hasAll(['month', 'day', 'calendar'])
+        && b.keys().hasOnly(['month', 'day', 'year', 'calendar'])
+        && b.month is int && b.month >= 1 && b.month <= 13
+        && b.day is int && b.day >= 1 && b.day <= 31
+        && (!('year' in b) || b.year == null || (b.year is int && b.year >= 1900 && b.year <= 2200))
+        && b.calendar in ['gregorian', 'ethiopian']
+      );
+    }
+
+    function isValidEventsList(events) {
+      return events is list
+        && events.size() <= 25
+        && (events.size() == 0 || (
+          events[0] is map
+          && events[0].keys().hasAll(['id', 'title', 'month', 'day', 'calendar'])
+          && events[0].keys().hasOnly(['id', 'title', 'month', 'day', 'year', 'calendar'])
+          && isBoundedString(events[0].id, 1, 80)
+          && isBoundedString(events[0].title, 1, 100)
+          && events[0].month is int && events[0].month >= 1 && events[0].month <= 13
+          && events[0].day is int && events[0].day >= 1 && events[0].day <= 31
+          && (!('year' in events[0]) || events[0].year == null || (events[0].year is int && events[0].year >= 1900 && events[0].year <= 2200))
+          && events[0].calendar in ['gregorian', 'ethiopian']
+        ));
+    }
+
+    function isValidContactProfile(data, userId, contactId) {
+      return data.keys().hasAll([
+          'key',
+          'ownerUid',
+          'number',
+          'name',
+          'tag',
+          'events',
+          'notes',
+          'updatedAt',
+          'syncedAt'
+        ])
+        && data.keys().hasOnly([
+          'key',
+          'ownerUid',
+          'number',
+          'name',
+          'tag',
+          'birthday',
+          'events',
+          'notes',
+          'updatedAt',
+          'syncedAt'
+        ])
+        && isValidId(data.key)
+        && data.key == contactId
+        && data.ownerUid == request.auth.uid
+        && data.ownerUid == userId
+        && isBoundedString(data.number, 1, 40)
+        && isBoundedString(data.name, 0, 120)
+        && isBoundedString(data.tag, 0, 48)
+        && (!('birthday' in data) || isValidBirthday(data.birthday))
+        && isValidEventsList(data.events)
+        && isBoundedString(data.notes, 0, 1000)
+        && data.updatedAt is int && data.updatedAt >= 0
+        && data.syncedAt == request.time;
+    }
+
+    function isValidScheduledCall(data, userId, scheduleId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerUid',
+          'number',
+          'scheduledFor',
+          'status',
+          'createdAt',
+          'syncedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'ownerUid',
+          'number',
+          'name',
+          'scheduledFor',
+          'note',
+          'sourceCallId',
+          'status',
+          'notifiedAt',
+          'createdAt',
+          'syncedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == scheduleId
+        && data.ownerUid == request.auth.uid
+        && data.ownerUid == userId
+        && isBoundedString(data.number, 1, 40)
+        && (!('name' in data) || isNullableString(data.name, 120))
+        && data.scheduledFor is int && data.scheduledFor >= 0
+        && (!('note' in data) || isNullableString(data.note, 500))
+        && (!('sourceCallId' in data) || isNullableString(data.sourceCallId, 128))
+        && data.status in ['pending', 'completed', 'dismissed']
+        && (!('notifiedAt' in data) || data.notifiedAt == null || (data.notifiedAt is int && data.notifiedAt >= 0))
+        && data.createdAt is int && data.createdAt >= 0
+        && data.syncedAt == request.time;
+    }
+
+    function parentWorkspaceExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        || existsAfter(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // Basic registered user directory for admin stats only (no customer/call-log PII).
+    match /userRegistry/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidRegisteredUser(incoming(), userId)
+        && incoming().registeredAt == request.time
+        && incoming().lastActiveAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidRegisteredUser(incoming(), userId)
+        && existing().uid == request.auth.uid
+        && incoming().uid == existing().uid
+        && incoming().registeredAt == existing().registeredAt
+        && incoming().lastActiveAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'email',
+          'phone',
+          'authProvider',
+          'photoURL',
+          'lastActiveAt'
+        ]);
+      allow delete: if isValidId(userId) && isOwner(userId) && existing().uid == request.auth.uid;
+    }
+
+    // Private per-user workspace & customer/contact/call data (Admin has ZERO read/write access here).
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId) && (resource == null || existing().uid == request.auth.uid);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserWorkspace(incoming(), userId);
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserWorkspace(incoming(), userId)
+        && existing().uid == request.auth.uid
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'email',
+          'phone',
+          'passwordHint',
+          'termsAccepted',
+          'termsAcceptedAt',
+          'theme',
+          'notificationsEnabled',
+          'privacyMode',
+          'tariffs',
+          'simLabels',
+          'calendarPrefs',
+          'reminderPrefs',
+          'favorites',
+          'dismissedMissedIds',
+          'voiceBundles',
+          'syncedAt'
+        ]);
+      allow delete: if isValidId(userId) && isOwner(userId) && existing().uid == request.auth.uid;
+
+      match /calls/{callId} {
+        allow get: if isValidId(userId) && isValidId(callId) && isOwner(userId) && (resource == null || existing().ownerUid == request.auth.uid);
+        allow list: if isValidId(userId) && isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(callId)
+          && isOwner(userId)
+          && isValidCallRecord(incoming(), userId, callId)
+          && parentWorkspaceExists(userId);
+        allow update: if isValidId(userId)
+          && isValidId(callId)
+          && isOwner(userId)
+          && isValidCallRecord(incoming(), userId, callId)
+          && existing().ownerUid == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'number',
+            'name',
+            'direction',
+            'sim',
+            'timestamp',
+            'duration',
+            'note',
+            'tag',
+            'syncedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(callId) && isOwner(userId) && existing().ownerUid == request.auth.uid;
+      }
+
+      match /contacts/{contactId} {
+        allow get: if isValidId(userId) && isValidId(contactId) && isOwner(userId) && (resource == null || existing().ownerUid == request.auth.uid);
+        allow list: if isValidId(userId) && isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(contactId)
+          && isOwner(userId)
+          && isValidContactProfile(incoming(), userId, contactId)
+          && parentWorkspaceExists(userId);
+        allow update: if isValidId(userId)
+          && isValidId(contactId)
+          && isOwner(userId)
+          && isValidContactProfile(incoming(), userId, contactId)
+          && existing().ownerUid == request.auth.uid
+          && incoming().key == existing().key
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'number',
+            'name',
+            'tag',
+            'birthday',
+            'events',
+            'notes',
+            'updatedAt',
+            'syncedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(contactId) && isOwner(userId) && existing().ownerUid == request.auth.uid;
+      }
+
+      match /scheduledCalls/{scheduleId} {
+        allow get: if isValidId(userId) && isValidId(scheduleId) && isOwner(userId) && (resource == null || existing().ownerUid == request.auth.uid);
+        allow list: if isValidId(userId) && isOwner(userId) && existing().ownerUid == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(scheduleId)
+          && isOwner(userId)
+          && isValidScheduledCall(incoming(), userId, scheduleId)
+          && parentWorkspaceExists(userId);
+        allow update: if isValidId(userId)
+          && isValidId(scheduleId)
+          && isOwner(userId)
+          && isValidScheduledCall(incoming(), userId, scheduleId)
+          && existing().ownerUid == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'number',
+            'name',
+            'scheduledFor',
+            'note',
+            'sourceCallId',
+            'status',
+            'notifiedAt',
+            'syncedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(scheduleId) && isOwner(userId) && existing().ownerUid == request.auth.uid;
+      }
+    }
+  }
+}
