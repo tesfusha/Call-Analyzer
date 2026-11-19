@@ -257,7 +257,7 @@ function AppShell() {
 
   if (authUser && needsEmailVerification) {
     return (
-      <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col">
+      <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <header className="px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <BrandLogo size={34} />
@@ -359,7 +359,7 @@ function AppShell() {
 
   if (!authUser && !isGuest) {
     return (
-      <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col">
+      <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <header className="px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <BrandLogo size={34} />
@@ -589,7 +589,8 @@ function AppShell() {
       </aside>
 
       {/* Mobile Top Header */}
-      <header className="md:hidden sticky top-0 z-30 h-13 px-4 flex items-center justify-between gap-2 bg-white/95 dark:bg-[var(--dark-surface-95)] backdrop-blur-md border-b border-[#DDE4EA] dark:border-[var(--dark-border)]">
+      <header className="md:hidden sticky top-0 z-30 pt-[env(safe-area-inset-top)] bg-white/95 dark:bg-[var(--dark-surface-95)] backdrop-blur-md border-b border-[#DDE4EA] dark:border-[var(--dark-border)]">
+        <div className="h-14 px-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <BrandLogo size={30} />
           <div className="min-w-0">
@@ -653,10 +654,11 @@ function AppShell() {
             )}
           </button>
         </div>
+        </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 pb-24 md:pb-8">
+      <main className="flex-1 min-w-0 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:pb-8">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7">
           {isGuest && (
             <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
@@ -743,41 +745,45 @@ function AppShell() {
       {/* Mobile Bottom Tab Bar */}
       <nav
         aria-label="Mobile navigation"
-        className={`md:hidden fixed bottom-0 left-0 right-0 z-40 h-16 bg-white/95 dark:bg-[var(--dark-surface-95)] backdrop-blur-md border-t border-[#DDE4EA] dark:border-[var(--dark-border)] grid items-center px-1 ${
-          visibleTabs.length === 6 ? 'grid-cols-6' : 'grid-cols-5'
-        }`}
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[var(--dark-surface-95)] backdrop-blur-md border-t border-[#DDE4EA] dark:border-[var(--dark-border)] pb-[env(safe-area-inset-bottom)]"
       >
-        {visibleTabs.map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => handleSwitchTab(tab.key)}
-              className={`relative min-h-[44px] flex flex-col items-center justify-center gap-0.5 rounded-xl transition-colors ${
-                active ? 'text-[#FF6A00]' : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-              }`}
-            >
-              {active && (
-                <motion.span
-                  layoutId="mobile-nav-top-bar"
-                  transition={
-                    prefersReducedMotion
-                      ? { duration: 0.08 }
-                      : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
-                  }
-                  aria-hidden="true"
-                  className="absolute top-0 left-3 right-3 h-0.5 rounded-full bg-[#FF6A00]"
-                />
-              )}
-              <Icon size={19} />
-              <span className="text-[10px] font-semibold leading-none whitespace-nowrap">
-                {tab.label}
-              </span>
-            </button>
-          );
-        })}
+        <div
+          className={`h-16 grid items-center px-1 ${
+            visibleTabs.length === 6 ? 'grid-cols-6' : 'grid-cols-5'
+          }`}
+        >
+          {visibleTabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => handleSwitchTab(tab.key)}
+                className={`relative h-14 flex flex-col items-center justify-center gap-1 rounded-xl transition-colors ${
+                  active ? 'text-[#FF6A00]' : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="mobile-nav-top-bar"
+                    transition={
+                      prefersReducedMotion
+                        ? { duration: 0.08 }
+                        : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
+                    }
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-0 left-3 right-3 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00] z-0"
+                  />
+                )}
+                <Icon size={19} className="relative z-10" />
+                <span className="relative z-10 text-[10px] font-semibold leading-none whitespace-nowrap">
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {/* Modals */}
@@ -867,7 +873,7 @@ function AppShell() {
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.96 }}
             transition={{ duration: 0.16 }}
-            className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
+            className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
           >
             <div className="inline-flex items-center gap-2 rounded-full bg-white/95 dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md backdrop-blur-md">
               <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />

@@ -13,6 +13,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { hasNativeGoogleAuth, isNativeCapacitor } from '@/src/lib/capacitor';
 import { useCalls } from '@/src/store/CallsContext';
 
 type AuthFormMode = 'signin' | 'signup';
@@ -39,6 +40,8 @@ export function AuthForm({
   } = useCalls();
 
   const prefersReducedMotion = useReducedMotion();
+  const isNative = isNativeCapacitor();
+  const showGoogleButton = !isNative || hasNativeGoogleAuth();
   const [mode, setMode] = useState<AuthFormMode>(initialMode);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -48,7 +51,9 @@ export function AuthForm({
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [busy, setBusy] = useState<'google' | 'email' | 'reset' | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formInfo, setFormInfo] = useState<string | null>(null);
 
@@ -56,17 +61,41 @@ export function AuthForm({
     setMode(initialMode);
     setFormError(null);
     setFormInfo(null);
+    setGoogleBusy(false);
   }, [initialMode]);
+
+  // Recover automatically if an OAuth popup fails to resolve after returning to the app
+  useEffect(() => {
+    if (!googleBusy) return;
+    let recoveryTimer: number | null = null;
+    const scheduleReset = () => {
+      if (recoveryTimer) window.clearTimeout(recoveryTimer);
+      recoveryTimer = window.setTimeout(() => {
+        setGoogleBusy(false);
+      }, 2500);
+    };
+    const onFocus = () => scheduleReset();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') scheduleReset();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      if (recoveryTimer) window.clearTimeout(recoveryTimer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [googleBusy]);
 
   const handleGoogle = async () => {
     setFormError(null);
     setFormInfo(null);
-    setBusy('google');
+    setGoogleBusy(true);
     try {
       const res = await signInWithGoogle();
       if (!res.ok && res.error) setFormError(res.error);
     } finally {
-      setBusy(null);
+      setGoogleBusy(false);
     }
   };
 
@@ -74,7 +103,8 @@ export function AuthForm({
     e.preventDefault();
     setFormError(null);
     setFormInfo(null);
-    setBusy('email');
+    setGoogleBusy(false);
+    setEmailBusy(true);
     try {
       if (mode === 'signin') {
         const res = await signInWithEmail(email, password);
@@ -91,14 +121,14 @@ export function AuthForm({
         if (!res.ok && res.error) setFormError(res.error);
       }
     } finally {
-      setBusy(null);
+      setEmailBusy(false);
     }
   };
 
   const handleForgotPassword = async () => {
     setFormError(null);
     setFormInfo(null);
-    setBusy('reset');
+    setResetBusy(true);
     try {
       const res = await sendPasswordReset(email);
       if (!res.ok && res.error) {
@@ -107,7 +137,7 @@ export function AuthForm({
         setFormInfo(`Password reset link sent to ${email.trim()}. Check your inbox.`);
       }
     } finally {
-      setBusy(null);
+      setResetBusy(false);
     }
   };
 
@@ -145,22 +175,26 @@ export function AuthForm({
         </div>
       )}
 
-      {/* Primary Option 1: Google Login */}
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => void handleGoogle()}
-        className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-sm font-semibold text-white flex items-center justify-center gap-2 transition-colors"
-      >
-        <LogIn size={17} />
-        {busy === 'google' ? 'Connecting Google...' : 'Continue with Google'}
-      </button>
+      {/* Primary Option 1: Google Login (hidden in Android APK unless native Google Auth plugin is installed) */}
+      {showGoogleButton && (
+        <>
+          <button
+            type="button"
+            disabled={googleBusy || emailBusy}
+            onClick={() => void handleGoogle()}
+            className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-sm font-semibold text-white flex items-center justify-center gap-2 transition-colors"
+          >
+            <LogIn size={17} />
+            {googleBusy ? 'Connecting Google...' : 'Continue with Google'}
+          </button>
 
-      <div className="flex items-center gap-3 text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-        <span className="h-px flex-1 bg-[#DDE4EA] dark:bg-[var(--dark-border)]" />
-        <span>or use email</span>
-        <span className="h-px flex-1 bg-[#DDE4EA] dark:bg-[var(--dark-border)]" />
-      </div>
+          <div className="flex items-center gap-3 text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+            <span className="h-px flex-1 bg-[#DDE4EA] dark:bg-[var(--dark-border)]" />
+            <span>or use email</span>
+            <span className="h-px flex-1 bg-[#DDE4EA] dark:bg-[var(--dark-border)]" />
+          </div>
+        </>
+      )}
 
       {/* Mode Switcher: Email Login vs Create Account */}
       <div
@@ -176,6 +210,7 @@ export function AuthForm({
             setMode('signin');
             setFormError(null);
             setFormInfo(null);
+            setGoogleBusy(false);
           }}
           className={`relative min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
             mode === 'signin'
@@ -206,6 +241,7 @@ export function AuthForm({
             setMode('signup');
             setFormError(null);
             setFormInfo(null);
+            setGoogleBusy(false);
           }}
           className={`relative min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
             mode === 'signup'
@@ -293,11 +329,11 @@ export function AuthForm({
             {mode === 'signin' && (
               <button
                 type="button"
-                disabled={busy !== null}
+                disabled={resetBusy || emailBusy}
                 onClick={() => void handleForgotPassword()}
                 className="text-[11px] font-semibold text-[#FF6A00] hover:underline disabled:opacity-50"
               >
-                {busy === 'reset' ? 'Sending...' : 'Forgot password?'}
+                {resetBusy ? 'Sending...' : 'Forgot password?'}
               </button>
             )}
           </div>
@@ -411,11 +447,11 @@ export function AuthForm({
 
         <button
           type="submit"
-          disabled={busy !== null}
-          className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-[#08246B] hover:bg-[#0D328E] dark:bg-[#EEF2F6] dark:hover:bg-white dark:text-[#08246B] text-white disabled:opacity-50 text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+          disabled={emailBusy}
+          className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white disabled:opacity-50 text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
         >
           {mode === 'signin' ? <LogIn size={16} /> : <UserPlus size={16} />}
-          {busy === 'email'
+          {emailBusy
             ? mode === 'signin'
               ? 'Signing in...'
               : 'Creating account...'
@@ -431,7 +467,7 @@ export function AuthForm({
         <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2">
           <button
             type="button"
-            disabled={busy !== null}
+            disabled={emailBusy}
             onClick={enterGuestMode}
             className="w-full min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-2 transition-colors"
           >

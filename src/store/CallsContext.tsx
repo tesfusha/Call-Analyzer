@@ -10,10 +10,12 @@ import {
 import type { ReactNode } from 'react';
 import type { User } from 'firebase/auth';
 import {
+  GoogleAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -33,6 +35,15 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
+import {
+  fetchNativeRecentCalls,
+  hasNativeCallLogPlugin,
+  hasNativeGoogleAuth,
+  isNativeCapacitor,
+  runNativeGoogleSignIn,
+  subscribeNativeCallLog,
+  syncNativeStatusBar,
+} from '@/src/lib/capacitor';
 import {
   buildSampleContactProfiles,
   decodeIfQuotedPrintableText,
@@ -721,6 +732,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     root.classList.toggle('dark-gray', theme === 'dark-gray');
     root.style.colorScheme = isDark ? 'dark' : 'light';
 
+    const activeColor =
+      theme === 'light' ? '#FFFFFF' : theme === 'dark-gray' ? '#2B2E34' : '#08246B';
+    void syncNativeStatusBar(isDark, activeColor);
+
     const metas = document.querySelectorAll('meta[name="theme-color"]');
     if (themePreference === 'system') {
       const darkColor = preferredDarkVariant === 'dark' ? '#08246B' : '#2B2E34';
@@ -736,8 +751,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       });
       removeStorageKey(THEME_KEY);
     } else {
-      const activeColor =
-        theme === 'light' ? '#FFFFFF' : theme === 'dark-gray' ? '#2B2E34' : '#08246B';
       metas.forEach((meta) => {
         meta.setAttribute('content', activeColor);
       });
@@ -1710,6 +1723,31 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async (): Promise<AuthActionResult> => {
     try {
+      if (isNativeCapacitor()) {
+        if (!hasNativeGoogleAuth()) {
+          const msg =
+            'Google Sign-In is not enabled in this Android APK yet. Use Email Login or Create Account below.';
+          showNotice(msg);
+          return { ok: false, error: msg };
+        }
+        const nativeCred = await runNativeGoogleSignIn();
+        if (!nativeCred.idToken && !nativeCred.accessToken) {
+          const msg = 'Google Sign-In was cancelled.';
+          showNotice(msg);
+          return { ok: false, error: msg };
+        }
+        const credential = GoogleAuthProvider.credential(
+          nativeCred.idToken,
+          nativeCred.accessToken,
+        );
+        const res = await signInWithCredential(auth, credential);
+        setIsGuest(false);
+        setAuthPromptMode('closed');
+        setAuthPromptReason(null);
+        showNotice(`Signed in as ${res.user.displayName || res.user.email || 'Google user'}.`);
+        return { ok: true };
+      }
+
       const res = await signInWithPopup(auth, googleProvider);
       setIsGuest(false);
       setAuthPromptMode('closed');
@@ -1729,11 +1767,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
       if (code === 'auth/unauthorized-domain') {
         const msg =
-          'This preview domain is not authorized for Google Sign-In. Open the shared app URL or add the domain in Firebase Auth.';
+          'This domain is not authorized for Google Sign-In. Add it in Firebase Auth or sign in with Email below.';
         showNotice(msg);
         return { ok: false, error: msg };
       }
-      const msg = 'Could not complete Google Sign-In. Please try again.';
+      const msg = 'Could not complete Google Sign-In. Please try Email Login below.';
       showNotice(msg);
       return { ok: false, error: msg };
     }
@@ -2103,6 +2141,56 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     },
     [commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
   );
+
+  // Auto-sync real-time Android call logs when running inside Capacitor with CallLogPlugin installed
+  useEffect(() => {
+    if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
+    if (!isNativeCapacitor() || !hasNativeCallLogPlugin()) return;
+
+    let cancelled = false;
+    let syncing = false;
+    let unsubNative: (() => void) | null = null;
+    const syncKey = `callanalyzer.u.${authUser.uid}.nativeLastCallSync`;
+
+    const pullNativeCalls = async () => {
+      if (cancelled || syncing) return;
+      syncing = true;
+      try {
+        const lastSince = readJson<number>(syncKey, 0);
+        const fetched = await fetchNativeRecentCalls(lastSince);
+        if (cancelled || fetched.length === 0) return;
+        const maxTs = fetched.reduce((acc, item) => Math.max(acc, item.timestamp), lastSince);
+        const counts = importCalls(fetched);
+        writeJson(syncKey, maxTs);
+        if (counts.added > 0) {
+          showNotice(
+            `Synced ${counts.added} new call${counts.added === 1 ? '' : 's'} from phone.`,
+            'success',
+          );
+        }
+      } catch {
+        // permission denied or native plugin unavailable — stay silent
+      } finally {
+        syncing = false;
+      }
+    };
+
+    void pullNativeCalls();
+    void subscribeNativeCallLog(() => {
+      void pullNativeCalls();
+    }).then((cleanup) => {
+      if (cancelled) {
+        cleanup();
+      } else {
+        unsubNative = cleanup;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubNative?.();
+    };
+  }, [authUser, hydratedUid, importCalls, showNotice]);
 
   const importContactProfiles = useCallback(
     (incoming: ContactProfile[]): { added: number; updated: number } => {

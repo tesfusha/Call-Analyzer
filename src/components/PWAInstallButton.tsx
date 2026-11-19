@@ -238,7 +238,7 @@ export function OfflineIndicator() {
   if (isOnline) return null;
 
   return (
-    <div className="fixed bottom-20 md:bottom-6 left-4 z-40 flex items-center gap-2 rounded-xl bg-[#2B2E34] dark:bg-[var(--dark-surface)] border border-[#FF6A00] px-3 py-2 text-xs font-semibold text-white shadow-lg">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6 left-4 z-40 flex items-center gap-2 rounded-xl bg-[#2B2E34] dark:bg-[var(--dark-surface)] border border-[#FF6A00] px-3 py-2 text-xs font-semibold text-white shadow-lg">
       <WifiOff size={14} className="text-[#FF6A00]" />
       <span>Offline Mode — Local data active</span>
     </div>
