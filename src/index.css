@@ -21,17 +21,17 @@
 }
 
 .dark-gray {
-  --dark-canvas: #1E2024;
-  --dark-surface: #2B2E34;
-  --dark-surface-95: rgba(43, 46, 52, 0.95);
-  --dark-elevated: #3A3E46;
-  --dark-elevated-60: rgba(58, 62, 70, 0.6);
-  --dark-elevated-70: rgba(58, 62, 70, 0.7);
-  --dark-border: rgba(169, 169, 169, 0.35);
-  --dark-border-70: rgba(169, 169, 169, 0.25);
-  --dark-border-strong: #A9A9A9;
-  --dark-text-secondary: #A9A9A9;
-  --dark-text-muted: #A9A9A9;
+  --dark-canvas: #111214;
+  --dark-surface: #1B1C20;
+  --dark-surface-95: rgba(17, 18, 20, 0.96);
+  --dark-elevated: #25272C;
+  --dark-elevated-60: rgba(37, 39, 44, 0.65);
+  --dark-elevated-70: rgba(37, 39, 44, 0.78);
+  --dark-border: rgba(255, 255, 255, 0.09);
+  --dark-border-70: rgba(255, 255, 255, 0.06);
+  --dark-border-strong: rgba(255, 255, 255, 0.2);
+  --dark-text-secondary: #9CA3AF;
+  --dark-text-muted: #717680;
 }
 
 @layer base {

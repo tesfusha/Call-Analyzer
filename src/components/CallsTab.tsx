@@ -18,6 +18,7 @@ import {
   PhoneOutgoing,
   Play,
   Plus,
+  RefreshCw,
   Search,
   ShieldAlert,
   Sparkles,
@@ -127,6 +128,8 @@ export const CallsTab = memo(function CallsTab({
     toggleFavorite,
     importCalls,
     loadSampleData,
+    canSyncPhoneCalls,
+    syncPhoneCalls,
     addQuickCall,
     scheduleCall,
     completeScheduledCall,
@@ -159,6 +162,7 @@ export const CallsTab = memo(function CallsTab({
   const [ussdInitialCategory, setUssdInitialCategory] = useState<UssdCategory>('all');
   const [budgetAlertDismissed, setBudgetAlertDismissed] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [syncingPhone, setSyncingPhone] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(quickActionsOpen);
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
@@ -569,7 +573,24 @@ export const CallsTab = memo(function CallsTab({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {canSyncPhoneCalls && (
+              <button
+                type="button"
+                disabled={syncingPhone}
+                onClick={() => {
+                  setSyncingPhone(true);
+                  void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
+                }}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <RefreshCw
+                  size={15}
+                  className={syncingPhone ? 'animate-spin text-[#FF6A00]' : 'text-[#FF6A00]'}
+                />
+                {syncingPhone ? 'Syncing...' : 'Sync Phone'}
+              </button>
+            )}
             <button
               type="button"
               onClick={triggerCallImport}

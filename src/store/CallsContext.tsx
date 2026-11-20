@@ -275,6 +275,8 @@ type CallsContextValue = {
   sendPasswordReset: (email: string) => Promise<AuthActionResult>;
   signOutAccount: () => Promise<void>;
   syncNow: () => Promise<void>;
+  canSyncPhoneCalls: boolean;
+  syncPhoneCalls: (options?: { fullResync?: boolean }) => Promise<void>;
   fetchRegisteredUsers: () => Promise<RegisteredUserRecord[]>;
   setAppPin: (pin: string) => Promise<void>;
   clearAppPin: () => void;
@@ -736,12 +738,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     root.style.colorScheme = isDark ? 'dark' : 'light';
 
     const activeColor =
-      theme === 'light' ? '#FFFFFF' : theme === 'dark-gray' ? '#2B2E34' : '#08246B';
+      theme === 'light' ? '#FFFFFF' : theme === 'dark-gray' ? '#111214' : '#08246B';
     void syncNativeStatusBar(isDark, activeColor);
 
     const metas = document.querySelectorAll('meta[name="theme-color"]');
     if (themePreference === 'system') {
-      const darkColor = preferredDarkVariant === 'dark' ? '#08246B' : '#2B2E34';
+      const darkColor = preferredDarkVariant === 'dark' ? '#08246B' : '#111214';
       metas.forEach((meta) => {
         const media = meta.getAttribute('media') || '';
         if (media.includes('light')) {
@@ -1735,7 +1737,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         }
         const nativeCred = await runNativeGoogleSignIn();
         if (!nativeCred.idToken && !nativeCred.accessToken) {
-          const msg = 'Google Sign-In was cancelled.';
+          const msg =
+            'Google Sign-In returned no ID token. Confirm google-services.json includes Web OAuth Client (client_type: 3) and try again.';
           showNotice(msg);
           return { ok: false, error: msg };
         }
@@ -1798,7 +1801,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         showNotice(msg);
         return { ok: false, error: msg };
       }
-      const msg = 'Could not complete Google Sign-In. Please try Email Login below.';
+      const detail =
+        isNativeCapacitor() && rawMsg
+          ? ` (${rawMsg.slice(0, 120)})`
+          : code
+            ? ` (${String(code)})`
+            : '';
+      const msg = `Could not complete Google Sign-In${detail}. Please try Email Login below.`;
       showNotice(msg);
       return { ok: false, error: msg };
     }
@@ -2170,55 +2179,95 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
   );
 
+  const canSyncPhoneCalls = isNativeCapacitor() && hasNativeCallLogPlugin();
+  const nativeSyncingRef = useRef(false);
+
+  const runPhoneCallSync = useCallback(
+    async ({ fullResync = false, manual = false }: { fullResync?: boolean; manual?: boolean } = {}) => {
+      const user = requireSignedInUser(
+        'Login and verify your email to sync real call logs from your phone.',
+      );
+      if (!user) return;
+      if (!isNativeCapacitor() || !hasNativeCallLogPlugin()) {
+        if (manual) {
+          showNotice('Phone call-log sync is only available inside the Android APK.', 'warning');
+        }
+        return;
+      }
+      if (nativeSyncingRef.current) return;
+      nativeSyncingRef.current = true;
+      const syncKey = `callanalyzer.u.${user.uid}.nativeLastCallSync`;
+
+      try {
+        const lastSince = fullResync ? 0 : readJson<number>(syncKey, 0);
+        const fetched = await fetchNativeRecentCalls(lastSince);
+        if (fetched.length === 0) {
+          if (manual) {
+            showNotice(
+              'No calls returned from phone. Check Call Log permission in Android App Info.',
+              'warning',
+            );
+          }
+          return;
+        }
+        const maxTs = fetched.reduce((acc, item) => Math.max(acc, item.timestamp), lastSince);
+        const counts = importCalls(fetched);
+        writeJson(syncKey, maxTs);
+        if (counts.added > 0) {
+          showNotice(
+            `Synced ${counts.added} call${counts.added === 1 ? '' : 's'} from your phone.`,
+            'success',
+          );
+        } else if (manual) {
+          showNotice(`Phone call logs up to date (${fetched.length} checked).`, 'tap');
+        }
+      } catch (err) {
+        const rawMsg = err instanceof Error ? err.message : String(err || 'Permission denied');
+        showNotice(`Phone call sync failed: ${rawMsg}`, 'warning');
+      } finally {
+        nativeSyncingRef.current = false;
+      }
+    },
+    [importCalls, requireSignedInUser, showNotice],
+  );
+
+  const syncPhoneCalls = useCallback(
+    async (options?: { fullResync?: boolean }) => {
+      await runPhoneCallSync({ fullResync: options?.fullResync ?? true, manual: true });
+    },
+    [runPhoneCallSync],
+  );
+
   // Auto-sync real-time Android call logs when running inside Capacitor with CallLogPlugin installed
   useEffect(() => {
     if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
     if (!isNativeCapacitor() || !hasNativeCallLogPlugin()) return;
 
     let cancelled = false;
-    let syncing = false;
     let unsubNative: (() => void) | null = null;
-    const syncKey = `callanalyzer.u.${authUser.uid}.nativeLastCallSync`;
 
-    const pullNativeCalls = async () => {
-      if (cancelled || syncing) return;
-      syncing = true;
-      try {
-        const lastSince = readJson<number>(syncKey, 0);
-        const fetched = await fetchNativeRecentCalls(lastSince);
-        if (cancelled || fetched.length === 0) return;
-        const maxTs = fetched.reduce((acc, item) => Math.max(acc, item.timestamp), lastSince);
-        const counts = importCalls(fetched);
-        writeJson(syncKey, maxTs);
-        if (counts.added > 0) {
-          showNotice(
-            `Synced ${counts.added} new call${counts.added === 1 ? '' : 's'} from phone.`,
-            'success',
-          );
+    const startSyncAndWatch = async () => {
+      await runPhoneCallSync({ fullResync: false, manual: false });
+      if (cancelled) return;
+      const cleanup = await subscribeNativeCallLog(() => {
+        if (!cancelled) {
+          void runPhoneCallSync({ fullResync: false, manual: false });
         }
-      } catch {
-        // permission denied or native plugin unavailable — stay silent
-      } finally {
-        syncing = false;
-      }
-    };
-
-    void pullNativeCalls();
-    void subscribeNativeCallLog(() => {
-      void pullNativeCalls();
-    }).then((cleanup) => {
+      });
       if (cancelled) {
         cleanup();
       } else {
         unsubNative = cleanup;
       }
-    });
+    };
+
+    void startSyncAndWatch();
 
     return () => {
       cancelled = true;
       unsubNative?.();
     };
-  }, [authUser, hydratedUid, importCalls, showNotice]);
+  }, [authUser, hydratedUid, runPhoneCallSync]);
 
   const importContactProfiles = useCallback(
     (incoming: ContactProfile[]): { added: number; updated: number } => {
@@ -3049,6 +3098,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       sendPasswordReset,
       signOutAccount,
       syncNow,
+      canSyncPhoneCalls,
+      syncPhoneCalls,
       fetchRegisteredUsers,
       setAppPin,
       clearAppPin,
@@ -3130,6 +3181,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       sendPasswordReset,
       signOutAccount,
       syncNow,
+      canSyncPhoneCalls,
+      syncPhoneCalls,
       fetchRegisteredUsers,
       setAppPin,
       clearAppPin,

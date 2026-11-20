@@ -589,7 +589,11 @@ function AppShell() {
       </aside>
 
       {/* Mobile Top Header */}
-      <header className="md:hidden sticky top-0 z-30 pt-[env(safe-area-inset-top)] bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)]">
+      <header
+        className={`md:hidden sticky top-0 z-30 pt-[env(safe-area-inset-top)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] ${
+          theme === 'dark-gray' ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
+        }`}
+      >
         <div className="h-14 px-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <BrandLogo size={30} />
@@ -745,7 +749,9 @@ function AppShell() {
       {/* Mobile Bottom Tab Bar */}
       <nav
         aria-label="Mobile navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[var(--dark-surface)] border-t border-[#DDE4EA] dark:border-[var(--dark-border)] pb-[env(safe-area-inset-bottom)]"
+        className={`md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] pb-[env(safe-area-inset-bottom)] ${
+          theme === 'dark-gray' ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
+        }`}
       >
         <div
           className={`h-16 grid items-center px-1 ${

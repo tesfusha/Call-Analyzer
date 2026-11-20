@@ -478,7 +478,7 @@ export function SettingsTab({
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">Appearance</h2>
             <div className="flex items-center gap-1.5" aria-label="Brand and theme colors">
-              <span className="w-4 h-4 rounded-full bg-[#A9A9A9] border border-[#DDE4EA] dark:border-white/30" title="Dark Gray #A9A9A9" />
+              <span className="w-4 h-4 rounded-full bg-[#111214] border border-[#DDE4EA] dark:border-white/30" title="System Dark #111214" />
               <span className="w-4 h-4 rounded-full bg-[#08246B] border border-[#DDE4EA] dark:border-white/30" title="Navy #08246B" />
               <span className="w-4 h-4 rounded-full bg-[#FF6A00]" title="Orange #FF6A00" />
               <span className="w-4 h-4 rounded-full bg-white border border-[#DDE4EA]" title="White #FFFFFF" />
@@ -492,7 +492,7 @@ export function SettingsTab({
                 Call Analyzer - ETH
               </p>
               <p className="text-xs font-mono text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
-                #A9A9A9 · #08246B · #FF6A00 · #FFFFFF
+                #111214 · #08246B · #FF6A00 · #FFFFFF
               </p>
             </div>
           </div>
@@ -502,9 +502,9 @@ export function SettingsTab({
             onToggle={toggleTheme}
             label={
               themePreference === 'system'
-                ? `Auto · ${systemIsDark ? (preferredDarkVariant === 'dark' ? 'Dark Navy' : 'Dark Gray') : 'Bright'}`
+                ? `Auto · ${systemIsDark ? (preferredDarkVariant === 'dark' ? 'Dark Navy' : 'OLED Dark') : 'Bright'}`
                 : theme === 'dark-gray'
-                  ? 'Dark Gray (#A9A9A9) Active'
+                  ? 'OLED Dark Active'
                   : theme === 'dark'
                     ? 'Dark Navy Active'
                     : 'Bright Mode Active'
@@ -527,7 +527,7 @@ export function SettingsTab({
                 [
                   { key: 'system', label: 'Auto' },
                   { key: 'light', label: 'Bright' },
-                  { key: 'dark-gray', label: 'Dark Gray' },
+                  { key: 'dark-gray', label: 'OLED Dark' },
                   { key: 'dark', label: 'Dark Navy' },
                 ] as const
               ).map((opt) => (
@@ -537,9 +537,7 @@ export function SettingsTab({
                   onClick={() => setThemeMode(opt.key)}
                   className={`min-h-[38px] px-1.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-colors ${
                     themePreference === opt.key
-                      ? opt.key === 'dark-gray'
-                        ? 'bg-[#A9A9A9] text-[#1E2024]'
-                        : 'bg-[#FF6A00] text-white'
+                      ? 'bg-[#FF6A00] text-white'
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
                   }`}
                 >
@@ -556,7 +554,7 @@ export function SettingsTab({
                 <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
                   {(
                     [
-                      { key: 'dark-gray', label: 'Dark Gray' },
+                      { key: 'dark-gray', label: 'OLED Dark' },
                       { key: 'dark', label: 'Dark Navy' },
                     ] as const
                   ).map((variant) => (
@@ -566,9 +564,7 @@ export function SettingsTab({
                       onClick={() => setPreferredDarkVariant(variant.key)}
                       className={`min-h-[30px] px-2.5 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap transition-colors ${
                         preferredDarkVariant === variant.key
-                          ? variant.key === 'dark-gray'
-                            ? 'bg-[#A9A9A9] text-[#1E2024]'
-                            : 'bg-[#FF6A00] text-white'
+                          ? 'bg-[#FF6A00] text-white'
                           : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
                       }`}
                     >
