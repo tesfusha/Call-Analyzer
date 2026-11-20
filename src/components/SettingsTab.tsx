@@ -22,6 +22,7 @@ import {
   Signal,
   Smartphone,
   Trash2,
+  Type,
   Upload,
   User,
   UserPlus,
@@ -30,7 +31,6 @@ import { BrandLogo } from '@/src/components/BrandLogo';
 import { CategoryPanel, CategoryTabs } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
-import { PWAInstallButton } from '@/src/components/PWAInstallButton';
 import {
   APP_FEATURES,
   APP_NAME,
@@ -71,7 +71,7 @@ const SETTINGS_CATEGORIES: Array<{
     key: 'profile',
     label: 'General',
     heading: 'General, Appearance & About',
-    description: 'Account sync, theme style, app install, version & features',
+    description: 'Account sync, theme, font size, version & features',
     icon: User,
   },
   {
@@ -85,7 +85,7 @@ const SETTINGS_CATEGORIES: Array<{
     key: 'sim',
     label: 'SIMs',
     heading: 'SIM Labels, Tariffs & Monthly Budget',
-    description: 'Ethio Telecom & Safaricom presets, rates, and monthly budget',
+    description: 'ETC & SFC presets, rates, and monthly budget',
     icon: Signal,
   },
   {
@@ -125,14 +125,15 @@ export function SettingsTab({
     theme,
     themePreference,
     systemIsDark,
-    preferredDarkVariant,
     setThemeMode,
-    setPreferredDarkVariant,
     toggleTheme,
-    profileName,
-    setProfileName,
+    fontSizeScale,
+    setFontSizeScale,
     notificationsEnabled,
     setNotificationsEnabled,
+    notificationPermission,
+    requestAlertPermissions,
+    sendTestAlertNotification,
     privacyMode,
     togglePrivacyMode,
     pinEnabled,
@@ -158,7 +159,6 @@ export function SettingsTab({
     showNotice,
   } = useCalls();
 
-  const [draftName, setDraftName] = useState(profileName);
   const [sim1Label, setSim1Label] = useState(simLabels.sim1Label);
   const [sim2Label, setSim2Label] = useState(simLabels.sim2Label);
   const [sim1Rate, setSim1Rate] = useState(String(tariffs.sim1RatePerMin));
@@ -176,10 +176,6 @@ export function SettingsTab({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contactsFileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setDraftName(profileName);
-  }, [profileName]);
 
   useEffect(() => {
     setSim1Label(simLabels.sim1Label);
@@ -275,23 +271,19 @@ export function SettingsTab({
     );
   };
 
-  const handleBrowserNotifySetup = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      showNotice('Browser notifications are unavailable here; in-app reminders stay active.');
+  const handleAlertSetup = async () => {
+    if (notificationPermission === 'granted') {
+      await sendTestAlertNotification(
+        'Callback, birthday, and Ethiopian holiday alerts are active.',
+      );
       return;
     }
-    let perm = Notification.permission;
-    if (perm === 'default') {
-      perm = await Notification.requestPermission();
-    }
-    if (perm === 'granted') {
+    const nextPermission = await requestAlertPermissions();
+    if (nextPermission === 'granted') {
       setNotificationsEnabled(true);
-      new Notification('Call Analyzer - ETH', {
-        body: 'Callback, birthday, and Ethiopian holiday alerts are active.',
-      });
-      showNotice('Browser alerts enabled and test sent.');
-    } else {
-      showNotice('Browser notification permission is blocked in browser settings.');
+      await sendTestAlertNotification(
+        'Callback, birthday, and Ethiopian holiday alerts are active.',
+      );
     }
   };
 
@@ -311,10 +303,7 @@ export function SettingsTab({
 
   const contactCount = Object.keys(contacts).length;
   const birthdayCount = Object.values(contacts).filter((c) => c.birthday !== null).length;
-  const browserNotifyPermission =
-    typeof window !== 'undefined' && 'Notification' in window
-      ? Notification.permission
-      : 'unsupported';
+  const isDark = theme === 'dark-gray';
 
   const activeMeta =
     SETTINGS_CATEGORIES.find((cat) => cat.key === activeCategory) ?? SETTINGS_CATEGORIES[0];
@@ -472,13 +461,13 @@ export function SettingsTab({
         </div>
       </div>
 
-      {/* Appearance & Display Name */}
+      {/* Appearance & Font Size */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">Appearance</h2>
             <div className="flex items-center gap-1.5" aria-label="Brand and theme colors">
-              <span className="w-4 h-4 rounded-full bg-[#111214] border border-[#DDE4EA] dark:border-white/30" title="System Dark #111214" />
+              <span className="w-4 h-4 rounded-full bg-[#111214] border border-[#DDE4EA] dark:border-white/30" title="Dark #111214" />
               <span className="w-4 h-4 rounded-full bg-[#08246B] border border-[#DDE4EA] dark:border-white/30" title="Navy #08246B" />
               <span className="w-4 h-4 rounded-full bg-[#FF6A00]" title="Orange #FF6A00" />
               <span className="w-4 h-4 rounded-full bg-white border border-[#DDE4EA]" title="White #FFFFFF" />
@@ -498,16 +487,16 @@ export function SettingsTab({
           </div>
 
           <DarkModeToggle
-            isDark={theme === 'dark' || theme === 'dark-gray'}
+            isDark={isDark}
             onToggle={toggleTheme}
             label={
               themePreference === 'system'
-                ? `Auto · ${systemIsDark ? (preferredDarkVariant === 'dark' ? 'Dark Navy' : 'OLED Dark') : 'Bright'}`
-                : theme === 'dark-gray'
-                  ? 'OLED Dark Active'
-                  : theme === 'dark'
-                    ? 'Dark Navy Active'
-                    : 'Bright Mode Active'
+                ? systemIsDark
+                  ? 'Auto · Dark'
+                  : 'Auto · Bright'
+                : isDark
+                  ? 'Dark Active'
+                  : 'Bright Active'
             }
           />
 
@@ -518,24 +507,23 @@ export function SettingsTab({
               </span>
               {themePreference === 'system' && (
                 <span className="text-[11px] font-medium text-[#FF6A00]">
-                  Following device ({systemIsDark ? 'Dark' : 'Light'})
+                  Following device ({systemIsDark ? 'Dark' : 'Bright'})
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-4 items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
+            <div className="grid grid-cols-3 items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
               {(
                 [
                   { key: 'system', label: 'Auto' },
                   { key: 'light', label: 'Bright' },
-                  { key: 'dark-gray', label: 'OLED Dark' },
-                  { key: 'dark', label: 'Dark Navy' },
+                  { key: 'dark-gray', label: 'Dark' },
                 ] as const
               ).map((opt) => (
                 <button
                   key={opt.key}
                   type="button"
                   onClick={() => setThemeMode(opt.key)}
-                  className={`min-h-[38px] px-1.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-colors ${
+                  className={`min-h-[38px] px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
                     themePreference === opt.key
                       ? 'bg-[#FF6A00] text-white'
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
@@ -545,35 +533,6 @@ export function SettingsTab({
                 </button>
               ))}
             </div>
-
-            {themePreference === 'system' && (
-              <div className="flex items-center justify-between gap-2 pt-0.5">
-                <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Dark mode palette
-                </span>
-                <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                  {(
-                    [
-                      { key: 'dark-gray', label: 'OLED Dark' },
-                      { key: 'dark', label: 'Dark Navy' },
-                    ] as const
-                  ).map((variant) => (
-                    <button
-                      key={variant.key}
-                      type="button"
-                      onClick={() => setPreferredDarkVariant(variant.key)}
-                      className={`min-h-[30px] px-2.5 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                        preferredDarkVariant === variant.key
-                          ? 'bg-[#FF6A00] text-white'
-                          : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                      }`}
-                    >
-                      {variant.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3">
@@ -582,7 +541,7 @@ export function SettingsTab({
                 Vibration Feedback
               </p>
               <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Subtle haptic pulse when logging calls, toggling, or saving changes
+                Subtle haptic pulse when toggling, syncing, or saving changes
               </p>
             </div>
             <button
@@ -611,32 +570,73 @@ export function SettingsTab({
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">Display Name</h2>
-          <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-            Used for personalized greeting and synced across devices when signed in
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
-              placeholder="Your name (optional)"
-              className="flex-1 min-w-0 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-            />
-            <button
-              type="button"
-              onClick={() => setProfileName(draftName)}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap shrink-0 transition-colors"
-            >
-              Save
-            </button>
+        <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+              <Type size={18} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
+                Font Size
+              </h2>
+              <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Adjust reading size across lists, stats, and dialogs
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
+            {(
+              [
+                { key: 'default', label: 'Default', hint: 'Standard' },
+                { key: 'large', label: 'Larger', hint: 'Medium+' },
+                { key: 'xlarge', label: 'Biggest', hint: 'Large' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setFontSizeScale(opt.key);
+                }}
+                className={`min-h-[46px] px-2 py-1.5 rounded-lg text-center transition-colors ${
+                  fontSizeScale === opt.key
+                    ? 'bg-[#FF6A00] text-white'
+                    : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
+                }`}
+              >
+                <span className="block text-xs font-semibold whitespace-nowrap">
+                  {opt.label}
+                </span>
+                <span
+                  className={`block text-[10px] whitespace-nowrap ${
+                    fontSizeScale === opt.key
+                      ? 'text-white/85'
+                      : 'text-[#8A93A0] dark:text-[var(--dark-text-muted)]'
+                  }`}
+                >
+                  {opt.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                Abebe Kebede · ETC
+              </span>
+              <span className="text-xs font-mono tabular-nums text-[#FF6A00] shrink-0">
+                12m 40s
+              </span>
+            </div>
+            <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              Preview text &amp; Ethiopian dates scale smoothly while keeping icons crisp.
+            </p>
           </div>
         </div>
       </div>
-
-      {/* Install App on Phone (PWA) */}
-      <PWAInstallButton variant="card" />
 
       {/* About App, Version & Features */}
       <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
@@ -815,12 +815,12 @@ export function SettingsTab({
 
           {activeCategory === 'sim' && (
             <>
-              {/* Ethio Telecom & Safaricom SIM Presets & Tariffs */}
+              {/* ETC & SFC SIM Presets & Tariffs */}
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
-              Ethio Telecom & Safaricom SIM Presets & Tariffs
+              ETC &amp; SFC SIM Presets &amp; Tariffs
             </h2>
             <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
               Name your SIM slots, apply Ethiopian carrier presets, and track your 30-day ETB budget
@@ -883,7 +883,7 @@ export function SettingsTab({
               maxLength={40}
               value={sim1Label}
               onChange={(e) => setSim1Label(e.target.value)}
-              placeholder="Ethio Telecom"
+              placeholder="ETC"
               className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
             />
           </label>
@@ -894,7 +894,7 @@ export function SettingsTab({
               maxLength={40}
               value={sim2Label}
               onChange={(e) => setSim2Label(e.target.value)}
-              placeholder="Safaricom Ethiopia"
+              placeholder="SFC"
               className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
             />
           </label>
@@ -1048,30 +1048,37 @@ export function SettingsTab({
         </div>
       </div>
 
-      {/* Reminders & Browser Notifications */}
+      {/* Reminders & Device Notifications */}
       <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
               <Bell size={18} />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
-                Reminder Timing & Browser Notifications
+                Reminder Timing &amp; Device Alerts
               </h2>
               <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Browser status: {browserNotifyPermission === 'granted' ? 'Allowed' : browserNotifyPermission === 'denied' ? 'Blocked' : browserNotifyPermission === 'default' ? 'Not requested yet' : 'In-app only'}
+                Permission:{' '}
+                {notificationPermission === 'granted'
+                  ? 'Allowed'
+                  : notificationPermission === 'denied'
+                    ? 'Blocked — enable in Phone Settings → Apps → Call Analyzer → Notifications'
+                    : notificationPermission === 'unsupported'
+                      ? 'Update APK native plugin or browser unavailable'
+                      : 'Not requested yet'}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => void handleBrowserNotifySetup()}
+              onClick={() => void handleAlertSetup()}
               className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap shrink-0 transition-colors"
             >
-              {browserNotifyPermission === 'granted' ? 'Send test alert' : 'Enable browser alerts'}
+              {notificationPermission === 'granted' ? 'Send test alert' : 'Allow Notifications'}
             </button>
             <button
               type="button"
@@ -1165,7 +1172,7 @@ export function SettingsTab({
               Overnight Quiet Hours
             </p>
             <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Silence browser notification popups during sleep hours
+              Silence device notification popups during sleep hours
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

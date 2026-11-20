@@ -8,8 +8,8 @@ export const APP_PRIVACY_NOTE =
 
 export const APP_FEATURES = [
   {
-    title: 'Dual-SIM Call Tracking & Live Timer',
-    detail: 'Log, search, filter, and time calls across SIM 1 (Ethio Telecom) and SIM 2 (Safaricom) with automatic ETB cost estimates.',
+    title: 'Dual-SIM Call Sync & Smart Search',
+    detail: 'Sync, search, and filter calls across SIM 1 (ETC) and SIM 2 (SFC) with automatic ETB cost estimates.',
   },
   {
     title: 'Interactive Usage Charts & PDF Statements',

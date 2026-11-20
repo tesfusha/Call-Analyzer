@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { DateTimePicker } from '@/src/components/DateTimePicker';
 import {
   DEFAULT_RELATIONSHIP_TAGS,
   daysUntilAnnualDate,
@@ -479,12 +480,11 @@ export function ContactDetailModal({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input
-                type="datetime-local"
+              <DateTimePicker
                 value={scheduleAt}
-                onChange={(e) => setScheduleAt(e.target.value)}
-                aria-label="Scheduled call date and time"
-                className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono text-[#08246B] dark:text-white"
+                onChange={setScheduleAt}
+                variant="surface"
+                ariaLabel="Scheduled call date and time"
               />
               <input
                 type="text"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Clock, FileText, Phone, Star, Trash2, User, X } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { DateTimePicker } from '@/src/components/DateTimePicker';
 import { DEFAULT_RELATIONSHIP_TAGS } from '@/src/lib/contacts';
 import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
@@ -315,18 +316,17 @@ export function CallDetailModal({
                 ))}
               </div>
 
-              <label className="block space-y-1">
+              <div className="space-y-1">
                 <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                   Custom date &amp; time
                 </span>
-                <input
-                  type="datetime-local"
+                <DateTimePicker
                   value={scheduleAt}
-                  onChange={(e) => setScheduleAt(e.target.value)}
-                  aria-label="Callback date and time"
-                  className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono text-[#08246B] dark:text-white"
+                  onChange={setScheduleAt}
+                  variant="surface"
+                  ariaLabel="Callback date and time"
                 />
-              </label>
+              </div>
 
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">

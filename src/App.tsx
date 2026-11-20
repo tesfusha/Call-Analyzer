@@ -30,7 +30,6 @@ import { ContactDetailModal } from '@/src/components/ContactDetailModal';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { ErrorBoundary } from '@/src/components/ErrorBoundary';
 import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
-import { OfflineIndicator, PWAInstallButton } from '@/src/components/PWAInstallButton';
 import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
 import { UsageTab } from '@/src/components/UsageTab';
@@ -95,7 +94,7 @@ function AppShell() {
     showNotice,
   } = useCalls();
 
-  const isDark = theme === 'dark' || theme === 'dark-gray';
+  const isDark = theme === 'dark-gray';
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(authPromptMode !== 'closed');
 
@@ -334,8 +333,6 @@ function AppShell() {
           </div>
         </main>
 
-        <OfflineIndicator />
-
         <AnimatePresence>
           {notice && (
             <motion.div
@@ -386,8 +383,6 @@ function AppShell() {
         </main>
 
         <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />
-
-        <OfflineIndicator />
 
         <AnimatePresence>
           {notice && (
@@ -456,14 +451,14 @@ function AppShell() {
                       layoutId="desktop-nav-active-pill"
                       transition={
                         prefersReducedMotion
-                          ? { duration: 0.08 }
-                          : { type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }
+                          ? { duration: 0.06 }
+                          : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
                       }
                       aria-hidden="true"
                       className="absolute inset-0 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 z-0"
                     />
                   )}
-                  <Icon size={18} className="relative z-10" />
+                  <Icon size={18} className="relative z-10 shrink-0" />
                   <span className="relative z-10">{tab.label}</span>
                 </button>
               );
@@ -472,18 +467,17 @@ function AppShell() {
         </div>
 
         <div className="space-y-2">
-          <PWAInstallButton variant="button" />
           <DarkModeToggle
             isDark={isDark}
             onToggle={toggleTheme}
             label={
               themePreference === 'system'
-                ? `Auto · ${theme === 'dark' ? 'Navy' : theme === 'dark-gray' ? 'Gray' : 'Bright'}`
-                : theme === 'dark'
-                  ? 'Dark Navy'
-                  : theme === 'dark-gray'
-                    ? 'Dark Gray'
-                    : 'Bright Mode'
+                ? isDark
+                  ? 'Auto · Dark'
+                  : 'Auto · Bright'
+                : isDark
+                  ? 'Dark'
+                  : 'Bright'
             }
           />
 
@@ -591,7 +585,7 @@ function AppShell() {
       {/* Mobile Top Header */}
       <header
         className={`md:hidden sticky top-0 z-30 pt-[env(safe-area-inset-top)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] ${
-          theme === 'dark-gray' ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
+          isDark ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
         }`}
       >
         <div className="h-14 px-4 flex items-center justify-between gap-2">
@@ -607,7 +601,6 @@ function AppShell() {
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <PWAInstallButton variant="compact" />
           <DarkModeToggle isDark={isDark} onToggle={toggleTheme} compact />
           <button
             type="button"
@@ -695,54 +688,50 @@ function AppShell() {
             </div>
           )}
 
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={activeTab}
-              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.994 }}
-              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
-              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.996 }}
-              transition={{
-                duration: prefersReducedMotion ? 0.1 : 0.18,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-            >
-              {activeTab === 'calls' && (
-                <CallsTab
-                  onSelectCall={handleSelectCall}
-                  onSelectContact={handleSelectContact}
-                  onCallBack={handleCallBack}
-                  onOpenReminders={handleOpenReminders}
-                  onOpenAnalytics={handleOpenAnalytics}
-                />
-              )}
-              {activeTab === 'analytics' && (
-                <AnalyticsTab
-                  onSelectCall={handleSelectCall}
-                  onSelectContact={handleSelectContact}
-                />
-              )}
-              {activeTab === 'usage' && (
-                <UsageTab
-                  onSelectCall={handleSelectCall}
-                  onSelectContact={handleSelectContact}
-                />
-              )}
-              {activeTab === 'calendar' && (
-                <EthiopianCalendarView
-                  onSelectCall={handleSelectCall}
-                  onSelectContact={handleSelectContact}
-                  onOpenWishes={handleOpenReminders}
-                />
-              )}
-              {activeTab === 'settings' && (
-                <SettingsTab
-                  onOpenReminders={handleOpenReminders}
-                  onOpenGuide={handleOpenGuide}
-                />
-              )}
-              {activeTab === 'admin' && isAdmin && <AdminTab />}
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            key={activeTab}
+            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0.72 }}
+            animate={{ opacity: 1 }}
+            transition={{
+              duration: prefersReducedMotion ? 0.06 : 0.09,
+            }}
+          >
+            {activeTab === 'calls' && (
+              <CallsTab
+                onSelectCall={handleSelectCall}
+                onSelectContact={handleSelectContact}
+                onCallBack={handleCallBack}
+                onOpenReminders={handleOpenReminders}
+                onOpenAnalytics={handleOpenAnalytics}
+              />
+            )}
+            {activeTab === 'analytics' && (
+              <AnalyticsTab
+                onSelectCall={handleSelectCall}
+                onSelectContact={handleSelectContact}
+              />
+            )}
+            {activeTab === 'usage' && (
+              <UsageTab
+                onSelectCall={handleSelectCall}
+                onSelectContact={handleSelectContact}
+              />
+            )}
+            {activeTab === 'calendar' && (
+              <EthiopianCalendarView
+                onSelectCall={handleSelectCall}
+                onSelectContact={handleSelectContact}
+                onOpenWishes={handleOpenReminders}
+              />
+            )}
+            {activeTab === 'settings' && (
+              <SettingsTab
+                onOpenReminders={handleOpenReminders}
+                onOpenGuide={handleOpenGuide}
+              />
+            )}
+            {activeTab === 'admin' && isAdmin && <AdminTab />}
+          </motion.div>
         </div>
       </main>
 
@@ -750,7 +739,7 @@ function AppShell() {
       <nav
         aria-label="Mobile navigation"
         className={`md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] pb-[env(safe-area-inset-bottom)] ${
-          theme === 'dark-gray' ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
+          isDark ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
         }`}
       >
         <div
@@ -775,14 +764,14 @@ function AppShell() {
                     layoutId="mobile-nav-top-bar"
                     transition={
                       prefersReducedMotion
-                        ? { duration: 0.08 }
-                        : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
+                        ? { duration: 0.06 }
+                        : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
                     }
                     aria-hidden="true"
                     className="pointer-events-none absolute top-0 left-3 right-3 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00] z-0"
                   />
                 )}
-                <Icon size={19} className="relative z-10" />
+                <Icon size={19} className="relative z-10 shrink-0" />
                 <span className="relative z-10 text-[10px] font-semibold leading-none whitespace-nowrap">
                   {tab.label}
                 </span>
@@ -868,8 +857,6 @@ function AppShell() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <OfflineIndicator />
 
       <AnimatePresence>
         {notice && (

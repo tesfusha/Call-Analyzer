@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Play, Upload, X } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
+import { Upload, X } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import type { UpcomingHoliday } from '@/src/lib/ethiopianCalendar';
@@ -32,7 +32,6 @@ export function WelcomeHero({
   defaultLang,
   onLoadSample,
   onImportFile,
-  onOpenTestCall,
   onDismiss,
 }: {
   displayName: string;
@@ -43,7 +42,6 @@ export function WelcomeHero({
   defaultLang: 'english' | 'amharic';
   onLoadSample: () => void;
   onImportFile: () => void;
-  onOpenTestCall: () => void;
   onDismiss: () => void;
 }) {
   const prefersReducedMotion = useReducedMotion();
@@ -57,10 +55,10 @@ export function WelcomeHero({
         : `${todayEc} · Ethiopian calendar & holiday alerts ready`,
       callsCount > 0
         ? unreturnedCount > 0
-          ? `${callsCount} calls logged · ${unreturnedCount} missed call${unreturnedCount === 1 ? '' : 's'} waiting for callback`
+          ? `${callsCount} calls synced · ${unreturnedCount} missed call${unreturnedCount === 1 ? '' : 's'} waiting for callback`
           : `${callsCount} calls analyzed · All missed callbacks caught up`
-        : 'Import CSV/JSON logs or run a live call test right inside the app',
-      `${savedContactsCount} saved contact${savedContactsCount === 1 ? '' : 's'} · Ethio Telecom & Safaricom tracking`,
+        : 'Sync phone call history or import CSV/JSON logs in one tap',
+      `${savedContactsCount} saved contact${savedContactsCount === 1 ? '' : 's'} · ETC & SFC tracking`,
     ];
     return items;
   }, [callsCount, defaultLang, savedContactsCount, unreturnedCount, upcomingHoliday]);
@@ -78,9 +76,9 @@ export function WelcomeHero({
 
   return (
     <motion.section
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+      initial={prefersReducedMotion ? false : { opacity: 0.75, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
       className="relative overflow-hidden rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
     >
       <div className="flex items-center gap-4 min-w-0">
@@ -116,7 +114,7 @@ export function WelcomeHero({
           <motion.div
             whileHover={prefersReducedMotion ? undefined : { scale: 1.05, rotate: -2 }}
             whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 360, damping: 22 }}
+            transition={{ type: 'spring', stiffness: 480, damping: 28 }}
             className="relative z-10 rounded-2xl p-1 bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-sm"
           >
             <BrandLogo size={48} />
@@ -129,7 +127,7 @@ export function WelcomeHero({
               {greeting}
             </h2>
             {/* Live Signal Equalizer Bars */}
-            <span className="inline-flex items-end gap-0.5 h-3.5" aria-hidden="true">
+            <span className="inline-flex items-end gap-0.5 h-3.5 shrink-0" aria-hidden="true">
               {EQUALIZER_BARS.map((bar, idx) => (
                 <motion.span
                   key={idx}
@@ -155,18 +153,15 @@ export function WelcomeHero({
           </div>
 
           <div className="min-h-[20px] overflow-hidden">
-            <AnimatePresence mode="wait">
-              <motion.p
-                key={activeHighlight}
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={prefersReducedMotion ? undefined : { opacity: 0, y: -6 }}
-                transition={{ duration: 0.25 }}
-                className="text-xs sm:text-sm text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate"
-              >
-                {activeHighlight}
-              </motion.p>
-            </AnimatePresence>
+            <motion.p
+              key={activeHighlight}
+              initial={prefersReducedMotion ? false : { opacity: 0.6, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.14 }}
+              className="text-xs sm:text-sm text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate"
+            >
+              {activeHighlight}
+            </motion.p>
           </div>
         </div>
       </div>
@@ -186,38 +181,20 @@ export function WelcomeHero({
               onClick={onImportFile}
               className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
             >
-              <Upload size={14} className="text-[#FF6A00]" />
+              <Upload size={14} className="text-[#FF6A00] shrink-0" />
               Import
-            </button>
-            <button
-              type="button"
-              onClick={onOpenTestCall}
-              className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <Play size={13} className="text-[#FF6A00]" />
-              Live test
             </button>
           </>
         ) : (
-          <>
-            <button
-              type="button"
-              onClick={onOpenTestCall}
-              className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <Play size={13} className="text-[#FF6A00]" />
-              Live test
-            </button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label="Dismiss welcome banner"
-              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <X size={14} />
-              Dismiss
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss welcome banner"
+            className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+          >
+            <X size={14} className="shrink-0" />
+            Dismiss
+          </button>
         )}
       </div>
     </motion.section>

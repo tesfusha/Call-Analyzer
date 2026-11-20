@@ -30,10 +30,10 @@ type GuideStep = {
 const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'calls',
-    eyebrow: 'Step 1 of 4 · Calls & Live Timer',
+    eyebrow: 'Step 1 of 4 · Auto-Synced Calls',
     title: 'Organize every call across both SIMs',
     description:
-      'Review incoming, outgoing, and unreturned missed calls in one clean timeline with Ethiopian & Gregorian dates, ETB call cost, and a built-in live call timer.',
+      'Review incoming, outgoing, and unreturned missed calls in one clean timeline with Ethiopian & Gregorian dates, ETB call cost, and automatic phone sync.',
     highlights: [
       'Instant search by name, number, tag, or note',
       'One-tap callback reminders & VIP priority contacts',
@@ -46,7 +46,7 @@ const GUIDE_STEPS: GuideStep[] = [
     eyebrow: 'Step 2 of 4 · Dual-SIM, Bundles & USSD',
     title: 'Track voice packages & carrier USSD',
     description:
-      'Compare Ethio Telecom and Safaricom talk-time side by side, watch active voice bundle minutes before they expire, and dial official USSD shortcodes effortlessly.',
+      'Compare ETC and SFC talk-time side by side, watch active voice bundle minutes before they expire, and dial official USSD shortcodes effortlessly.',
     highlights: [
       'SIM 1 vs SIM 2 minute and ETB spend comparison',
       'Remaining bundle minute bar & expiry alerts',
@@ -89,14 +89,14 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
     return (
       <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2">
         {[
-          { name: 'Abebe Bikila', sim: 'SIM 1 · Ethio Telecom', meta: 'Outgoing · 4m 12s · 2.15 ETB', accent: '#FF6A00' },
-          { name: 'Sara Tadesse', sim: 'SIM 2 · Safaricom', meta: 'Missed · Follow-up 15m', accent: '#EF4444' },
+          { name: 'Abebe Bikila', sim: 'SIM 1 · ETC', meta: 'Outgoing · 4m 12s · 2.15 ETB', accent: '#FF6A00' },
+          { name: 'Sara Tadesse', sim: 'SIM 2 · SFC', meta: 'Missed · Follow-up 15m', accent: '#EF4444' },
         ].map((row, idx) => (
           <motion.div
             key={row.name}
-            initial={prefersReducedMotion ? false : { opacity: 0, x: -10 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.25, delay: idx * 0.08 }}
+            transition={{ duration: 0.14, delay: idx * 0.04 }}
             className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 flex items-center justify-between gap-2"
           >
             <div className="min-w-0">
@@ -118,7 +118,7 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
         <div className="flex items-center justify-between px-1 pt-0.5 text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
           <span className="flex items-center gap-1.5 text-[#FF6A00] font-semibold">
             <Clock size={12} />
-            Live timer ready
+            Auto call log sync
           </span>
           <span>EC &amp; GC timestamps</span>
         </div>
@@ -138,7 +138,7 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
             <motion.div
               initial={prefersReducedMotion ? { width: '68%' } : { width: '12%' }}
               animate={{ width: '68%' }}
-              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               className="h-full rounded-full bg-[#FF6A00]"
             />
           </div>
@@ -146,15 +146,15 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
 
         <div className="grid grid-cols-3 gap-2">
           {[
-            { code: '*804#', label: 'Balance' },
-            { code: '*999#', label: 'Bundles' },
-            { code: '*707#', label: 'Safaricom' },
+            { code: '*804#', label: 'ETC Balance' },
+            { code: '*999#', label: 'ETC Bundles' },
+            { code: '*707#', label: 'SFC' },
           ].map((item, idx) => (
             <motion.div
               key={item.code}
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.24, delay: idx * 0.06 }}
+              transition={{ duration: 0.14, delay: idx * 0.03 }}
               className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-center"
             >
               <p className="text-xs font-mono font-bold text-[#08246B] dark:text-white flex items-center justify-center gap-1">
@@ -341,15 +341,13 @@ export function AppGuideModal({
 
             {/* Scrollable Body */}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={step.id}
-                  initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 14 }}
-                  animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, x: 0 }}
-                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: -14 }}
-                  transition={{ duration: prefersReducedMotion ? 0.1 : 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="space-y-4"
-                >
+              <motion.div
+                key={step.id}
+                initial={prefersReducedMotion ? { opacity: 0.7 } : { opacity: 0.65, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: prefersReducedMotion ? 0.06 : 0.12, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-4"
+              >
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
                       <StepIcon size={20} />
@@ -381,8 +379,7 @@ export function AppGuideModal({
                       </li>
                     ))}
                   </ul>
-                </motion.div>
-              </AnimatePresence>
+              </motion.div>
             </div>
 
             {/* Footer Navigation */}

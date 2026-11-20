@@ -1,10 +1,17 @@
 import type { CallRecord, SimLabels, SimSlot, VoiceBundleSlot, VoiceBundles } from '@/src/types/call';
 
 export type CarrierName =
-  | 'Ethio Telecom'
-  | 'Safaricom Ethiopia'
+  | 'ETC'
+  | 'SFC'
   | 'Landline'
   | 'International / Other';
+
+export function formatCarrierShort(value: string): string {
+  const trimmed = value.trim();
+  if (/ethio\s*telecom/i.test(trimmed)) return 'ETC';
+  if (/safaricom/i.test(trimmed)) return 'SFC';
+  return trimmed;
+}
 
 export type TariffConfig = {
   sim1RatePerMin: number;
@@ -21,8 +28,8 @@ export const DEFAULT_TARIFFS: TariffConfig = {
 };
 
 export const DEFAULT_SIM_LABELS: SimLabels = {
-  sim1Label: 'Ethio Telecom',
-  sim2Label: 'Safaricom Ethiopia',
+  sim1Label: 'ETC',
+  sim2Label: 'SFC',
 };
 
 export type CarrierPreset = {
@@ -36,7 +43,7 @@ export type CarrierPreset = {
 export const CARRIER_PRESETS: CarrierPreset[] = [
   {
     id: 'ethio-standard',
-    name: 'Ethio Telecom Standard',
+    name: 'ETC Standard',
     description: '0.50 ETB/min per-second billing on SIM 1',
     tariffs: {
       sim1RatePerMin: 0.5,
@@ -45,13 +52,13 @@ export const CARRIER_PRESETS: CarrierPreset[] = [
       monthlyBudgetEtb: 500,
     },
     simLabels: {
-      sim1Label: 'Ethio Telecom',
+      sim1Label: 'ETC',
       sim2Label: 'SIM 2',
     },
   },
   {
     id: 'safaricom-standard',
-    name: 'Safaricom Ethiopia',
+    name: 'SFC Standard',
     description: '0.55 ETB/min per-second billing on SIM 1',
     tariffs: {
       sim1RatePerMin: 0.55,
@@ -60,14 +67,14 @@ export const CARRIER_PRESETS: CarrierPreset[] = [
       monthlyBudgetEtb: 500,
     },
     simLabels: {
-      sim1Label: 'Safaricom Ethiopia',
+      sim1Label: 'SFC',
       sim2Label: 'SIM 2',
     },
   },
   {
     id: 'dual-ethio-safaricom',
-    name: 'Dual: Ethio + Safaricom',
-    description: 'SIM 1 Ethio (0.50) · SIM 2 Safaricom (0.55)',
+    name: 'Dual: ETC + SFC',
+    description: 'SIM 1 ETC (0.50) · SIM 2 SFC (0.55)',
     tariffs: {
       sim1RatePerMin: 0.5,
       sim2RatePerMin: 0.55,
@@ -75,8 +82,8 @@ export const CARRIER_PRESETS: CarrierPreset[] = [
       monthlyBudgetEtb: 600,
     },
     simLabels: {
-      sim1Label: 'Ethio Telecom',
-      sim2Label: 'Safaricom Ethiopia',
+      sim1Label: 'ETC',
+      sim2Label: 'SFC',
     },
   },
   {
@@ -90,15 +97,16 @@ export const CARRIER_PRESETS: CarrierPreset[] = [
       monthlyBudgetEtb: 1200,
     },
     simLabels: {
-      sim1Label: 'Ethio Telecom Work',
-      sim2Label: 'Safaricom Line',
+      sim1Label: 'ETC Work',
+      sim2Label: 'SFC Line',
     },
   },
 ];
 
 export function formatSimDisplay(sim: SimSlot, labels: SimLabels): string {
   if (!sim) return '';
-  const custom = sim === 'SIM 1' ? labels.sim1Label.trim() : labels.sim2Label.trim();
+  const raw = sim === 'SIM 1' ? labels.sim1Label.trim() : labels.sim2Label.trim();
+  const custom = formatCarrierShort(raw);
   if (!custom || custom === sim) return sim;
   return `${sim} (${custom})`;
 }
@@ -114,8 +122,8 @@ export function normaliseEthPhone(raw: string): string {
 
 export function detectCarrier(number: string): CarrierName {
   const local = normaliseEthPhone(number);
-  if (/^09\d{8}$/.test(local)) return 'Ethio Telecom';
-  if (/^07\d{8}$/.test(local)) return 'Safaricom Ethiopia';
+  if (/^09\d{8}$/.test(local)) return 'ETC';
+  if (/^07\d{8}$/.test(local)) return 'SFC';
   if (/^0[1-5]\d{7,8}$/.test(local)) return 'Landline';
   return 'International / Other';
 }
@@ -146,7 +154,7 @@ export function simRateForSlot(sim: SimSlot, tariffs: TariffConfig): number {
 export const DEFAULT_VOICE_BUNDLES: VoiceBundles = {
   sim1: {
     enabled: false,
-    name: 'Ethio Weekly 100 Min',
+    name: 'ETC Weekly 100 Min',
     totalMinutes: 100,
     priceEtb: 45,
     startedAt: 0,
@@ -154,7 +162,7 @@ export const DEFAULT_VOICE_BUNDLES: VoiceBundles = {
   },
   sim2: {
     enabled: false,
-    name: 'Safaricom Weekly 120 Min',
+    name: 'SFC Weekly 120 Min',
     totalMinutes: 120,
     priceEtb: 50,
     startedAt: 0,
@@ -164,7 +172,7 @@ export const DEFAULT_VOICE_BUNDLES: VoiceBundles = {
 
 export type VoiceBundlePreset = {
   id: string;
-  carrier: 'Ethio Telecom' | 'Safaricom Ethiopia';
+  carrier: 'ETC' | 'SFC';
   name: string;
   totalMinutes: number;
   priceEtb: number;
@@ -174,40 +182,40 @@ export type VoiceBundlePreset = {
 export const VOICE_BUNDLE_PRESETS: VoiceBundlePreset[] = [
   {
     id: 'ethio-daily-25',
-    carrier: 'Ethio Telecom',
-    name: 'Ethio Daily 25 Min',
+    carrier: 'ETC',
+    name: 'ETC Daily 25 Min',
     totalMinutes: 25,
     priceEtb: 15,
     days: 1,
   },
   {
     id: 'ethio-weekly-100',
-    carrier: 'Ethio Telecom',
-    name: 'Ethio Weekly 100 Min',
+    carrier: 'ETC',
+    name: 'ETC Weekly 100 Min',
     totalMinutes: 100,
     priceEtb: 45,
     days: 7,
   },
   {
     id: 'ethio-monthly-500',
-    carrier: 'Ethio Telecom',
-    name: 'Ethio Monthly 500 Min',
+    carrier: 'ETC',
+    name: 'ETC Monthly 500 Min',
     totalMinutes: 500,
     priceEtb: 180,
     days: 30,
   },
   {
     id: 'safaricom-weekly-120',
-    carrier: 'Safaricom Ethiopia',
-    name: 'Safaricom Weekly 120 Min',
+    carrier: 'SFC',
+    name: 'SFC Weekly 120 Min',
     totalMinutes: 120,
     priceEtb: 50,
     days: 7,
   },
   {
     id: 'safaricom-monthly-450',
-    carrier: 'Safaricom Ethiopia',
-    name: 'Safaricom Monthly 450 Min',
+    carrier: 'SFC',
+    name: 'SFC Monthly 450 Min',
     totalMinutes: 450,
     priceEtb: 175,
     days: 30,
@@ -266,7 +274,7 @@ export function computeBundleStatus(
 
 export type UssdShortcut = {
   id: string;
-  carrier: 'Ethio Telecom' | 'Safaricom Ethiopia';
+  carrier: 'ETC' | 'SFC';
   label: string;
   code: string;
   description: string;
@@ -275,66 +283,66 @@ export type UssdShortcut = {
 export const ETHIOPIAN_USSD_CODES: UssdShortcut[] = [
   {
     id: 'ethio-bal',
-    carrier: 'Ethio Telecom',
+    carrier: 'ETC',
     label: 'Check Balance',
     code: '*804#',
     description: 'View airtime & bonus balance',
   },
   {
     id: 'ethio-pkg',
-    carrier: 'Ethio Telecom',
+    carrier: 'ETC',
     label: 'Packages Menu',
     code: '*999#',
     description: 'Voice, data & holiday bundles',
   },
   {
     id: 'ethio-cmb',
-    carrier: 'Ethio Telecom',
+    carrier: 'ETC',
     label: 'Call Me Back',
     code: '*806#',
     description: 'Send free call-me-back request',
   },
   {
     id: 'ethio-transfer',
-    carrier: 'Ethio Telecom',
+    carrier: 'ETC',
     label: 'Transfer Airtime',
     code: '*808#',
     description: 'Share balance with another line',
   },
   {
     id: 'ethio-care',
-    carrier: 'Ethio Telecom',
+    carrier: 'ETC',
     label: 'Customer Care',
     code: '994',
-    description: 'Ethio Telecom helpline',
+    description: 'ETC helpline',
   },
   {
     id: 'safari-bal',
-    carrier: 'Safaricom Ethiopia',
+    carrier: 'SFC',
     label: 'Check Balance',
     code: '*704#',
-    description: 'View Safaricom airtime & bundles',
+    description: 'View SFC airtime & bundles',
   },
   {
     id: 'safari-pkg',
-    carrier: 'Safaricom Ethiopia',
+    carrier: 'SFC',
     label: 'Bundles & Offers',
     code: '*777#',
     description: 'Buy voice or data packages',
   },
   {
     id: 'safari-cmb',
-    carrier: 'Safaricom Ethiopia',
+    carrier: 'SFC',
     label: 'Call Me Back',
     code: '*707#',
     description: 'Request callback when out of credit',
   },
   {
     id: 'safari-care',
-    carrier: 'Safaricom Ethiopia',
+    carrier: 'SFC',
     label: 'Customer Care',
     code: '700',
-    description: 'Safaricom Ethiopia support',
+    description: 'SFC support',
   },
 ];
 

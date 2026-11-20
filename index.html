@@ -12,12 +12,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="CallETH" />
-    <link rel="icon" type="image/png" href="/pwa-192x192.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/assets/aistudio/20261118_124315_0000_1323e07e.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -25,30 +20,31 @@
       (function () {
         try {
           var pref = JSON.parse(localStorage.getItem('callanalyzer.theme.v3') || 'null');
-          var darkVariant = JSON.parse(localStorage.getItem('callanalyzer.preferredDarkTheme.v1') || 'null');
-          if (darkVariant !== 'dark' && darkVariant !== 'dark-gray') darkVariant = 'dark-gray';
           var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
           var systemDark = Boolean(mql && mql.matches);
           var hasManualOverride = pref === 'light' || pref === 'dark' || pref === 'dark-gray';
-          var resolved = hasManualOverride ? pref : systemDark ? darkVariant : 'light';
-          var isDark = resolved === 'dark' || resolved === 'dark-gray';
+          var isDark = hasManualOverride ? (pref === 'dark' || pref === 'dark-gray') : systemDark;
           var root = document.documentElement;
           root.classList.toggle('dark', isDark);
-          root.classList.toggle('dark-gray', resolved === 'dark-gray');
+          root.classList.toggle('dark-gray', isDark);
           root.style.colorScheme = isDark ? 'dark' : 'light';
           var metas = document.querySelectorAll('meta[name="theme-color"]');
           if (hasManualOverride) {
-            var activeColor = resolved === 'light' ? '#FFFFFF' : resolved === 'dark-gray' ? '#111214' : '#08246B';
+            var activeColor = isDark ? '#111214' : '#FFFFFF';
             for (var i = 0; i < metas.length; i++) {
               metas[i].setAttribute('content', activeColor);
             }
+          }
+          var fontScale = JSON.parse(localStorage.getItem('callanalyzer.fontSize.v1') || '"default"');
+          if (fontScale === 'large') {
+            root.dataset.fontScale = 'large';
+            root.style.fontSize = '17.5px';
+          } else if (fontScale === 'xlarge') {
+            root.dataset.fontScale = 'xlarge';
+            root.style.fontSize = '19px';
           } else {
-            var darkColor = darkVariant === 'dark' ? '#08246B' : '#111214';
-            for (var j = 0; j < metas.length; j++) {
-              var media = metas[j].getAttribute('media') || '';
-              if (media.indexOf('light') !== -1) metas[j].setAttribute('content', '#FFFFFF');
-              if (media.indexOf('dark') !== -1) metas[j].setAttribute('content', darkColor);
-            }
+            root.dataset.fontScale = 'default';
+            root.style.fontSize = '16px';
           }
         } catch (e) {}
       })();

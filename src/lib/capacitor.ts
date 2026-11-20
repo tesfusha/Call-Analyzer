@@ -5,7 +5,7 @@ type CapacitorPluginHandle = {
 };
 
 type NativeFirebaseAuthPlugin = {
-  signInWithGoogle?: (opts?: { skipNativeAuth?: boolean }) => Promise<{
+  signInWithGoogle?: (opts?: { skipNativeAuth?: boolean; useCredentialManager?: boolean }) => Promise<{
     credential?: { idToken?: string | null; accessToken?: string | null } | null;
   }>;
   signOut?: () => Promise<void>;
@@ -48,6 +48,21 @@ type NativeCallLogPlugin = {
   ) => Promise<CapacitorPluginHandle> | CapacitorPluginHandle;
 };
 
+type NativeAppNotificationPermissionState = 'granted' | 'denied' | 'prompt';
+
+type NativeAppNotificationsPlugin = {
+  getPermissionStatus?: () => Promise<{ state?: string }>;
+  requestPermission?: () => Promise<{ state?: string }>;
+  showNotification?: (opts: { id: number; title: string; body: string }) => Promise<void>;
+  scheduleNotification?: (opts: {
+    id: number;
+    title: string;
+    body: string;
+    triggerAtMs: number;
+  }) => Promise<void>;
+  cancelNotification?: (opts: { id: number }) => Promise<void>;
+};
+
 type CapacitorGlobal = {
   isNativePlatform?: () => boolean;
   getPlatform?: () => string;
@@ -58,6 +73,7 @@ type CapacitorGlobal = {
     StatusBar?: NativeStatusBarPlugin;
     App?: NativeAppPlugin;
     CallLog?: NativeCallLogPlugin;
+    AppNotifications?: NativeAppNotificationsPlugin;
     [key: string]: unknown;
   };
 };
@@ -124,7 +140,7 @@ export async function runNativeGoogleSignIn(): Promise<{
   if (!plugin || typeof plugin.signInWithGoogle !== 'function') {
     throw new Error('NATIVE_GOOGLE_AUTH_UNAVAILABLE');
   }
-  const result = await plugin.signInWithGoogle({});
+  const result = await plugin.signInWithGoogle({ useCredentialManager: false });
   return {
     idToken: result?.credential?.idToken ?? null,
     accessToken: result?.credential?.accessToken ?? null,
@@ -254,4 +270,107 @@ export async function subscribeNativeCallLog(
       // ignore
     }
   };
+}
+
+export function hasNativeNotificationsPlugin(): boolean {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  return Boolean(
+    plugin &&
+      (typeof plugin.getPermissionStatus === 'function' ||
+        typeof plugin.showNotification === 'function'),
+  );
+}
+
+function normalisePermState(raw?: string): NativeAppNotificationPermissionState {
+  if (raw === 'granted') return 'granted';
+  if (raw === 'denied') return 'denied';
+  return 'prompt';
+}
+
+export async function getNativeNotificationPermission(): Promise<
+  NativeAppNotificationPermissionState | 'unsupported'
+> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.getPermissionStatus !== 'function') {
+    return 'unsupported';
+  }
+  try {
+    const res = await plugin.getPermissionStatus();
+    return normalisePermState(res?.state);
+  } catch {
+    return 'unsupported';
+  }
+}
+
+export async function requestNativeNotificationPermission(): Promise<
+  NativeAppNotificationPermissionState | 'unsupported'
+> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.requestPermission !== 'function') {
+    return 'unsupported';
+  }
+  try {
+    const res = await plugin.requestPermission();
+    return normalisePermState(res?.state);
+  } catch {
+    return 'denied';
+  }
+}
+
+export function hashNotificationId(key: string): number {
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash % 2_000_000_000) + 100;
+}
+
+export async function showNativeNotification(
+  idKey: string,
+  title: string,
+  body: string,
+): Promise<boolean> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.showNotification !== 'function') return false;
+  try {
+    await plugin.showNotification({
+      id: hashNotificationId(idKey),
+      title,
+      body,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function scheduleNativeNotification(
+  idKey: string,
+  title: string,
+  body: string,
+  triggerAtMs: number,
+): Promise<boolean> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.scheduleNotification !== 'function') return false;
+  try {
+    await plugin.scheduleNotification({
+      id: hashNotificationId(idKey),
+      title,
+      body,
+      triggerAtMs,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function cancelNativeNotification(idKey: string): Promise<void> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.cancelNotification !== 'function') return;
+  try {
+    await plugin.cancelNotification({ id: hashNotificationId(idKey) });
+  } catch {
+    // ignore
+  }
 }

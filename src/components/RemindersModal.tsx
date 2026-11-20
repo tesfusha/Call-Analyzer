@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { DateTimePicker } from '@/src/components/DateTimePicker';
 import {
   DEFAULT_RELATIONSHIP_TAGS,
   getContactKey,
@@ -103,6 +104,9 @@ export function RemindersModal({
     removeScheduledCall,
     notificationsEnabled,
     setNotificationsEnabled,
+    notificationPermission,
+    requestAlertPermissions,
+    sendTestAlertNotification,
     showNotice,
   } = useCalls();
 
@@ -293,18 +297,11 @@ export function RemindersModal({
     }
   };
 
-  const handleBrowserNotifyTest = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      showNotice('Browser notifications are not supported here; in-app alerts stay active.');
-      return;
-    }
-    let permission = Notification.permission;
-    if (permission === 'default') {
-      permission = await Notification.requestPermission();
-    }
+  const handleAlertAction = async () => {
+    let permission = notificationPermission;
     if (permission !== 'granted') {
-      showNotice('Notification permission denied — showing alerts inside the app.');
-      return;
+      permission = await requestAlertPermissions();
+      if (permission !== 'granted') return;
     }
     setNotificationsEnabled(true);
     const lines: string[] = [];
@@ -318,10 +315,9 @@ export function RemindersModal({
     if (unreturned.length > 0) {
       lines.push(`${unreturned.length} unreturned missed call${unreturned.length === 1 ? '' : 's'}`);
     }
-    new Notification('Call Analyzer - ETH Reminders', {
-      body: lines.length > 0 ? lines.join(' · ') : 'All caught up — no urgent reminders today.',
-    });
-    showNotice('Notification sent.');
+    await sendTestAlertNotification(
+      lines.length > 0 ? lines.join(' · ') : 'All caught up — no urgent reminders today.',
+    );
   };
 
   const categories: Array<CategoryItem<RemindersCategory>> = [
@@ -395,10 +391,12 @@ export function RemindersModal({
             <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
-                onClick={() => void handleBrowserNotifyTest()}
+                onClick={() => void handleAlertAction()}
                 className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap shrink-0"
               >
-                {notificationsEnabled ? 'Test alert' : 'Enable alerts'}
+                {notificationPermission === 'granted' && notificationsEnabled
+                  ? 'Test alert'
+                  : 'Allow alerts'}
               </button>
               <button
                 type="button"
@@ -764,13 +762,12 @@ export function RemindersModal({
                     placeholder="Contact name (optional)"
                     className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
                   />
-                  <input
-                    type="datetime-local"
-                    required
+                  <DateTimePicker
                     value={schedAt}
-                    onChange={(e) => setSchedAt(e.target.value)}
-                    aria-label="Scheduled date and time"
-                    className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono text-[#08246B] dark:text-white"
+                    onChange={setSchedAt}
+                    variant="surface"
+                    compact
+                    ariaLabel="Scheduled date and time"
                   />
                   <input
                     type="text"

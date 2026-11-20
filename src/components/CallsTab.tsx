@@ -16,13 +16,10 @@ import {
   PhoneIncoming,
   PhoneMissed,
   PhoneOutgoing,
-  Play,
-  Plus,
   RefreshCw,
   Search,
   ShieldAlert,
   Sparkles,
-  Square,
   Star,
   TrendingUp,
   Upload,
@@ -62,9 +59,7 @@ import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import { filterByRange, totalSpendEtb } from '@/src/lib/stats';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
-import type { CallDirection, CallRecord, SimSlot } from '@/src/types/call';
-
-const CONTACT_COLLATOR = new Intl.Collator(undefined, { sensitivity: 'base' });
+import type { CallDirection, CallRecord } from '@/src/types/call';
 
 type CallsCategory = 'log' | 'action' | 'vip' | 'tools';
 
@@ -82,8 +77,8 @@ const CALLS_META: Record<CallsCategory, { title: string; description: string }> 
     description: 'Starred priority contacts with one-tap calling and quick profile access',
   },
   tools: {
-    title: 'Quick Log, Live Timer & USSD',
-    description: 'Log or time a live call, import history, schedule callbacks, or dial USSD',
+    title: 'Quick Tools, USSD & Schedules',
+    description: 'Import history, schedule callbacks, carrier USSD, and emergency hotlines',
   },
 };
 
@@ -130,7 +125,6 @@ export const CallsTab = memo(function CallsTab({
     loadSampleData,
     canSyncPhoneCalls,
     syncPhoneCalls,
-    addQuickCall,
     scheduleCall,
     completeScheduledCall,
     snoozeScheduledCall,
@@ -146,16 +140,6 @@ export const CallsTab = memo(function CallsTab({
   const [sortBy, setSortBy] = useState<'newest' | 'longest'>('newest');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expandedClusters, setExpandedClusters] = useState<Record<string, boolean>>({});
-  const [newNumber, setNewNumber] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newDirection, setNewDirection] = useState<CallDirection>('outgoing');
-  const [newSim, setNewSim] = useState<SimSlot>('SIM 1');
-  const [newDuration, setNewDuration] = useState('60');
-  const [newTag, setNewTag] = useState('');
-  const [contactPickerQuery, setContactPickerQuery] = useState('');
-  const [contactPickerOpen, setContactPickerOpen] = useState(false);
-  const [liveCallStart, setLiveCallStart] = useState<number | null>(null);
-  const [liveSeconds, setLiveSeconds] = useState(0);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [quickScheduleOpen, setQuickScheduleOpen] = useState(false);
   const [ussdOpen, setUssdOpen] = useState(false);
@@ -188,7 +172,6 @@ export const CallsTab = memo(function CallsTab({
     }
   }, [authUser?.uid]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const contactPickerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<number | null>(null);
   const lastScrollYRef = useRef<number>(typeof window !== 'undefined' ? window.scrollY : 0);
 
@@ -225,61 +208,6 @@ export const CallsTab = memo(function CallsTab({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [quickActionsOpen]);
-
-  useEffect(() => {
-    if (!liveCallStart) {
-      setLiveSeconds(0);
-      return;
-    }
-    const tick = () => setLiveSeconds(Math.max(0, Math.floor((Date.now() - liveCallStart) / 1000)));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [liveCallStart]);
-
-  useEffect(() => {
-    if (!contactPickerOpen) return;
-    const onPointerDown = (e: MouseEvent | TouchEvent) => {
-      if (!contactPickerRef.current?.contains(e.target as Node)) {
-        setContactPickerOpen(false);
-      }
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContactPickerOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('touchstart', onPointerDown, { passive: true });
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('touchstart', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [contactPickerOpen]);
-
-  const savedContactsList = useMemo(
-    () => Object.values(contacts).sort((a, b) => CONTACT_COLLATOR.compare(a.name, b.name)),
-    [contacts],
-  );
-
-  const filteredQuickContacts = useMemo(() => {
-    if (savedContactsList.length === 0) return [];
-    const q = contactPickerQuery.trim().toLowerCase();
-    if (!q) return savedContactsList.slice(0, 25);
-    const matches: typeof savedContactsList = [];
-    for (let i = 0; i < savedContactsList.length; i += 1) {
-      const c = savedContactsList[i];
-      if (
-        c.name.toLowerCase().includes(q) ||
-        c.number.toLowerCase().includes(q) ||
-        c.tag.toLowerCase().includes(q)
-      ) {
-        matches.push(c);
-        if (matches.length >= 25) break;
-      }
-    }
-    return matches;
-  }, [savedContactsList, contactPickerQuery]);
 
   const dismissBanner = () => {
     setBannerDismissed(true);
@@ -454,30 +382,6 @@ export const CallsTab = memo(function CallsTab({
     }
   };
 
-  const handleLogSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newNumber.trim()) {
-      showNotice('Enter a phone number.');
-      return;
-    }
-    addQuickCall({
-      number: newNumber,
-      name: newName,
-      direction: newDirection,
-      sim: newSim,
-      duration: Number(newDuration) || 0,
-      note: '',
-      tag: newTag,
-    });
-    setNewNumber('');
-    setNewName('');
-    setNewDuration('60');
-    setNewTag('');
-    setContactPickerQuery('');
-    setContactPickerOpen(false);
-    setActiveCategory('log');
-  };
-
   const upcomingEvents = useMemo(
     () => getUpcomingContactEvents(contacts, calls, reminderPrefs.eventLeadDays),
     [contacts, calls, reminderPrefs.eventLeadDays],
@@ -508,20 +412,12 @@ export const CallsTab = memo(function CallsTab({
       { key: 'log', label: 'All Calls', icon: Phone, count: calls.length },
       { key: 'action', label: 'Follow-up', icon: Bell, count: actionNeededCount },
       { key: 'vip', label: 'VIP', icon: Star, count: vipContactsList.length },
-      { key: 'tools', label: 'Quick Log', icon: Zap },
+      { key: 'tools', label: 'Tools', icon: Zap },
     ],
     [calls.length, actionNeededCount, vipContactsList.length],
   );
 
   const activeMeta = CALLS_META[activeCategory];
-
-  const openLogTool = () => {
-    setActiveCategory('tools');
-    window.scrollTo({
-      top: 0,
-      behavior: prefersReducedMotion ? 'auto' : 'smooth',
-    });
-  };
 
   const openUssdModal = (initialCategory: UssdCategory = 'all') => {
     setUssdInitialCategory(initialCategory);
@@ -550,7 +446,7 @@ export const CallsTab = memo(function CallsTab({
         <WelcomeHero
           displayName={profileName || authUser?.displayName?.split(' ')[0] || ''}
           callsCount={calls.length}
-          savedContactsCount={savedContactsList.length}
+          savedContactsCount={Object.keys(contacts).length}
           unreturnedCount={unreturnedList.length}
           upcomingHoliday={upcomingHoliday}
           defaultLang={calendarPrefs.defaultLang}
@@ -559,7 +455,6 @@ export const CallsTab = memo(function CallsTab({
             showNotice(`Loaded ${counts.added} sample calls.`);
           }}
           onImportFile={triggerCallImport}
-          onOpenTestCall={openLogTool}
           onDismiss={dismissBanner}
         />
       )}
@@ -598,14 +493,6 @@ export const CallsTab = memo(function CallsTab({
             >
               <Upload size={15} />
               Import
-            </button>
-            <button
-              type="button"
-              onClick={openLogTool}
-              className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <Plus size={15} />
-              Log call
             </button>
           </div>
         </div>
@@ -795,8 +682,8 @@ export const CallsTab = memo(function CallsTab({
                                     layoutId="calls-dir-active-pill"
                                     transition={
                                       prefersReducedMotion
-                                        ? { duration: 0.08 }
-                                        : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
+                                        ? { duration: 0.06 }
+                                        : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
                                     }
                                     aria-hidden="true"
                                     className="absolute inset-0 rounded-lg bg-[#FF6A00]"
@@ -881,26 +768,42 @@ export const CallsTab = memo(function CallsTab({
                     No call history yet
                   </h2>
                   <p className="text-sm text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Import a CSV/JSON log, load sample calls, or switch to Quick Tools to log a call.
+                    Tap Sync Phone or import a CSV/JSON call log to analyze your history.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2">
+                  {canSyncPhoneCalls ? (
+                    <button
+                      type="button"
+                      disabled={syncingPhone}
+                      onClick={() => {
+                        setSyncingPhone(true);
+                        void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
+                      }}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <RefreshCw size={14} className={syncingPhone ? 'animate-spin' : ''} />
+                      {syncingPhone ? 'Syncing...' : 'Sync Phone'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={triggerCallImport}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Upload size={14} />
+                      Import CSV / JSON
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       const counts = loadSampleData();
                       showNotice(`Loaded ${counts.added} sample calls.`);
                     }}
-                    className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap"
-                  >
-                    Load sample data
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveCategory('tools')}
                     className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap"
                   >
-                    Open Quick Tools
+                    Load sample data
                   </button>
                 </div>
               </div>
@@ -1548,303 +1451,7 @@ export const CallsTab = memo(function CallsTab({
 
         {activeCategory === 'tools' && (
           <div className="space-y-4">
-            {/* Call Input Form First */}
-            <form
-              onSubmit={handleLogSubmit}
-              className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 sm:p-5 space-y-3"
-            >
-              <div>
-                <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
-                  Log or Real-Time Test a Call
-                </h2>
-                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Search saved contacts or enter details to log, run a live timer, or test alerts
-                </p>
-              </div>
-
-              {savedContactsList.length > 0 && (
-                <div ref={contactPickerRef} className="relative">
-                  <div className="relative">
-                    <Search
-                      size={15}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#FF6A00] pointer-events-none"
-                    />
-                    <input
-                      type="search"
-                      value={contactPickerQuery}
-                      onFocus={() => setContactPickerOpen(true)}
-                      onChange={(e) => {
-                        setContactPickerQuery(e.target.value);
-                        setContactPickerOpen(true);
-                      }}
-                      placeholder={`Search saved contacts (${savedContactsList.length}) by name, phone, or tag...`}
-                      aria-label="Search saved contacts to fill call form"
-                      aria-expanded={contactPickerOpen}
-                      className="w-full min-h-[42px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] pl-9 pr-9 py-2 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-                    />
-                    {contactPickerQuery && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setContactPickerQuery('');
-                          setContactPickerOpen(true);
-                        }}
-                        aria-label="Clear saved contact search"
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[34px] min-w-[34px] flex items-center justify-center text-[#8A93A0] hover:text-[#08246B] dark:hover:text-white"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-
-                  <AnimatePresence>
-                    {contactPickerOpen && (
-                      <motion.div
-                        initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
-                        animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                        exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
-                        transition={{ duration: prefersReducedMotion ? 0.08 : 0.14 }}
-                        className="absolute left-0 right-0 top-full mt-1.5 z-30 rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-xl overflow-hidden"
-                      >
-                        <div className="px-3 py-1.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-between gap-2 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                          <span>
-                            {contactPickerQuery.trim()
-                              ? `Matches (${filteredQuickContacts.length}${filteredQuickContacts.length === 25 ? '+' : ''})`
-                              : `Saved contacts · showing first ${filteredQuickContacts.length} of ${savedContactsList.length}`}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setContactPickerOpen(false)}
-                            className="font-semibold text-[#FF6A00] hover:underline"
-                          >
-                            Close
-                          </button>
-                        </div>
-
-                        {filteredQuickContacts.length === 0 ? (
-                          <p className="px-3 py-3 text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
-                            No saved contact matches &ldquo;{contactPickerQuery.trim()}&rdquo;.
-                          </p>
-                        ) : (
-                          <div className="max-h-60 overflow-y-auto p-1">
-                            <LayoutGroup id="quick-log-contact-results">
-                              <AnimatePresence initial={false} mode={prefersReducedMotion ? 'sync' : 'popLayout'}>
-                                {filteredQuickContacts.map((picked) => (
-                                  <motion.button
-                                    key={picked.key}
-                                    layout={prefersReducedMotion ? false : 'position'}
-                                    initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0 }}
-                                    transition={{
-                                      layout: { type: 'spring', stiffness: 450, damping: 36, mass: 0.75 },
-                                      opacity: { duration: 0.12 },
-                                    }}
-                                    type="button"
-                                    onClick={() => {
-                                      setNewNumber(picked.number);
-                                      setNewName(picked.name);
-                                      if (picked.tag) setNewTag(picked.tag);
-                                      setContactPickerQuery(picked.name);
-                                      setContactPickerOpen(false);
-                                      triggerHaptic('tap');
-                                    }}
-                                    className="w-full min-h-[44px] px-2.5 py-2 rounded-xl flex items-center justify-between gap-2.5 text-left bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA]/70 dark:border-[var(--dark-border)]/70 last:border-b-0 hover:bg-[#FFF0E6]/70 dark:hover:bg-[#FF6A00]/12 transition-colors"
-                                  >
-                                    <span className="flex items-center gap-2.5 min-w-0">
-                                      <span
-                                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-                                        style={{ backgroundColor: avatarColor(picked.number) }}
-                                      >
-                                        {initials(picked.name, picked.number)}
-                                      </span>
-                                      <span className="min-w-0">
-                                        <span className="block text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                                          {picked.name}
-                                        </span>
-                                        <span className="block text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                                          {maskPhoneNumber(picked.number, privacyMode)}
-                                        </span>
-                                      </span>
-                                    </span>
-                                    {picked.tag && (
-                                      <span className="text-[11px] font-semibold text-[#FF6A00] shrink-0">
-                                        {picked.tag}
-                                      </span>
-                                    )}
-                                  </motion.button>
-                                ))}
-                              </AnimatePresence>
-                            </LayoutGroup>
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="tel"
-                  required
-                  value={newNumber}
-                  onChange={(e) => setNewNumber(e.target.value)}
-                  placeholder="Phone number (e.g. +251911248890)"
-                  className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-                />
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Contact name (optional)"
-                  className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-                />
-                <CustomSelect
-                  ariaLabel="Call direction"
-                  value={newDirection}
-                  variant="inset"
-                  fullWidth
-                  options={[
-                    { value: 'outgoing', label: 'Outgoing' },
-                    { value: 'incoming', label: 'Incoming' },
-                    { value: 'missed', label: 'Missed' },
-                  ]}
-                  onChange={(val) => {
-                    triggerHaptic('tap');
-                    setNewDirection(val as CallDirection);
-                  }}
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <CustomSelect
-                    ariaLabel="SIM slot"
-                    value={newSim ?? ''}
-                    variant="inset"
-                    fullWidth
-                    options={[
-                      { value: 'SIM 1', label: 'SIM 1' },
-                      { value: 'SIM 2', label: 'SIM 2' },
-                      { value: '', label: 'No SIM' },
-                    ]}
-                    onChange={(val) => {
-                      triggerHaptic('tap');
-                      setNewSim((val || null) as SimSlot);
-                    }}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    disabled={newDirection === 'missed'}
-                    value={newDirection === 'missed' ? '0' : newDuration}
-                    onChange={(e) => setNewDuration(e.target.value)}
-                    placeholder="Seconds"
-                    className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm font-mono tabular-nums text-[#08246B] dark:text-white disabled:opacity-50 focus:outline-none focus:border-[#FF6A00]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <input
-                  type="text"
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  placeholder="Tag (optional, e.g. Work)"
-                  className="flex-1 min-w-[180px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-                />
-                <button
-                  type="submit"
-                  className="min-h-[44px] px-5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap shrink-0"
-                >
-                  Save call
-                </button>
-              </div>
-
-              <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center gap-2">
-                {liveCallStart ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const elapsed = Math.max(1, Math.floor((Date.now() - liveCallStart) / 1000));
-                      const targetNum = newNumber.trim() || '+251911248890';
-                      const targetName =
-                        newName.trim() || (newNumber.trim() ? '' : 'Real-Time Test');
-                      addQuickCall({
-                        number: targetNum,
-                        name: targetName,
-                        direction: newDirection === 'missed' ? 'outgoing' : newDirection,
-                        sim: newSim,
-                        duration: elapsed,
-                        note: 'Live timer test call',
-                        tag: newTag,
-                      });
-                      setLiveCallStart(null);
-                      setActiveCategory('log');
-                    }}
-                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-xs font-semibold text-white flex items-center gap-1.5 font-mono tabular-nums whitespace-nowrap"
-                  >
-                    <Square size={12} className="fill-white" />
-                    End &amp; log ({formatDuration(liveSeconds)})
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHaptic('tap');
-                      setLiveCallStart(Date.now());
-                    }}
-                    className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    <Play size={13} className="text-[#FF6A00]" />
-                    Start live call timer
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetNum = newNumber.trim() || '+251911248890';
-                    const targetName =
-                      newName.trim() || (newNumber.trim() ? '' : 'Real-Time Test');
-                    addQuickCall({
-                      number: targetNum,
-                      name: targetName,
-                      direction: 'missed',
-                      sim: newSim ?? 'SIM 1',
-                      duration: 0,
-                      note: 'Real-time missed call test',
-                      tag: newTag,
-                    });
-                    setActiveCategory('action');
-                  }}
-                  className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <PhoneMissed size={13} className="text-[#EF4444]" />
-                  Simulate missed call
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetNum = newNumber.trim() || '+251911248890';
-                    const targetName =
-                      newName.trim() || (newNumber.trim() ? '' : 'Real-Time Test');
-                    scheduleCall({
-                      number: targetNum,
-                      name: targetName || null,
-                      scheduledFor: Date.now() + 10_000,
-                      note: '10-second real-time alert test',
-                    });
-                    setActiveCategory('action');
-                  }}
-                  className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <Clock size={13} className="text-[#FF6A00]" />
-                  Test 10s alert
-                </button>
-              </div>
-            </form>
-
-            {/* Quick Shortcuts & Hotlines Below Input Form */}
+            {/* Quick Shortcuts & Hotlines */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               <button
                 type="button"
@@ -2063,26 +1670,6 @@ export const CallsTab = memo(function CallsTab({
                 role="menuitem"
                 onClick={() => {
                   setQuickActionsOpen(false);
-                  openLogTool();
-                }}
-                className="w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
-              >
-                <span className="w-8 h-8 rounded-lg bg-[#10B981]/15 text-[#10B981] flex items-center justify-center shrink-0">
-                  <Phone size={15} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate">Log / Test Call</span>
-                  <span className="block text-[11px] font-normal text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                    Live timer or quick entry
-                  </span>
-                </span>
-              </button>
-
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setQuickActionsOpen(false);
                   onOpenReminders();
                 }}
                 className="w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
@@ -2133,7 +1720,7 @@ export const CallsTab = memo(function CallsTab({
                 <span className="min-w-0">
                   <span className="block truncate">Carrier USSD</span>
                   <span className="block text-[11px] font-normal text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                    Ethio &amp; Safaricom codes
+                    ETC &amp; SFC codes
                   </span>
                 </span>
               </button>

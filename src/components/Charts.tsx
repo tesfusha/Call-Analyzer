@@ -156,14 +156,12 @@ export function DirectionSplitChart({
           </ResponsiveContainer>
 
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
-            <AnimatePresence mode="wait" initial={false}>
               {activeSeg ? (
                 <motion.div
                   key={activeSeg.label}
-                  initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.88 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0.6, scale: 0.94 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
-                  transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                  transition={{ duration: prefersReducedMotion ? 0.05 : 0.1 }}
                   className="flex flex-col items-center"
                 >
                   <span
@@ -182,10 +180,9 @@ export function DirectionSplitChart({
               ) : (
                 <motion.div
                   key="total"
-                  initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.92 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0.6, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.92 }}
-                  transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                  transition={{ duration: prefersReducedMotion ? 0.05 : 0.1 }}
                   className="flex flex-col items-center"
                 >
                   <span className="text-2xl font-bold tabular-nums text-[#08246B] dark:text-white leading-tight">
@@ -196,7 +193,6 @@ export function DirectionSplitChart({
                   </span>
                 </motion.div>
               )}
-            </AnimatePresence>
           </div>
         </div>
 
@@ -428,14 +424,12 @@ export function FrequencyBarChart({ buckets }: { buckets: DailyBucket[] }) {
         </span>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
-        {selectedBucket ? (
+      {selectedBucket ? (
           <motion.div
             key={selectedBucket.key}
-            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+            initial={prefersReducedMotion ? false : { opacity: 0.6, y: -3 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
-            transition={{ duration: prefersReducedMotion ? 0.1 : 0.18, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: prefersReducedMotion ? 0.05 : 0.1, ease: [0.22, 1, 0.36, 1] }}
             className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs"
           >
             <div className="space-y-1 min-w-0">
@@ -477,7 +471,6 @@ export function FrequencyBarChart({ buckets }: { buckets: DailyBucket[] }) {
             Hover or tap any day bar to inspect breakdown
           </p>
         )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -767,14 +760,12 @@ export function PeakHoursHeatmap({ cells }: { cells: HeatmapCell[] }) {
         </div>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
-        {selectedCell && (
+      {selectedCell && (
           <motion.div
             key={`${selectedCell.day}-${selectedCell.block}`}
-            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+            initial={prefersReducedMotion ? false : { opacity: 0.6, y: -3 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
-            transition={{ duration: prefersReducedMotion ? 0.1 : 0.16 }}
+            transition={{ duration: prefersReducedMotion ? 0.05 : 0.1 }}
             className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-2 flex items-center justify-between gap-2 text-xs"
           >
             <span className="font-mono tabular-nums text-[#08246B] dark:text-white">
@@ -794,7 +785,6 @@ export function PeakHoursHeatmap({ cells }: { cells: HeatmapCell[] }) {
             </button>
           </motion.div>
         )}
-      </AnimatePresence>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   Eye,
   EyeOff,
@@ -223,8 +223,8 @@ export function AuthForm({
               layoutId="auth-mode-active-pill"
               transition={
                 prefersReducedMotion
-                  ? { duration: 0.08 }
-                  : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
+                  ? { duration: 0.05 }
+                  : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
               }
               aria-hidden="true"
               className="absolute inset-0 rounded-lg bg-white dark:bg-[var(--dark-surface)] shadow-xs"
@@ -254,8 +254,8 @@ export function AuthForm({
               layoutId="auth-mode-active-pill"
               transition={
                 prefersReducedMotion
-                  ? { duration: 0.08 }
-                  : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
+                  ? { duration: 0.05 }
+                  : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
               }
               aria-hidden="true"
               className="absolute inset-0 rounded-lg bg-white dark:bg-[var(--dark-surface)] shadow-xs"
@@ -266,14 +266,12 @@ export function AuthForm({
         </button>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={mode}
-          initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.994 }}
-          animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
-          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.996 }}
-          transition={{ duration: prefersReducedMotion ? 0.08 : 0.16, ease: [0.22, 1, 0.36, 1] }}
-        >
+      <motion.div
+        key={mode}
+        initial={prefersReducedMotion ? false : { opacity: 0.75 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: prefersReducedMotion ? 0.04 : 0.08, ease: [0.22, 1, 0.36, 1] }}
+      >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
         <label className="block space-y-1">
           <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
@@ -460,8 +458,7 @@ export function AuthForm({
               : 'Create Account'}
         </button>
       </form>
-        </motion.div>
-      </AnimatePresence>
+      </motion.div>
 
       {allowGuest && (
         <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2">

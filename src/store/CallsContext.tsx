@@ -36,12 +36,18 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import {
+  cancelNativeNotification,
   fetchNativeRecentCalls,
+  getNativeNotificationPermission,
   hasNativeCallLogPlugin,
   hasNativeGoogleAuth,
+  hasNativeNotificationsPlugin,
   isNativeCapacitor,
+  requestNativeNotificationPermission,
   runNativeGoogleSignIn,
   runNativeSignOut,
+  scheduleNativeNotification,
+  showNativeNotification,
   subscribeNativeCallLog,
   syncNativeStatusBar,
 } from '@/src/lib/capacitor';
@@ -54,6 +60,7 @@ import {
   DEFAULT_SIM_LABELS,
   DEFAULT_TARIFFS,
   DEFAULT_VOICE_BUNDLES,
+  formatCarrierShort,
   normaliseEthPhone,
   type TariffConfig,
 } from '@/src/lib/ethiopia';
@@ -88,7 +95,8 @@ import type {
 
 const THEME_KEY = 'callanalyzer.theme.v3';
 const LEGACY_THEME_KEY = 'callanalyzer.theme.v2';
-const PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
+const LEGACY_PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
+const FONT_SCALE_KEY = 'callanalyzer.fontSize.v1';
 const ADMIN_EMAIL = 'tesfutilahun33@gmail.com';
 
 const LEGACY_UNSCOPED_KEYS = [
@@ -132,9 +140,10 @@ function userStorageKey(uid: string, suffix: (typeof SCOPED_SUFFIXES)[number]): 
   return `callanalyzer.u.${uid}.${suffix}`;
 }
 
-export type ThemePreference = 'system' | 'dark' | 'dark-gray' | 'light';
-export type ThemeMode = 'dark' | 'dark-gray' | 'light';
-export type DarkThemeVariant = 'dark' | 'dark-gray';
+export type ThemePreference = 'system' | 'light' | 'dark-gray';
+export type ThemeMode = 'light' | 'dark-gray';
+export type FontSizeScale = 'default' | 'large' | 'xlarge';
+export type NotificationPermissionStatus = 'granted' | 'denied' | 'prompt' | 'unsupported';
 export type SyncStatus = 'signed-out' | 'guest' | 'unverified' | 'syncing' | 'synced' | 'error';
 export type AuthPromptMode = 'closed' | 'signin' | 'signup';
 
@@ -211,16 +220,6 @@ export type ImportCounts = {
   duplicates: number;
 };
 
-type NewCallInput = {
-  number: string;
-  name: string;
-  direction: CallDirection;
-  sim: SimSlot;
-  duration: number;
-  note: string;
-  tag: string;
-};
-
 export type ScheduleCallInput = {
   number: string;
   name?: string | null;
@@ -243,9 +242,14 @@ type CallsContextValue = {
   theme: ThemeMode;
   themePreference: ThemePreference;
   systemIsDark: boolean;
-  preferredDarkVariant: DarkThemeVariant;
+  fontSizeScale: FontSizeScale;
+  setFontSizeScale: (scale: FontSizeScale) => void;
   profileName: string;
   notificationsEnabled: boolean;
+  notificationPermission: NotificationPermissionStatus;
+  refreshNotificationPermission: () => Promise<NotificationPermissionStatus>;
+  requestAlertPermissions: () => Promise<NotificationPermissionStatus>;
+  sendTestAlertNotification: (customBody?: string) => Promise<boolean>;
   privacyMode: boolean;
   pinEnabled: boolean;
   isLocked: boolean;
@@ -286,7 +290,6 @@ type CallsContextValue = {
   togglePrivacyMode: () => void;
   importCalls: (records: CallRecord[]) => ImportCounts;
   loadSampleData: () => ImportCounts;
-  addQuickCall: (input: NewCallInput) => CallRecord;
   patchCall: (id: string, patch: CallPatch) => void;
   removeCall: (id: string) => void;
   clearCalls: () => void;
@@ -308,9 +311,7 @@ type CallsContextValue = {
   setNotificationsEnabled: (enabled: boolean) => void;
   toggleFavorite: (number: string) => void;
   setThemeMode: (mode: ThemePreference) => void;
-  setPreferredDarkVariant: (variant: DarkThemeVariant) => void;
   toggleTheme: () => void;
-  setProfileName: (name: string) => void;
 };
 
 const CallsContext = createContext<CallsContextValue | null>(null);
@@ -437,8 +438,8 @@ function sanitizeTariffs(t: TariffConfig): TariffConfig {
 
 function sanitizeSimLabels(s: SimLabels): SimLabels {
   return {
-    sim1Label: clampStr(s.sim1Label.trim() || 'SIM 1', 40),
-    sim2Label: clampStr(s.sim2Label.trim() || 'SIM 2', 40),
+    sim1Label: clampStr(formatCarrierShort(s.sim1Label.trim() || 'SIM 1'), 40),
+    sim2Label: clampStr(formatCarrierShort(s.sim2Label.trim() || 'SIM 2'), 40),
   };
 }
 
@@ -603,16 +604,21 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   });
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => {
     removeStorageKey(LEGACY_THEME_KEY);
-    const saved = readJson<ThemePreference | null>(THEME_KEY, null);
-    if (saved === 'system' || saved === 'light' || saved === 'dark' || saved === 'dark-gray') {
-      return saved;
-    }
+    removeStorageKey(LEGACY_PREFERRED_DARK_THEME_KEY);
+    const saved = readJson<string | null>(THEME_KEY, null);
+    if (saved === 'light') return 'light';
+    if (saved === 'dark' || saved === 'dark-gray') return 'dark-gray';
+    if (saved === 'system') return 'system';
     return 'system';
   });
-  const [preferredDarkVariant, setPreferredDarkVariantState] = useState<DarkThemeVariant>(() => {
-    const savedDark = readJson<DarkThemeVariant | null>(PREFERRED_DARK_THEME_KEY, null);
-    if (savedDark === 'dark' || savedDark === 'dark-gray') return savedDark;
-    return 'dark-gray';
+  const [fontSizeScale, setFontSizeScaleState] = useState<FontSizeScale>(() => {
+    try {
+      const saved = localStorage.getItem(FONT_SCALE_KEY);
+      if (saved === 'large' || saved === 'xlarge' || saved === 'default') return saved;
+    } catch {
+      // ignore
+    }
+    return 'default';
   });
 
   useEffect(() => {
@@ -630,18 +636,37 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     return () => mql.removeListener(handleChange);
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.fontScale = fontSizeScale;
+    root.style.fontSize =
+      fontSizeScale === 'xlarge' ? '19px' : fontSizeScale === 'large' ? '17.5px' : '16px';
+    try {
+      localStorage.setItem(FONT_SCALE_KEY, fontSizeScale);
+    } catch {
+      // ignore
+    }
+  }, [fontSizeScale]);
+
+  const setFontSizeScale = useCallback((scale: FontSizeScale) => {
+    triggerHaptic('tap');
+    setFontSizeScaleState(scale);
+  }, []);
+
   const theme: ThemeMode = useMemo(() => {
     if (themePreference === 'system') {
-      return systemIsDark ? preferredDarkVariant : 'light';
+      return systemIsDark ? 'dark-gray' : 'light';
     }
     return themePreference;
-  }, [themePreference, systemIsDark, preferredDarkVariant]);
+  }, [themePreference, systemIsDark]);
   const themePreferenceRef = useRef<ThemePreference>(themePreference);
   useEffect(() => {
     themePreferenceRef.current = themePreference;
   }, [themePreference]);
   const [profileName, setProfileNameState] = useState<string>('');
   const [notificationsEnabled, setNotificationsEnabledState] = useState<boolean>(true);
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermissionStatus>('prompt');
   const [privacyMode, setPrivacyModeState] = useState<boolean>(false);
   const [pinHash, setPinHash] = useState<string>('');
   const [isLocked, setIsLocked] = useState<boolean>(false);
@@ -731,27 +756,25 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
-    const isDark = theme === 'dark' || theme === 'dark-gray';
+    const isDark = theme === 'dark-gray';
     const root = document.documentElement;
     root.classList.toggle('dark', isDark);
-    root.classList.toggle('dark-gray', theme === 'dark-gray');
+    root.classList.toggle('dark-gray', isDark);
     root.style.colorScheme = isDark ? 'dark' : 'light';
 
-    const activeColor =
-      theme === 'light' ? '#FFFFFF' : theme === 'dark-gray' ? '#111214' : '#08246B';
+    const activeColor = isDark ? '#111214' : '#FFFFFF';
     void syncNativeStatusBar(isDark, activeColor);
 
     const metas = document.querySelectorAll('meta[name="theme-color"]');
     if (themePreference === 'system') {
-      const darkColor = preferredDarkVariant === 'dark' ? '#08246B' : '#111214';
       metas.forEach((meta) => {
         const media = meta.getAttribute('media') || '';
         if (media.includes('light')) {
           meta.setAttribute('content', '#FFFFFF');
         } else if (media.includes('dark')) {
-          meta.setAttribute('content', darkColor);
+          meta.setAttribute('content', '#111214');
         } else {
-          meta.setAttribute('content', isDark ? darkColor : '#FFFFFF');
+          meta.setAttribute('content', activeColor);
         }
       });
       removeStorageKey(THEME_KEY);
@@ -761,8 +784,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       });
       writeJson(THEME_KEY, themePreference);
     }
-    writeJson(PREFERRED_DARK_THEME_KEY, preferredDarkVariant);
-  }, [theme, themePreference, preferredDarkVariant]);
+  }, [theme, themePreference]);
 
   const applySnapshotToState = useCallback((snap: ScopedUserSnapshot) => {
     setCalls(snap.calls);
@@ -1278,10 +1300,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             ]),
           ).slice(0, 500);
 
+          const rawTheme = data.theme;
           const nextTheme: ThemeMode =
             themePreferenceRef.current !== 'system' &&
-            (data.theme === 'dark' || data.theme === 'dark-gray' || data.theme === 'light')
-              ? data.theme
+            (rawTheme === 'dark' || rawTheme === 'dark-gray' || rawTheme === 'light')
+              ? rawTheme === 'light'
+                ? 'light'
+                : 'dark-gray'
               : local.theme;
           const nextName =
             typeof data.displayName === 'string' && data.displayName
@@ -1340,9 +1365,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
           if (themePreferenceRef.current !== 'system') {
             setThemePreferenceState(nextTheme);
-            if (nextTheme === 'dark' || nextTheme === 'dark-gray') {
-              setPreferredDarkVariantState(nextTheme);
-            }
           }
           if (nextName) setProfileNameState(nextName);
           setNotificationsEnabledState(nextNotifs);
@@ -1475,10 +1497,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               themePreferenceRef.current !== 'system' &&
               (data.theme === 'dark' || data.theme === 'dark-gray' || data.theme === 'light')
             ) {
-              setThemePreferenceState(data.theme);
-              if (data.theme === 'dark' || data.theme === 'dark-gray') {
-                setPreferredDarkVariantState(data.theme);
-              }
+              setThemePreferenceState(data.theme === 'light' ? 'light' : 'dark-gray');
             }
             if (typeof data.displayName === 'string') setProfileNameState(data.displayName);
             if (typeof data.phone === 'string') {
@@ -1675,6 +1694,131 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     };
   }, [applySnapshotToState, commitBatchWrites, persistWorkspaceToCloud, showNotice, syncUserRegistry, verifyRefreshKey]);
 
+  const refreshNotificationPermission =
+    useCallback(async (): Promise<NotificationPermissionStatus> => {
+      if (isNativeCapacitor()) {
+        if (!hasNativeNotificationsPlugin()) {
+          setNotificationPermission('unsupported');
+          return 'unsupported';
+        }
+        const st = await getNativeNotificationPermission();
+        setNotificationPermission(st);
+        return st;
+      }
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        const p = Notification.permission;
+        const mapped: NotificationPermissionStatus =
+          p === 'granted' ? 'granted' : p === 'denied' ? 'denied' : 'prompt';
+        setNotificationPermission(mapped);
+        return mapped;
+      }
+      setNotificationPermission('unsupported');
+      return 'unsupported';
+    }, []);
+
+  useEffect(() => {
+    void refreshNotificationPermission();
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void refreshNotificationPermission();
+      }
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [refreshNotificationPermission]);
+
+  const requestAlertPermissions =
+    useCallback(async (): Promise<NotificationPermissionStatus> => {
+      if (isNativeCapacitor()) {
+        if (!hasNativeNotificationsPlugin()) {
+          showNotice(
+            'Native notification plugin missing in APK. Add NotificationsPlugin.java to enable phone alerts.',
+            'warning',
+          );
+          setNotificationPermission('unsupported');
+          return 'unsupported';
+        }
+        const st = await requestNativeNotificationPermission();
+        setNotificationPermission(st);
+        if (st === 'granted') {
+          setNotificationsEnabledState(true);
+          const user = auth.currentUser;
+          if (user) void persistWorkspaceToCloud(user, { notificationsEnabled: true });
+          showNotice('Phone notifications allowed.', 'success');
+        } else if (st === 'denied') {
+          showNotice(
+            'Notification permission is off. Enable it in Phone Settings -> Apps -> Call Analyzer -> Notifications.',
+            'warning',
+          );
+        }
+        return st;
+      }
+
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        let perm = Notification.permission;
+        if (perm === 'default') {
+          perm = await Notification.requestPermission();
+        }
+        const mapped: NotificationPermissionStatus =
+          perm === 'granted' ? 'granted' : perm === 'denied' ? 'denied' : 'prompt';
+        setNotificationPermission(mapped);
+        if (mapped === 'granted') {
+          setNotificationsEnabledState(true);
+          const user = auth.currentUser;
+          if (user) void persistWorkspaceToCloud(user, { notificationsEnabled: true });
+          showNotice('Browser alerts allowed.', 'success');
+        } else if (mapped === 'denied') {
+          showNotice('Browser notification permission is blocked in browser settings.', 'warning');
+        }
+        return mapped;
+      }
+
+      setNotificationPermission('unsupported');
+      showNotice('Notifications unavailable here; in-app alerts stay active.');
+      return 'unsupported';
+    }, [persistWorkspaceToCloud, showNotice]);
+
+  const deliverSystemNotification = useCallback(
+    async (idKey: string, title: string, body: string): Promise<boolean> => {
+      if (isNativeCapacitor()) {
+        if (!hasNativeNotificationsPlugin()) return false;
+        return showNativeNotification(idKey, title, body);
+      }
+      if (
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
+        new Notification(title, { body });
+        return true;
+      }
+      return false;
+    },
+    [],
+  );
+
+  const sendTestAlertNotification = useCallback(
+    async (customBody?: string): Promise<boolean> => {
+      const status = await requestAlertPermissions();
+      if (status !== 'granted') return false;
+      const body =
+        customBody?.trim() ||
+        'Callback reminders, missed call alerts, and Ethiopian holiday wishes are active.';
+      const sent = await deliverSystemNotification('test-alert', 'Call Analyzer - ETH', body);
+      if (sent) {
+        showNotice('Notification sent.', 'success');
+      } else {
+        showNotice('Could not display system notification.');
+      }
+      return sent;
+    },
+    [deliverSystemNotification, requestAlertPermissions, showNotice],
+  );
+
   // Periodically check due scheduled calls and fire alerts respecting Quiet Hours
   useEffect(() => {
     const checkDue = () => {
@@ -1708,23 +1852,25 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const label = first.name?.trim() || first.number;
       showNotice(`Scheduled call reminder: ${label}`);
 
-      if (
-        notificationsEnabled &&
-        !isWithinQuietHours(reminderPrefs) &&
-        typeof window !== 'undefined' &&
-        'Notification' in window &&
-        Notification.permission === 'granted'
-      ) {
-        new Notification(`Call reminder: ${label}`, {
-          body: first.note?.trim() || `Scheduled call to ${first.number}`,
-        });
+      if (notificationsEnabled && !isWithinQuietHours(reminderPrefs)) {
+        void deliverSystemNotification(
+          first.id,
+          `Call reminder: ${label}`,
+          first.note?.trim() || `Scheduled call to ${first.number}`,
+        );
       }
     };
 
     checkDue();
     const timer = setInterval(checkDue, 5_000);
     return () => clearInterval(timer);
-  }, [scheduledCalls, notificationsEnabled, reminderPrefs, showNotice]);
+  }, [
+    scheduledCalls,
+    notificationsEnabled,
+    reminderPrefs,
+    showNotice,
+    deliverSystemNotification,
+  ]);
 
   const signInWithGoogle = useCallback(async (): Promise<AuthActionResult> => {
     try {
@@ -2218,6 +2364,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             `Synced ${counts.added} call${counts.added === 1 ? '' : 's'} from your phone.`,
             'success',
           );
+          const latestNewMissed = fetched.find(
+            (c) => c.direction === 'missed' && c.timestamp > lastSince,
+          );
+          if (
+            !manual &&
+            latestNewMissed &&
+            lastSince > 0 &&
+            notificationsEnabled &&
+            !isWithinQuietHours(reminderPrefs)
+          ) {
+            const label = latestNewMissed.name?.trim() || latestNewMissed.number;
+            void deliverSystemNotification(
+              latestNewMissed.id,
+              `Missed call from ${label}`,
+              'Open Call Analyzer to call back or schedule a reminder.',
+            );
+          }
         } else if (manual) {
           showNotice(`Phone call logs up to date (${fetched.length} checked).`, 'tap');
         }
@@ -2228,7 +2391,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         nativeSyncingRef.current = false;
       }
     },
-    [importCalls, requireSignedInUser, showNotice],
+    [
+      deliverSystemNotification,
+      importCalls,
+      notificationsEnabled,
+      reminderPrefs,
+      requireSignedInUser,
+      showNotice,
+    ],
   );
 
   const syncPhoneCalls = useCallback(
@@ -2441,64 +2611,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
     return counts;
   }, [commitBatchWrites, ensureWorkspaceReady, importCalls, requireSignedInUser]);
-
-  const addQuickCall = useCallback(
-    (input: NewCallInput): CallRecord => {
-      const timestamp = Date.now();
-      const duration = input.direction === 'missed' ? 0 : Math.max(0, Math.round(input.duration));
-      const number = input.number.trim();
-      const key = getContactKey(number);
-      const knownName = input.name.trim() || contacts[key]?.name || null;
-      const record: CallRecord = {
-        id: makeCallId({ number, timestamp, direction: input.direction, duration }),
-        number,
-        name: knownName,
-        direction: input.direction,
-        sim: input.sim,
-        timestamp,
-        duration,
-        note: input.note.trim() || null,
-        tag: input.tag.trim() || contacts[key]?.tag || null,
-      };
-      const user = requireSignedInUser();
-      if (!user) return record;
-
-      setCalls((prev) => [record, ...prev]);
-
-      const docId = toFirestoreDocId(record.id);
-      void ensureWorkspaceReady(user.uid)
-        .then(() =>
-          setDoc(
-            doc(db, 'users', user.uid, 'calls', docId),
-            serializeCallForFirestore(user.uid, record),
-          ),
-        )
-        .catch((err) =>
-          handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/calls/${docId}`),
-        );
-
-      if (input.direction === 'missed') {
-        const label = knownName || number;
-        showNotice(`Missed call from ${label} — callback reminder active.`, 'warning');
-        if (
-          notificationsEnabled &&
-          !isWithinQuietHours(reminderPrefs) &&
-          typeof window !== 'undefined' &&
-          'Notification' in window &&
-          Notification.permission === 'granted'
-        ) {
-          new Notification(`Missed call from ${label}`, {
-            body: 'Tap to call back or schedule a callback reminder.',
-          });
-        }
-      } else {
-        showNotice('Call logged.', 'success');
-      }
-
-      return record;
-    },
-    [contacts, ensureWorkspaceReady, notificationsEnabled, reminderPrefs, requireSignedInUser, showNotice],
-  );
 
   const patchCall = useCallback(
     (id: string, patch: CallPatch) => {
@@ -2764,16 +2876,41 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         void persistWorkspaceToCloud(user, { dismissedMissedArray: nextDismissed });
       }
 
+      if (
+        notificationsEnabled &&
+        !isWithinQuietHours(reminderPrefs) &&
+        isNativeCapacitor() &&
+        hasNativeNotificationsPlugin()
+      ) {
+        void scheduleNativeNotification(
+          item.id,
+          `Call reminder: ${resolvedName || number}`,
+          item.note || `Scheduled call to ${number}`,
+          item.scheduledFor,
+        );
+      }
+
       showNotice(`Scheduled call with ${resolvedName || number}.`, 'success');
       return item;
     },
-    [contacts, ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [
+      contacts,
+      ensureWorkspaceReady,
+      notificationsEnabled,
+      persistWorkspaceToCloud,
+      reminderPrefs,
+      requireSignedInUser,
+      showNotice,
+    ],
   );
 
   const completeScheduledCall = useCallback(
     (id: string) => {
       const user = requireSignedInUser();
       if (!user) return;
+      if (isNativeCapacitor() && hasNativeNotificationsPlugin()) {
+        void cancelNativeNotification(id);
+      }
       const existingItem = stateRef.current.scheduledCalls.find((item) => item.id === id);
       const updatedItem: ScheduledCall | null = existingItem
         ? { ...existingItem, status: 'completed' }
@@ -2831,6 +2968,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           )
           .sort((a, b) => a.scheduledFor - b.scheduledFor),
       );
+      if (
+        updatedItem &&
+        notificationsEnabled &&
+        !isWithinQuietHours(reminderPrefs) &&
+        isNativeCapacitor() &&
+        hasNativeNotificationsPlugin()
+      ) {
+        void scheduleNativeNotification(
+          id,
+          `Call reminder: ${updatedItem.name?.trim() || updatedItem.number}`,
+          updatedItem.note || `Scheduled call to ${updatedItem.number}`,
+          nextTime,
+        );
+      }
       if (updatedItem) {
         const docId = toFirestoreDocId(id);
         void ensureWorkspaceReady(user.uid)
@@ -2850,13 +3001,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
       showNotice(`Snoozed reminder by ${minutes} minutes.`, 'tap');
     },
-    [ensureWorkspaceReady, requireSignedInUser, showNotice],
+    [
+      ensureWorkspaceReady,
+      notificationsEnabled,
+      reminderPrefs,
+      requireSignedInUser,
+      showNotice,
+    ],
   );
 
   const removeScheduledCall = useCallback(
     (id: string) => {
       const user = requireSignedInUser();
       if (!user) return;
+      if (isNativeCapacitor() && hasNativeNotificationsPlugin()) {
+        void cancelNativeNotification(id);
+      }
       setScheduledCalls((prev) => prev.filter((item) => item.id !== id));
       const docId = toFirestoreDocId(id);
       void ensureWorkspaceReady(user.uid)
@@ -2980,33 +3140,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const setThemeMode = useCallback(
     (mode: ThemePreference) => {
       triggerHaptic('tap');
-      if (mode === 'dark' || mode === 'dark-gray') {
-        setPreferredDarkVariantState(mode);
-      }
       setThemePreferenceState(mode);
       const resolvedNext: ThemeMode =
-        mode === 'system' ? (systemIsDark ? preferredDarkVariant : 'light') : mode;
-      const user = auth.currentUser;
-      if (user) void persistWorkspaceToCloud(user, { theme: resolvedNext });
-    },
-    [persistWorkspaceToCloud, preferredDarkVariant, systemIsDark],
-  );
-
-  const setPreferredDarkVariant = useCallback(
-    (variant: DarkThemeVariant) => {
-      triggerHaptic('tap');
-      setPreferredDarkVariantState(variant);
-      if (themePreferenceRef.current === 'dark' || themePreferenceRef.current === 'dark-gray') {
-        setThemePreferenceState(variant);
-      }
-      const resolvedNext: ThemeMode =
-        themePreferenceRef.current === 'system'
-          ? systemIsDark
-            ? variant
-            : 'light'
-          : themePreferenceRef.current === 'light'
-            ? 'light'
-            : variant;
+        mode === 'system' ? (systemIsDark ? 'dark-gray' : 'light') : mode;
       const user = auth.currentUser;
       if (user) void persistWorkspaceToCloud(user, { theme: resolvedNext });
     },
@@ -3015,26 +3151,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const toggleTheme = useCallback(() => {
     triggerHaptic('tap');
-    const isCurrentlyDark =
-      stateRef.current.theme === 'dark' || stateRef.current.theme === 'dark-gray';
-    const next: ThemeMode = isCurrentlyDark ? 'light' : preferredDarkVariant;
+    const isCurrentlyDark = stateRef.current.theme === 'dark-gray';
+    const next: ThemeMode = isCurrentlyDark ? 'light' : 'dark-gray';
     setThemePreferenceState(next);
     const user = auth.currentUser;
     if (user) void persistWorkspaceToCloud(user, { theme: next });
-  }, [persistWorkspaceToCloud, preferredDarkVariant]);
-
-  const setProfileName = useCallback(
-    (name: string) => {
-      const user = requireSignedInUser();
-      if (!user) return;
-      const clean = clampStr(name.trim(), 120);
-      setProfileNameState(clean);
-      void persistWorkspaceToCloud(user, { profileName: clean });
-      void syncUserRegistry(user, clean);
-      showNotice('Profile saved.', 'success');
-    },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice, syncUserRegistry],
-  );
+  }, [persistWorkspaceToCloud]);
 
   const favorites = useMemo(() => new Set(favoritesArray), [favoritesArray]);
   const dismissedMissedIds = useMemo(
@@ -3066,9 +3188,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       theme,
       themePreference,
       systemIsDark,
-      preferredDarkVariant,
+      fontSizeScale,
+      setFontSizeScale,
       profileName,
       notificationsEnabled,
+      notificationPermission,
+      refreshNotificationPermission,
+      requestAlertPermissions,
+      sendTestAlertNotification,
       privacyMode,
       pinEnabled,
       isLocked,
@@ -3109,7 +3236,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       togglePrivacyMode,
       importCalls,
       loadSampleData,
-      addQuickCall,
       patchCall,
       removeCall,
       clearCalls,
@@ -3131,9 +3257,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setNotificationsEnabled,
       toggleFavorite,
       setThemeMode,
-      setPreferredDarkVariant,
       toggleTheme,
-      setProfileName,
     }),
     [
       calls,
@@ -3149,9 +3273,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       theme,
       themePreference,
       systemIsDark,
-      preferredDarkVariant,
+      fontSizeScale,
+      setFontSizeScale,
       profileName,
       notificationsEnabled,
+      notificationPermission,
+      refreshNotificationPermission,
+      requestAlertPermissions,
+      sendTestAlertNotification,
       privacyMode,
       pinEnabled,
       isLocked,
@@ -3192,7 +3321,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       togglePrivacyMode,
       importCalls,
       loadSampleData,
-      addQuickCall,
       patchCall,
       removeCall,
       clearCalls,
@@ -3214,9 +3342,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setNotificationsEnabled,
       toggleFavorite,
       setThemeMode,
-      setPreferredDarkVariant,
       toggleTheme,
-      setProfileName,
     ],
   );
 

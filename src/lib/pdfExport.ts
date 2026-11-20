@@ -339,7 +339,9 @@ function renderCarrierBarChart(carriers: CarrierStat[]): string {
   }
 
   const colors: Record<string, string> = {
+    ETC: '#FF6A00',
     'Ethio Telecom': '#FF6A00',
+    SFC: '#10B981',
     'Safaricom Ethiopia': '#10B981',
     Landline: '#4FA3F7',
     'International / Other': '#8B5CF6',

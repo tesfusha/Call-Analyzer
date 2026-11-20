@@ -3,24 +3,35 @@
 
 :root {
   color-scheme: light;
-  --dark-canvas: #041240;
-  --dark-surface: #08246B;
-  --dark-surface-95: rgba(8, 36, 107, 0.95);
-  --dark-elevated: #0C2D85;
-  --dark-elevated-60: rgba(12, 45, 133, 0.6);
-  --dark-elevated-70: rgba(12, 45, 133, 0.7);
-  --dark-border: #163B96;
-  --dark-border-70: rgba(22, 59, 150, 0.7);
-  --dark-border-strong: #2C4E9E;
-  --dark-text-secondary: #B0C4DE;
-  --dark-text-muted: #7A8BA8;
+  font-size: 16px;
+  --dark-canvas: #111214;
+  --dark-surface: #1B1C20;
+  --dark-surface-95: rgba(17, 18, 20, 0.96);
+  --dark-elevated: #25272C;
+  --dark-elevated-60: rgba(37, 39, 44, 0.65);
+  --dark-elevated-70: rgba(37, 39, 44, 0.78);
+  --dark-border: rgba(255, 255, 255, 0.09);
+  --dark-border-70: rgba(255, 255, 255, 0.06);
+  --dark-border-strong: rgba(255, 255, 255, 0.2);
+  --dark-text-secondary: #9CA3AF;
+  --dark-text-muted: #717680;
 }
 
-:root.dark {
-  color-scheme: dark;
+html[data-font-scale='default'] {
+  font-size: 16px;
 }
 
+html[data-font-scale='large'] {
+  font-size: 17.5px;
+}
+
+html[data-font-scale='xlarge'] {
+  font-size: 19px;
+}
+
+:root.dark,
 .dark-gray {
+  color-scheme: dark;
   --dark-canvas: #111214;
   --dark-surface: #1B1C20;
   --dark-surface-95: rgba(17, 18, 20, 0.96);
@@ -37,6 +48,10 @@
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  }
+
+  svg {
+    flex-shrink: 0;
   }
 
   .font-mono {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Clock, Search, X } from 'lucide-react';
+import { DateTimePicker } from '@/src/components/DateTimePicker';
 import { getContactKey } from '@/src/lib/contacts';
 import { toDateTimeLocalValue, tomorrowAtHour } from '@/src/lib/schedule';
 import { maskPhoneNumber } from '@/src/lib/security';
@@ -251,18 +252,17 @@ export function QuickScheduleModal({
             </div>
           </div>
 
-          <label className="block space-y-1">
+          <div className="space-y-1">
             <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Date & time
+              Date &amp; time
             </span>
-            <input
-              type="datetime-local"
-              required
+            <DateTimePicker
               value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-xs font-mono text-[#08246B] dark:text-white"
+              onChange={setScheduledAt}
+              variant="inset"
+              ariaLabel="Scheduled date and time"
             />
-          </label>
+          </div>
 
           <label className="block space-y-1">
             <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">

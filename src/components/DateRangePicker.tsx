@@ -1,3 +1,4 @@
+import { DatePickerField } from '@/src/components/DateTimePicker';
 import {
   formatIsoDateDual,
   getEthiopianMonthGregorianBounds,
@@ -92,41 +93,41 @@ export function DateRangePicker({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block space-y-1">
+            <div className="space-y-1">
               <span className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">From date</span>
-              <input
-                type="date"
+              <DatePickerField
                 value={startValue}
-                max={endValue || undefined}
-                onChange={(e) =>
-                  onChangeCustomRange({ start: e.target.value, end: endValue })
+                maxDate={endValue || undefined}
+                onChange={(nextStart) =>
+                  onChangeCustomRange({ start: nextStart, end: endValue })
                 }
-                className="w-full min-h-[42px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                ariaLabel="From date"
+                variant="inset"
               />
               {startValue && (
                 <span className="block text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
                   {formatIsoDateDual(startValue)}
                 </span>
               )}
-            </label>
+            </div>
 
-            <label className="block space-y-1">
+            <div className="space-y-1">
               <span className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">To date</span>
-              <input
-                type="date"
+              <DatePickerField
                 value={endValue}
-                min={startValue || undefined}
-                onChange={(e) =>
-                  onChangeCustomRange({ start: startValue, end: e.target.value })
+                minDate={startValue || undefined}
+                onChange={(nextEnd) =>
+                  onChangeCustomRange({ start: startValue, end: nextEnd })
                 }
-                className="w-full min-h-[42px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                ariaLabel="To date"
+                variant="inset"
               />
               {endValue && (
                 <span className="block text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
                   {formatIsoDateDual(endValue)}
                 </span>
               )}
-            </label>
+            </div>
           </div>
         </div>
       )}

@@ -27,19 +27,19 @@ export type UssdCategory = 'all' | 'emergency' | 'ethio' | 'safaricom' | 'custom
 const USSD_META: Record<UssdCategory, { title: string; description: string }> = {
   all: {
     title: 'All Carrier USSD Codes',
-    description: 'All Ethio Telecom & Safaricom Ethiopia balance, package, and callback codes',
+    description: 'All ETC & SFC balance, package, and callback codes',
   },
   emergency: {
     title: '24/7 Ethiopian Emergency Hotlines',
     description: '24/7 Ethiopian police, fire, ambulance, traffic, and essential utility hotlines',
   },
   ethio: {
-    title: 'Ethio Telecom USSD Codes',
-    description: 'Ethio Telecom airtime, package menu (*999#), transfer, and support codes',
+    title: 'ETC USSD Codes',
+    description: 'ETC airtime, package menu (*999#), transfer, and support codes',
   },
   safaricom: {
-    title: 'Safaricom Ethiopia USSD Codes',
-    description: 'Safaricom Ethiopia balance (*704#), offers (*777#), and support codes',
+    title: 'SFC USSD Codes',
+    description: 'SFC balance (*704#), offers (*777#), and support codes',
   },
   custom: {
     title: 'Custom USSD Dialer',
@@ -89,8 +89,8 @@ export function CarrierUssdModal({
     }
   }, [activeCategory, open]);
 
-  const ethioCount = ETHIOPIAN_USSD_CODES.filter((c) => c.carrier === 'Ethio Telecom').length;
-  const safariCount = ETHIOPIAN_USSD_CODES.filter((c) => c.carrier === 'Safaricom Ethiopia').length;
+  const ethioCount = ETHIOPIAN_USSD_CODES.filter((c) => c.carrier === 'ETC').length;
+  const safariCount = ETHIOPIAN_USSD_CODES.filter((c) => c.carrier === 'SFC').length;
 
   const categories: Array<CategoryItem<UssdCategory>> = [
     { key: 'all', label: 'All', icon: Hash, count: ETHIOPIAN_USSD_CODES.length },
@@ -100,8 +100,8 @@ export function CarrierUssdModal({
       icon: ShieldAlert,
       count: ETHIOPIAN_EMERGENCY_HOTLINES.length,
     },
-    { key: 'ethio', label: 'Ethio Tel', icon: Signal, count: ethioCount },
-    { key: 'safaricom', label: 'Safaricom', icon: Phone, count: safariCount },
+    { key: 'ethio', label: 'ETC', icon: Signal, count: ethioCount },
+    { key: 'safaricom', label: 'SFC', icon: Phone, count: safariCount },
     { key: 'custom', label: 'Custom', icon: SlidersHorizontal },
   ];
 
@@ -109,9 +109,9 @@ export function CarrierUssdModal({
     activeCategory === 'all'
       ? ETHIOPIAN_USSD_CODES
       : activeCategory === 'ethio'
-        ? ETHIOPIAN_USSD_CODES.filter((item) => item.carrier === 'Ethio Telecom')
+        ? ETHIOPIAN_USSD_CODES.filter((item) => item.carrier === 'ETC')
         : activeCategory === 'safaricom'
-          ? ETHIOPIAN_USSD_CODES.filter((item) => item.carrier === 'Safaricom Ethiopia')
+          ? ETHIOPIAN_USSD_CODES.filter((item) => item.carrier === 'SFC')
           : [];
 
   const copyCode = async (code: string, label: string) => {

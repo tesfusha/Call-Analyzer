@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import type { LucideIcon } from 'lucide-react';
 import { triggerHaptic } from '@/src/lib/haptics';
 
@@ -76,8 +76,8 @@ export function CategoryTabs<T extends string>({
                 layoutId={`cat-pill-${layoutId}`}
                 transition={
                   prefersReducedMotion
-                    ? { duration: 0.08 }
-                    : { type: 'spring', stiffness: 440, damping: 34, mass: 0.75 }
+                    ? { duration: 0.05 }
+                    : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
                 }
                 aria-hidden="true"
                 className="absolute inset-0 rounded-xl bg-[#FF6A00] shadow-sm z-0"
@@ -120,40 +120,25 @@ export function CategoryPanel({
   const fadeOnly = prefersReducedMotion || transitionStyle === 'fade';
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={activeKey}
-        role="tabpanel"
-        aria-label={label}
-        initial={
-          prefersReducedMotion
-            ? { opacity: 0 }
-            : fadeOnly
-              ? { opacity: 0, scale: 0.994 }
-              : { opacity: 0, y: 6 }
-        }
-        animate={
-          prefersReducedMotion
-            ? { opacity: 1 }
-            : fadeOnly
-              ? { opacity: 1, scale: 1 }
-              : { opacity: 1, y: 0 }
-        }
-        exit={
-          prefersReducedMotion
-            ? { opacity: 0 }
-            : fadeOnly
-              ? { opacity: 0, scale: 0.996 }
-              : { opacity: 0, y: -4 }
-        }
-        transition={{
-          duration: prefersReducedMotion ? 0.08 : 0.16,
-          ease: [0.22, 1, 0.36, 1],
-        }}
-        className={className}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <motion.div
+      key={activeKey}
+      role="tabpanel"
+      aria-label={label}
+      initial={
+        prefersReducedMotion
+          ? false
+          : fadeOnly
+            ? { opacity: 0.7 }
+            : { opacity: 0.7, y: 3 }
+      }
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        duration: prefersReducedMotion ? 0.04 : 0.08,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      className={className}
+    >
+      {children}
+    </motion.div>
   );
 }
