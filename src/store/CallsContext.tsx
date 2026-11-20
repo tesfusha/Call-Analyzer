@@ -41,6 +41,7 @@ import {
   hasNativeGoogleAuth,
   isNativeCapacitor,
   runNativeGoogleSignIn,
+  runNativeSignOut,
   subscribeNativeCallLog,
   syncNativeStatusBar,
 } from '@/src/lib/capacitor';
@@ -182,7 +183,9 @@ function mapFirebaseAuthError(error: unknown, fallback: string): string {
     case 'auth/user-disabled':
       return 'This account has been disabled.';
     case 'auth/network-request-failed':
-      return 'Network error. Check your connection and try again.';
+      return isNativeCapacitor()
+        ? 'Network error connecting to Firebase. Check your Wi-Fi/mobile data and confirm INTERNET permission is enabled in the APK.'
+        : 'Network error. Check your connection and try again.';
     default:
       return fallback;
   }
@@ -1755,10 +1758,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       showNotice(`Signed in as ${res.user.displayName || res.user.email || 'Google user'}.`);
       return { ok: true };
     } catch (error) {
-      const code = (error as { code?: string })?.code ?? '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        showNotice('Sign-in popup closed.');
-        return { ok: false, error: 'Sign-in popup was closed.' };
+      const code = (error as { code?: string | number })?.code ?? '';
+      const rawMsg =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : String((error as { message?: string })?.message ?? '');
+      const lower = `${code} ${rawMsg}`.toLowerCase();
+
+      if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        lower.includes('12501') ||
+        lower.includes('cancel')
+      ) {
+        showNotice('Sign-in cancelled.');
+        return { ok: false, error: 'Sign-in was cancelled.' };
       }
       if (code === 'auth/popup-blocked') {
         const msg = 'Popup was blocked by your browser. Allow popups for this site and try again.';
@@ -1768,6 +1784,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (code === 'auth/unauthorized-domain') {
         const msg =
           'This domain is not authorized for Google Sign-In. Add it in Firebase Auth or sign in with Email below.';
+        showNotice(msg);
+        return { ok: false, error: msg };
+      }
+      if (code === 'auth/network-request-failed' || lower.includes('network')) {
+        const msg = 'Network error during Google Sign-In. Check your Wi-Fi or mobile data and try again.';
+        showNotice(msg);
+        return { ok: false, error: msg };
+      }
+      if (isNativeCapacitor() && (lower.includes('10:') || lower.includes('12500') || lower.includes('developer'))) {
+        const msg =
+          'Google Sign-In is missing your Android SHA-1 or google-services.json setup in Firebase Console.';
         showNotice(msg);
         return { ok: false, error: msg };
       }
@@ -1934,6 +1961,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
       await signOut(auth);
+      await runNativeSignOut();
       if (prevUid) clearUserScopedStorage(prevUid);
       clearLegacyUnscopedKeys();
       applySnapshotToState(createEmptySnapshot());

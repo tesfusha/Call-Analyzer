@@ -5,9 +5,14 @@ type CapacitorPluginHandle = {
 };
 
 type NativeFirebaseAuthPlugin = {
-  signInWithGoogle?: () => Promise<{
+  signInWithGoogle?: (opts?: { skipNativeAuth?: boolean }) => Promise<{
     credential?: { idToken?: string | null; accessToken?: string | null } | null;
   }>;
+  signOut?: () => Promise<void>;
+};
+
+type NativeSystemBarsPlugin = {
+  setBars?: (opts: { color: string; isDark: boolean }) => Promise<void>;
 };
 
 type NativeStatusBarPlugin = {
@@ -49,6 +54,7 @@ type CapacitorGlobal = {
   isPluginAvailable?: (name: string) => boolean;
   Plugins?: {
     FirebaseAuthentication?: NativeFirebaseAuthPlugin;
+    SystemBars?: NativeSystemBarsPlugin;
     StatusBar?: NativeStatusBarPlugin;
     App?: NativeAppPlugin;
     CallLog?: NativeCallLogPlugin;
@@ -118,32 +124,51 @@ export async function runNativeGoogleSignIn(): Promise<{
   if (!plugin || typeof plugin.signInWithGoogle !== 'function') {
     throw new Error('NATIVE_GOOGLE_AUTH_UNAVAILABLE');
   }
-  const result = await plugin.signInWithGoogle();
+  const result = await plugin.signInWithGoogle({});
   return {
     idToken: result?.credential?.idToken ?? null,
     accessToken: result?.credential?.accessToken ?? null,
   };
 }
 
+export async function runNativeSignOut(): Promise<void> {
+  if (!isNativeCapacitor()) return;
+  const plugin = getCapacitor()?.Plugins?.FirebaseAuthentication;
+  if (plugin && typeof plugin.signOut === 'function') {
+    try {
+      await plugin.signOut();
+    } catch {
+      // ignore native sign-out error
+    }
+  }
+}
+
 /**
- * Syncs native Android/iOS status bar icon contrast & background color when
- * @capacitor/status-bar is present in the APK build.
+ * Syncs native Android/iOS top status bar and bottom navigation bar colors &
+ * icon contrast using our SystemBars plugin (when present) and/or StatusBar.
  */
 export async function syncNativeStatusBar(isDark: boolean, backgroundColor: string): Promise<void> {
   if (!isNativeCapacitor()) return;
-  const statusBar = getCapacitor()?.Plugins?.StatusBar;
-  if (!statusBar) return;
+  const plugins = getCapacitor()?.Plugins;
+  if (!plugins) return;
+
   try {
-    // In Capacitor StatusBar: Style.Dark = light icons for dark backgrounds;
-    // Style.Light = dark icons for light backgrounds.
-    if (typeof statusBar.setOverlaysWebView === 'function') {
-      await statusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+    const systemBars = plugins.SystemBars;
+    if (systemBars && typeof systemBars.setBars === 'function') {
+      await systemBars.setBars({ color: backgroundColor, isDark }).catch(() => {});
     }
-    if (typeof statusBar.setStyle === 'function') {
-      await statusBar.setStyle({ style: isDark ? 'DARK' : 'LIGHT' }).catch(() => {});
-    }
-    if (typeof statusBar.setBackgroundColor === 'function') {
-      await statusBar.setBackgroundColor({ color: backgroundColor }).catch(() => {});
+
+    const statusBar = plugins.StatusBar;
+    if (statusBar) {
+      if (typeof statusBar.setOverlaysWebView === 'function') {
+        await statusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+      }
+      if (typeof statusBar.setStyle === 'function') {
+        await statusBar.setStyle({ style: isDark ? 'DARK' : 'LIGHT' }).catch(() => {});
+      }
+      if (typeof statusBar.setBackgroundColor === 'function') {
+        await statusBar.setBackgroundColor({ color: backgroundColor }).catch(() => {});
+      }
     }
   } catch {
     // ignore native status bar errors
