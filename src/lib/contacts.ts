@@ -11,6 +11,36 @@ import type {
 
 export const DEFAULT_RELATIONSHIP_TAGS = ['Family', 'Friends', 'Coworkers'] as const;
 
+/**
+ * Formats a contact/call tag into a compact label for dense call log rows
+ * (e.g. "Graphics Designer" -> "Graphics") while keeping short tags intact.
+ */
+export function formatShortTag(tag: string): string {
+  const clean = tag.trim();
+  if (!clean) return '';
+  if (clean.length <= 12) return clean;
+  const firstWord = clean.split(/\s+/)[0] ?? clean;
+  if (firstWord.length >= 3 && firstWord.length <= 12) {
+    return firstWord;
+  }
+  return `${clean.slice(0, 11).trimEnd()}…`;
+}
+
+export function mergeTagOptions(...sources: Array<Iterable<string | null | undefined>>): string[] {
+  const seen = new Map<string, string>();
+  for (const src of sources) {
+    for (const raw of src) {
+      const clean = typeof raw === 'string' ? raw.trim() : '';
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, clean);
+      }
+    }
+  }
+  return [...seen.values()];
+}
+
 const MS_PER_DAY = 86_400_000;
 
 export function getContactKey(number: string): string {

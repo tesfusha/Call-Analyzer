@@ -52,9 +52,11 @@ import {
   syncNativeStatusBar,
 } from '@/src/lib/capacitor';
 import {
+  DEFAULT_RELATIONSHIP_TAGS,
   buildSampleContactProfiles,
   decodeIfQuotedPrintableText,
   getContactKey,
+  mergeTagOptions,
 } from '@/src/lib/contacts';
 import {
   DEFAULT_SIM_LABELS,
@@ -97,6 +99,7 @@ const THEME_KEY = 'callanalyzer.theme.v3';
 const LEGACY_THEME_KEY = 'callanalyzer.theme.v2';
 const LEGACY_PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
 const FONT_SCALE_KEY = 'callanalyzer.fontSize.v1';
+const CUSTOM_TAGS_KEY = 'callanalyzer.customTags.v1';
 const ADMIN_EMAIL = 'tesfutilahun33@gmail.com';
 
 const LEGACY_UNSCOPED_KEYS = [
@@ -288,9 +291,11 @@ type CallsContextValue = {
   lockApp: () => void;
   setPrivacyMode: (enabled: boolean) => void;
   togglePrivacyMode: () => void;
+  availableTags: string[];
+  addCustomTag: (tag: string) => string;
   importCalls: (records: CallRecord[]) => ImportCounts;
   loadSampleData: () => ImportCounts;
-  patchCall: (id: string, patch: CallPatch) => void;
+  patchCall: (id: string, patch: CallPatch, options?: { applyTagToContact?: boolean }) => void;
   removeCall: (id: string) => void;
   clearCalls: () => void;
   mergeContacts: (sourceNumber: string, targetNumber: string, targetName: string) => void;
@@ -652,6 +657,34 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     triggerHaptic('tap');
     setFontSizeScaleState(scale);
   }, []);
+
+  const [customTags, setCustomTags] = useState<string[]>(() =>
+    readJson<string[]>(CUSTOM_TAGS_KEY, []).filter(
+      (item) => typeof item === 'string' && item.trim().length > 0,
+    ),
+  );
+
+  const addCustomTag = useCallback((rawTag: string): string => {
+    const clean = clampStr(rawTag, 48);
+    if (!clean) return '';
+    setCustomTags((prev) => {
+      const next = mergeTagOptions(prev, [clean]);
+      writeJson(CUSTOM_TAGS_KEY, next);
+      return next;
+    });
+    return clean;
+  }, []);
+
+  const availableTags = useMemo(
+    () =>
+      mergeTagOptions(
+        DEFAULT_RELATIONSHIP_TAGS,
+        customTags,
+        Object.values(contacts).map((c) => c.tag),
+        calls.map((c) => c.tag),
+      ),
+    [calls, contacts, customTags],
+  );
 
   const theme: ThemeMode = useMemo(() => {
     if (themePreference === 'system') {
@@ -2293,6 +2326,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (!user) return { added: 0, duplicates: 0 };
 
       const existing = new Set(stateRef.current.calls.map((c) => c.id));
+      const contactsMap = stateRef.current.contacts;
       const fresh: CallRecord[] = [];
       let dupCount = 0;
       records.forEach((rec) => {
@@ -2300,7 +2334,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           dupCount += 1;
         } else {
           existing.add(rec.id);
-          fresh.push(rec);
+          const contact = contactsMap[getContactKey(rec.number)];
+          const inheritedTag = rec.tag?.trim() || contact?.tag?.trim() || null;
+          const inheritedName =
+            rec.name?.trim() ||
+            (contact?.name?.trim() && contact.name.trim() !== contact.number
+              ? contact.name.trim()
+              : null);
+          fresh.push(
+            inheritedTag !== rec.tag || inheritedName !== rec.name
+              ? { ...rec, tag: inheritedTag, name: inheritedName }
+              : rec,
+          );
         }
       });
 
@@ -2613,28 +2658,82 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   }, [commitBatchWrites, ensureWorkspaceReady, importCalls, requireSignedInUser]);
 
   const patchCall = useCallback(
-    (id: string, patch: CallPatch) => {
+    (id: string, patch: CallPatch, options?: { applyTagToContact?: boolean }) => {
       const user = requireSignedInUser();
       if (!user) return;
       triggerHaptic('success');
       const existingCall = stateRef.current.calls.find((c) => c.id === id);
-      const updated = existingCall ? { ...existingCall, ...patch } : null;
-      setCalls((prev) => prev.map((call) => (call.id === id ? { ...call, ...patch } : call)));
-      if (updated) {
-        const docId = toFirestoreDocId(id);
+      if (!existingCall) return;
+
+      const cleanTag = patch.tag !== undefined ? (patch.tag?.trim() || null) : existingCall.tag;
+      if (cleanTag) {
+        addCustomTag(cleanTag);
+      }
+
+      const applyToContact = Boolean(options?.applyTagToContact && patch.tag !== undefined);
+      const targetKey = getContactKey(existingCall.number);
+      const changedCalls: CallRecord[] = [];
+
+      setCalls((prev) =>
+        prev.map((call) => {
+          if (call.id === id) {
+            const next = { ...call, ...patch, tag: cleanTag };
+            changedCalls.push(next);
+            return next;
+          }
+          if (applyToContact && getContactKey(call.number) === targetKey) {
+            const next = {
+              ...call,
+              tag: cleanTag,
+              name: patch.name !== undefined ? patch.name || call.name : call.name,
+            };
+            changedCalls.push(next);
+            return next;
+          }
+          return call;
+        }),
+      );
+
+      const writes: Array<{
+        pathSegments: [string, string, string, string];
+        data: Record<string, unknown>;
+      }> = changedCalls.map((c) => ({
+        pathSegments: ['users', user.uid, 'calls', toFirestoreDocId(c.id)],
+        data: serializeCallForFirestore(user.uid, c),
+      }));
+
+      if (applyToContact) {
+        const prevProfile = stateRef.current.contacts[targetKey];
+        const nextProfile: ContactProfile = healContactProfile({
+          key: targetKey,
+          number: prevProfile?.number || existingCall.number,
+          name:
+            (patch.name !== undefined ? patch.name?.trim() : '') ||
+            prevProfile?.name ||
+            existingCall.name ||
+            existingCall.number,
+          tag: cleanTag ?? '',
+          birthday: prevProfile?.birthday ?? null,
+          events: prevProfile?.events ?? [],
+          notes: prevProfile?.notes ?? '',
+          updatedAt: Date.now(),
+        });
+        setContacts((prev) => ({ ...prev, [targetKey]: nextProfile }));
+        writes.push({
+          pathSegments: ['users', user.uid, 'contacts', toFirestoreDocId(targetKey)],
+          data: serializeContactForFirestore(user.uid, nextProfile),
+        });
+      }
+
+      if (writes.length > 0) {
         void ensureWorkspaceReady(user.uid)
-          .then(() =>
-            setDoc(
-              doc(db, 'users', user.uid, 'calls', docId),
-              serializeCallForFirestore(user.uid, updated),
-            ),
-          )
+          .then(() => commitBatchWrites(writes))
           .catch((err) =>
-            handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/calls/${docId}`),
+            handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/calls`),
           );
       }
     },
-    [ensureWorkspaceReady, requireSignedInUser],
+    [addCustomTag, commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
   );
 
   const removeCall = useCallback(
@@ -2742,16 +2841,25 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         key,
         updatedAt: Date.now(),
       });
+      if (cleanProfile.tag.trim()) {
+        addCustomTag(cleanProfile.tag);
+      }
       setContacts((prev) => ({ ...prev, [key]: cleanProfile }));
 
+      const nextTag = cleanProfile.tag.trim() || null;
       const updatedCalls: CallRecord[] = [];
       setCalls((prev) =>
         prev.map((call) => {
           if (getContactKey(call.number) !== key) return call;
+          const nextName =
+            cleanProfile.name.trim() && cleanProfile.name.trim() !== cleanProfile.number
+              ? cleanProfile.name.trim()
+              : call.name;
+          if (call.name === nextName && (call.tag || null) === nextTag) return call;
           const next = {
             ...call,
-            name: cleanProfile.name.trim() || call.name,
-            tag: cleanProfile.tag.trim() || call.tag,
+            name: nextName,
+            tag: nextTag,
           };
           updatedCalls.push(next);
           return next;
@@ -2788,7 +2896,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           );
       }
     },
-    [commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
+    [addCustomTag, commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
   );
 
   const removeContactProfile = useCallback(
@@ -3234,6 +3342,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       lockApp,
       setPrivacyMode,
       togglePrivacyMode,
+      availableTags,
+      addCustomTag,
       importCalls,
       loadSampleData,
       patchCall,
@@ -3319,6 +3429,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       lockApp,
       setPrivacyMode,
       togglePrivacyMode,
+      availableTags,
+      addCustomTag,
       importCalls,
       loadSampleData,
       patchCall,

@@ -14,6 +14,7 @@ import {
   PhoneOutgoing,
   Plus,
   Star,
+  Tag,
   Trash2,
   User,
   X,
@@ -22,9 +23,9 @@ import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { DateTimePicker } from '@/src/components/DateTimePicker';
 import {
-  DEFAULT_RELATIONSHIP_TAGS,
   daysUntilAnnualDate,
   getContactKey,
+  mergeTagOptions,
 } from '@/src/lib/contacts';
 import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
 import {
@@ -104,6 +105,8 @@ export function ContactDetailModal({
     tariffs,
     simLabels,
     privacyMode,
+    availableTags,
+    addCustomTag,
     toggleFavorite,
     upsertContactProfile,
     removeContactProfile,
@@ -254,6 +257,10 @@ export function ContactDetailModal({
 
   const handleSaveProfile = () => {
     if (!contactNumber) return;
+    const cleanTag = tag.trim();
+    if (cleanTag) {
+      addCustomTag(cleanTag);
+    }
     const birthday: ContactBirthday | null = hasBirthday
       ? {
           calendar: bdayCalendar,
@@ -267,15 +274,25 @@ export function ContactDetailModal({
       key: contactKey,
       number: profile?.number || contactCalls[0]?.number || contactNumber,
       name: name.trim() || contactNumber,
-      tag: tag.trim(),
+      tag: cleanTag,
       birthday,
       events,
       notes: notes.trim(),
       updatedAt: Date.now(),
     };
     upsertContactProfile(nextProfile);
-    showNotice(`Saved ${nextProfile.name}'s profile.`);
+    showNotice(
+      cleanTag
+        ? `Saved ${nextProfile.name} (${cleanTag}).`
+        : `Saved ${nextProfile.name}'s profile.`,
+    );
+    onClose();
   };
+
+  const displayedTagChips = useMemo(
+    () => mergeTagOptions(availableTags, tag.trim() ? [tag.trim()] : []),
+    [availableTags, tag],
+  );
 
   const handleAddEvent = () => {
     if (!newEvtTitle.trim()) return;
@@ -357,9 +374,17 @@ export function ContactDetailModal({
                     {initials(displayName, contactNumber)}
                   </div>
                   <div className="min-w-0 space-y-0.5">
-                    <h2 className="text-lg font-bold text-[#08246B] dark:text-white truncate">
-                      {displayName}
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <h2 className="text-lg font-bold text-[#08246B] dark:text-white truncate">
+                        {displayName}
+                      </h2>
+                      {tag.trim() && (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00] shrink-0">
+                          <Tag size={12} className="shrink-0" />
+                          <span>{tag.trim()}</span>
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums truncate">
                       {maskPhoneNumber(contactCalls[0]?.number || contactNumber, privacyMode)} ·{' '}
                       {detectCarrier(contactNumber)}
@@ -631,32 +656,83 @@ export function ContactDetailModal({
               />
             </label>
 
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Relationship tag
-              </span>
+            <div className="space-y-2 sm:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Relationship / role tag
+                </span>
+                {tag.trim() ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00]">
+                    <Tag size={12} className="shrink-0" />
+                    <span>Selected: {tag.trim()}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTag('')}
+                      aria-label="Clear selected tag"
+                      className="ml-0.5 p-0.5 rounded hover:bg-[#FF6A00]/15"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                    No tag selected
+                  </span>
+                )}
+              </div>
+
               <div className="flex flex-wrap items-center gap-1.5">
-                {DEFAULT_RELATIONSHIP_TAGS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setTag(tag === preset ? '' : preset)}
-                    className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                      tag.toLowerCase() === preset.toLowerCase()
-                        ? 'bg-[#FF6A00] text-white'
-                        : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white'
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
+                {displayedTagChips.map((preset) => {
+                  const selected = tag.trim().toLowerCase() === preset.toLowerCase();
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setTag(selected ? '' : preset)}
+                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                        selected
+                          ? 'bg-[#FF6A00] text-white'
+                          : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
+                      }`}
+                    >
+                      <Tag size={11} className="shrink-0" />
+                      <span>{preset}</span>
+                      {selected && <Check size={12} className="shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={tag}
                   onChange={(e) => setTag(e.target.value)}
-                  placeholder="Custom tag..."
-                  className="flex-1 min-w-[90px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-1.5 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && tag.trim()) {
+                      e.preventDefault();
+                      const saved = addCustomTag(tag);
+                      if (saved) setTag(saved);
+                    }
+                  }}
+                  placeholder="Type custom tag (e.g. Graphics Designer)..."
+                  className="flex-1 min-w-0 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
                 />
+                <button
+                  type="button"
+                  disabled={!tag.trim()}
+                  onClick={() => {
+                    const saved = addCustomTag(tag);
+                    if (saved) {
+                      setTag(saved);
+                      showNotice(`Tag "${saved}" added. Tap Save to apply.`);
+                    }
+                  }}
+                  className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] disabled:opacity-45 text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0"
+                >
+                  <Plus size={13} />
+                  Add tag
+                </button>
               </div>
             </div>
           </div>
@@ -848,50 +924,6 @@ export function ContactDetailModal({
             />
           </label>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            {profile ? (
-              confirmDelete ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      removeContactProfile(profile.key);
-                      setConfirmDelete(false);
-                      onClose();
-                    }}
-                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-xs font-semibold text-white whitespace-nowrap"
-                  >
-                    Confirm delete
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDelete(false)}
-                    className="min-h-[42px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmDelete(true)}
-                  className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#FCA5A5] dark:border-[#EF4444]/40 text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#FEE2E2]/40 dark:hover:bg-[#EF4444]/10 flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <Trash2 size={14} />
-                  Delete contact
-                </button>
-              )
-            ) : (
-              <span />
-            )}
-            <button
-              type="button"
-              onClick={handleSaveProfile}
-              className="min-h-[42px] px-5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap"
-            >
-              Save contact profile
-            </button>
-          </div>
         </div>
         )}
 
@@ -954,6 +986,64 @@ export function ContactDetailModal({
         )}
         </CategoryPanel>
             </div>
+
+            {activeCategory === 'profile' && (
+              <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/90 dark:bg-[var(--dark-canvas)]/90">
+                {profile ? (
+                  confirmDelete ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          removeContactProfile(profile.key);
+                          setConfirmDelete(false);
+                          onClose();
+                        }}
+                        className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-xs font-semibold text-white whitespace-nowrap"
+                      >
+                        Confirm delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(false)}
+                        className="min-h-[42px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(true)}
+                      className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#FCA5A5] dark:border-[#EF4444]/40 text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#FEE2E2]/40 dark:hover:bg-[#EF4444]/10 flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  )
+                ) : (
+                  <span />
+                )}
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="min-h-[42px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    className="min-h-[42px] px-5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Check size={14} />
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

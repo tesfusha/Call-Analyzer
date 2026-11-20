@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   ChevronDown,
   ChevronRight,
@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Smartphone,
+  Tag,
 } from 'lucide-react';
 import { CarrierUssdModal, type UssdCategory } from '@/src/components/CarrierUssdModal';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
@@ -76,6 +77,7 @@ export function UsageTab({
     showNotice,
   } = useCalls();
 
+  const prefersReducedMotion = useReducedMotion();
   const [activeCategory, setActiveCategory] = useState<UsageCategory>('sim');
   const [range, setRange] = useState<TimeRange>('all');
   const [customRange, setCustomRange] = useState<DateRangeFilter>(null);
@@ -89,8 +91,7 @@ export function UsageTab({
   const [ussdOpen, setUssdOpen] = useState(false);
   const [ussdInitialCategory, setUssdInitialCategory] = useState<UssdCategory>('all');
   const [editingBundleSlot, setEditingBundleSlot] = useState<'sim1' | 'sim2' | null>(null);
-  const [visibleUsageContacts, setVisibleUsageContacts] = useState(40);
-  const prefersReducedMotion = useReducedMotion();
+  const [visibleUsageContacts, setVisibleUsageContacts] = useState(6);
 
   const openUssd = (initialCategory: UssdCategory = 'all') => {
     setUssdInitialCategory(initialCategory);
@@ -133,7 +134,6 @@ export function UsageTab({
     () => contacts.slice(0, visibleUsageContacts),
     [contacts, visibleUsageContacts],
   );
-  const shouldAnimateUsageContacts = !prefersReducedMotion && visibleUsageList.length <= 80;
 
   const maxContactVal = useMemo(() => {
     if (contacts.length === 0) return 1;
@@ -319,7 +319,7 @@ export function UsageTab({
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
+              <div className="rounded-3xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
                 <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
                   Per-contact usage (tap to expand timeline)
                 </h2>
@@ -330,161 +330,137 @@ export function UsageTab({
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    <LayoutGroup id="usage-contacts-list">
-                      <div className="relative overflow-hidden">
-                        <AnimatePresence
-                          initial={false}
-                          mode={shouldAnimateUsageContacts ? 'popLayout' : 'sync'}
-                        >
-                          {visibleUsageList.map((contact) => {
-                            const isExpanded = expandedNumber === contact.number;
-                            const val = metric === 'duration' ? contact.duration : contact.count;
-                            const pct = Math.max(4, Math.round((val / maxContactVal) * 100));
-                            const contactSpend = contact.calls.reduce(
-                              (sum, c) => sum + estimateCallCostEtb(c, tariffs),
-                              0,
-                            );
+                    <div>
+                      {visibleUsageList.map((contact) => {
+                        const isExpanded = expandedNumber === contact.number;
+                        const val = metric === 'duration' ? contact.duration : contact.count;
+                        const pct = Math.max(4, Math.round((val / maxContactVal) * 100));
+                        const contactSpend = contact.calls.reduce(
+                          (sum, c) => sum + estimateCallCostEtb(c, tariffs),
+                          0,
+                        );
 
-                            const contactTag = contactProfiles[getContactKey(contact.number)]?.tag;
-                            const displayContactLabel =
-                              contact.name === contact.number
-                                ? maskPhoneNumber(contact.number, privacyMode)
-                                : contact.name;
+                        const contactTag = contactProfiles[getContactKey(contact.number)]?.tag;
+                        const displayContactLabel =
+                          contact.name === contact.number
+                            ? maskPhoneNumber(contact.number, privacyMode)
+                            : contact.name;
 
-                            return (
-                              <motion.div
-                                key={contact.number}
-                                layout={shouldAnimateUsageContacts ? 'position' : false}
-                                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={
-                                  shouldAnimateUsageContacts
-                                    ? { opacity: 0, scale: 0.98 }
-                                    : { opacity: 0 }
-                                }
-                                transition={{
-                                  layout: { type: 'spring', stiffness: 420, damping: 36, mass: 0.8 },
-                                  opacity: { duration: prefersReducedMotion ? 0.08 : 0.16 },
-                                  y: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+                        return (
+                          <div
+                            key={contact.number}
+                            className="py-3 first:pt-0 last:pb-0 bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] last:border-b-0"
+                          >
+                            <div className="flex items-start justify-between gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  triggerHaptic('tap');
+                                  setExpandedNumber(isExpanded ? null : contact.number);
                                 }}
-                                className="py-3 first:pt-0 last:pb-0 bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] last:border-b-0"
+                                className="flex-1 min-w-0 text-left space-y-2 py-0.5"
                               >
-                                <div className="flex items-start justify-between gap-2.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      triggerHaptic('tap');
-                                      setExpandedNumber(isExpanded ? null : contact.number);
-                                    }}
-                                    className="flex-1 min-w-0 text-left space-y-2 py-0.5"
-                                  >
-                                    <div className="flex items-start gap-2 min-w-0">
-                                      {isExpanded ? (
-                                        <ChevronDown size={16} className="text-[#FF6A00] shrink-0 mt-0.5" />
-                                      ) : (
-                                        <ChevronRight size={16} className="text-[#8A93A0] shrink-0 mt-0.5" />
-                                      )}
-                                      <div className="min-w-0 flex-1 space-y-0.5">
-                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                          <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
-                                            {displayContactLabel}
-                                          </span>
-                                          {contactTag && (
-                                            <span className="text-xs font-medium text-[#FF6A00] shrink-0">
-                                              {contactTag}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                                          {formatDuration(contact.duration)} · {contact.count} calls
-                                          {contactSpend > 0 ? ` · ${formatEtb(contactSpend)}` : ''}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <div className="pl-6">
-                                      <div className="h-2 w-full rounded-full bg-[#E5E9F0] dark:bg-[var(--dark-canvas)] overflow-hidden">
-                                        <div
-                                          className="h-full rounded-full bg-[#FF6A00] transition-all duration-300"
-                                          style={{ width: `${pct}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => onSelectContact(contact.number)}
-                                    aria-label={`View ${contact.name} profile`}
-                                    className="min-h-[36px] px-2.5 rounded-lg text-xs font-semibold text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 whitespace-nowrap shrink-0 mt-0.5 transition-colors"
-                                  >
-                                    Profile
-                                  </button>
-                                </div>
-
-                                <AnimatePresence initial={false}>
-                                  {isExpanded && (
-                                    <motion.div
-                                      initial={
-                                        prefersReducedMotion
-                                          ? { opacity: 0 }
-                                          : { opacity: 0, height: 0 }
-                                      }
-                                      animate={
-                                        prefersReducedMotion
-                                          ? { opacity: 1 }
-                                          : { opacity: 1, height: 'auto' }
-                                      }
-                                      exit={
-                                        prefersReducedMotion
-                                          ? { opacity: 0 }
-                                          : { opacity: 0, height: 0 }
-                                      }
-                                      transition={{
-                                        duration: prefersReducedMotion ? 0.1 : 0.18,
-                                        ease: [0.22, 1, 0.36, 1],
-                                      }}
-                                      className="overflow-hidden"
-                                    >
-                                      <div className="mt-3 ml-6 pl-3 border-l border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-1.5">
-                                        {contact.calls.map((call) => (
-                                          <button
-                                            key={call.id}
-                                            type="button"
-                                            onClick={() => onSelectCall(call)}
-                                            className="w-full py-1.5 px-2 rounded-lg hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-between gap-2 text-left text-xs transition-colors"
-                                          >
-                                            <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] capitalize tabular-nums">
-                                              {call.direction} · {formatDateTime(call.timestamp)}
-                                              {call.sim ? ` · ${formatSimDisplay(call.sim, simLabels)}` : ''}
-                                            </span>
-                                            <span className="font-mono tabular-nums text-[#08246B] dark:text-white shrink-0">
-                                              {formatDuration(call.duration)}
-                                            </span>
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </motion.div>
+                                <div className="flex items-start gap-2 min-w-0">
+                                  {isExpanded ? (
+                                    <ChevronDown size={16} className="text-[#FF6A00] shrink-0 mt-0.5" />
+                                  ) : (
+                                    <ChevronRight size={16} className="text-[#8A93A0] shrink-0 mt-0.5" />
                                   )}
-                                </AnimatePresence>
-                              </motion.div>
-                            );
-                          })}
-                        </AnimatePresence>
-                      </div>
-                    </LayoutGroup>
-                    {contacts.length > visibleUsageContacts && (
-                      <div className="flex justify-center pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            triggerHaptic('tap');
-                            setVisibleUsageContacts((prev) => prev + 40);
-                          }}
-                          className="min-h-[38px] px-4 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] tabular-nums"
-                        >
-                          Show more ({contacts.length - visibleUsageContacts} remaining)
-                        </button>
-                      </div>
+                                  <div className="min-w-0 flex-1 space-y-0.5">
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                      <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
+                                        {displayContactLabel}
+                                      </span>
+                                      {contactTag && (
+                                        <span className="inline-flex items-center gap-1 text-xs font-medium text-[#FF6A00] shrink-0">
+                                          <Tag size={11} className="shrink-0" />
+                                          <span>{contactTag}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                      {formatDuration(contact.duration)} · {contact.count} calls
+                                      {contactSpend > 0 ? ` · ${formatEtb(contactSpend)}` : ''}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="pl-6">
+                                  <div className="h-2 w-full rounded-full bg-[#E5E9F0] dark:bg-[var(--dark-canvas)] overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => onSelectContact(contact.number)}
+                                aria-label={`View ${contact.name} profile`}
+                                className="min-h-[36px] px-2.5 rounded-lg text-xs font-semibold text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 whitespace-nowrap shrink-0 mt-0.5 transition-colors"
+                              >
+                                Profile
+                              </button>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="mt-3 ml-6 pl-3 border-l border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-1.5">
+                                {contact.calls.map((call) => (
+                                  <button
+                                    key={call.id}
+                                    type="button"
+                                    onClick={() => onSelectCall(call)}
+                                    className="w-full py-1.5 px-2 rounded-lg hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-between gap-2 text-left text-xs transition-colors"
+                                  >
+                                    <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] capitalize tabular-nums">
+                                      {call.direction} · {formatDateTime(call.timestamp)}
+                                      {call.sim ? ` · ${formatSimDisplay(call.sim, simLabels)}` : ''}
+                                    </span>
+                                    <span className="font-mono tabular-nums text-[#08246B] dark:text-white shrink-0">
+                                      {formatDuration(call.duration)}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {(contacts.length > visibleUsageContacts || visibleUsageContacts > 6) && (
+                      <motion.div
+                        initial={prefersReducedMotion ? false : { opacity: 0.5, y: 10 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: false, amount: 0.25 }}
+                        transition={{ type: 'spring', stiffness: 360, damping: 24 }}
+                        className="flex flex-wrap items-center justify-center gap-2 pt-1"
+                      >
+                        {contacts.length > visibleUsageContacts && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              setVisibleUsageContacts((prev) => prev + 10);
+                            }}
+                            className="min-h-[38px] px-4 py-1.5 rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] tabular-nums transition-colors"
+                          >
+                            Show more ({contacts.length - visibleUsageContacts} remaining)
+                          </button>
+                        )}
+                        {visibleUsageContacts > 6 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              setVisibleUsageContacts(6);
+                            }}
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-2xl text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00] transition-colors"
+                          >
+                            Show less
+                          </button>
+                        )}
+                      </motion.div>
                     )}
                   </div>
                 )}

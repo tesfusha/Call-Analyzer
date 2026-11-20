@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
 import {
   ArrowUpDown,
   Cake,
   Clock,
   Search,
   Sparkles,
+  Tag,
   Upload,
   User,
   UserPlus,
@@ -17,11 +17,11 @@ import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { QuickWishModal } from '@/src/components/QuickWishModal';
 import { SavedContactFormModal } from '@/src/components/SavedContactFormModal';
 import {
-  DEFAULT_RELATIONSHIP_TAGS,
   buildSampleContactProfiles,
   daysUntilAnnualDate,
   getContactKey,
   isContactPickerSupported,
+  mergeTagOptions,
   parseCsvContacts,
   parseVCardContacts,
   pickPhoneContacts,
@@ -35,7 +35,7 @@ import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactProfile } from '@/src/types/call';
 
-type TagFilter = 'all' | 'Family' | 'Friends' | 'Coworkers' | 'events';
+type TagFilter = string;
 type ContactSort = 'name' | 'calls' | 'recent';
 
 const CONTACT_COLLATOR = new Intl.Collator(undefined, { sensitivity: 'base' });
@@ -49,6 +49,7 @@ export function SavedContactsSection({
   const {
     calls,
     contacts,
+    availableTags,
     authUser,
     isGuest,
     openAuthPrompt,
@@ -66,7 +67,6 @@ export function SavedContactsSection({
   const [scheduleTarget, setScheduleTarget] = useState<ContactProfile | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const prefersReducedMotion = useReducedMotion();
 
   const pickerAvailable = useMemo(() => isContactPickerSupported(), []);
 
@@ -129,7 +129,10 @@ export function SavedContactsSection({
     [filteredContacts, visibleCount],
   );
   const hasMoreContacts = visibleContacts.length < filteredContacts.length;
-  const shouldAnimateLayout = !prefersReducedMotion && visibleContacts.length <= 80;
+  const filterTags = useMemo(
+    () => mergeTagOptions(availableTags, allSaved.map((p) => p.tag)),
+    [allSaved, availableTags],
+  );
 
   useEffect(() => {
     if (!hasMoreContacts) return;
@@ -280,7 +283,7 @@ export function SavedContactsSection({
               {(
                 [
                   { value: 'all', label: 'All' },
-                  ...DEFAULT_RELATIONSHIP_TAGS.map((t) => ({ value: t, label: t })),
+                  ...filterTags.map((t) => ({ value: t, label: t })),
                   { value: 'events', label: 'Birthdays' },
                 ] as const
               ).map((opt) => (
@@ -365,137 +368,121 @@ export function SavedContactsSection({
         </div>
       ) : (
         <div className="space-y-3">
-          <LayoutGroup id="saved-contacts-directory">
-            <div className="relative rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
-              <AnimatePresence initial={false} mode={shouldAnimateLayout ? 'popLayout' : 'sync'}>
-                {visibleContacts.map((profile) => {
-                  const callStat = callSummaryByKey.get(profile.key);
-                  const bdayDays = profile.birthday
-                    ? daysUntilAnnualDate(
-                        profile.birthday.month,
-                        profile.birthday.day,
-                        profile.birthday.calendar,
-                      )
-                    : null;
+          <div className="relative rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+            {visibleContacts.map((profile) => {
+              const callStat = callSummaryByKey.get(profile.key);
+              const bdayDays = profile.birthday
+                ? daysUntilAnnualDate(
+                    profile.birthday.month,
+                    profile.birthday.day,
+                    profile.birthday.calendar,
+                  )
+                : null;
 
-                  const bdayLabel = profile.birthday
-                    ? profile.birthday.calendar === 'ethiopian'
-                      ? `${getEthiopianMonthName(profile.birthday.month, 'english')} ${profile.birthday.day} EC`
-                      : `${profile.birthday.month}/${profile.birthday.day} GC`
-                    : null;
+              const bdayLabel = profile.birthday
+                ? profile.birthday.calendar === 'ethiopian'
+                  ? `${getEthiopianMonthName(profile.birthday.month, 'english')} ${profile.birthday.day} EC`
+                  : `${profile.birthday.month}/${profile.birthday.day} GC`
+                : null;
 
-                  return (
-                    <motion.div
-                      key={profile.key}
-                      layout={shouldAnimateLayout ? 'position' : false}
-                      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={
-                        shouldAnimateLayout
-                          ? { opacity: 0, scale: 0.98 }
-                          : { opacity: 0 }
-                      }
-                      transition={{
-                        layout: { type: 'spring', stiffness: 420, damping: 36, mass: 0.8 },
-                        opacity: { duration: prefersReducedMotion ? 0.08 : 0.16 },
-                        y: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
-                      }}
-                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] last:border-b-0"
+              return (
+                <div
+                  key={profile.key}
+                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] last:border-b-0"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectContact(profile.number)}
+                    className="flex items-start gap-3 min-w-0 flex-1 text-left"
+                  >
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
+                      style={{ backgroundColor: avatarColor(profile.number) }}
                     >
-                      <button
-                        type="button"
-                        onClick={() => onSelectContact(profile.number)}
-                        className="flex items-start gap-3 min-w-0 flex-1 text-left"
-                      >
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
-                          style={{ backgroundColor: avatarColor(profile.number) }}
-                        >
-                          {initials(profile.name, profile.number)}
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                            <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
-                              {profile.name}
-                            </span>
-                            {profile.tag && (
-                              <span className="text-xs font-medium text-[#FF6A00] shrink-0">
-                                {profile.tag}
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] break-all">
-                            {maskPhoneNumber(profile.number, privacyMode)} · {detectCarrier(profile.number)}
-                          </p>
-
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
-                            {bdayLabel && bdayDays !== null && (
-                              <span className="inline-flex items-center gap-1 text-[#FF6A00] font-medium">
-                                <Cake size={12} />
-                                {bdayLabel} ({bdayDays === 0 ? 'Today!' : `in ${bdayDays}d`})
-                              </span>
-                            )}
-                            {profile.events.length > 0 && (
-                              <span>
-                                {bdayLabel ? '· ' : ''}
-                                {profile.events.length} event{profile.events.length === 1 ? '' : 's'}
-                              </span>
-                            )}
-                            {callStat ? (
-                              <span>
-                                {bdayLabel || profile.events.length > 0 ? '· ' : ''}
-                                {callStat.count} call{callStat.count === 1 ? '' : 's'} ({formatDuration(callStat.duration)})
-                              </span>
-                            ) : (
-                              <span>
-                                {bdayLabel || profile.events.length > 0 ? '· ' : ''}
-                                No calls logged yet
-                              </span>
-                            )}
-                          </div>
-
-                          {profile.notes && (
-                            <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
-                              {maskPrivateText(profile.notes, privacyMode)}
-                            </p>
-                          )}
-                        </div>
-                      </button>
-
-                      <div className="flex flex-wrap items-center gap-1.5 shrink-0 sm:pl-2">
-                        <button
-                          type="button"
-                          onClick={() => setScheduleTarget(profile)}
-                          className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                          <Clock size={13} className="text-[#FF6A00]" />
-                          Schedule
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setWishTarget(profile)}
-                          className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                          <Sparkles size={13} className="text-[#FF6A00]" />
-                          Wish
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onSelectContact(profile.number)}
-                          aria-label={`View ${profile.name} details`}
-                          className="min-h-[38px] px-3 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                          <User size={13} className="text-[#FF6A00]" />
-                          Details
-                        </button>
+                      {initials(profile.name, profile.number)}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
+                          {profile.name}
+                        </span>
+                        {profile.tag && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#FF6A00] shrink-0">
+                            <Tag size={11} className="shrink-0" />
+                            <span>{profile.tag}</span>
+                          </span>
+                        )}
                       </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          </LayoutGroup>
+
+                      <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] break-all">
+                        {maskPhoneNumber(profile.number, privacyMode)} · {detectCarrier(profile.number)}
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+                        {bdayLabel && bdayDays !== null && (
+                          <span className="inline-flex items-center gap-1 text-[#FF6A00] font-medium">
+                            <Cake size={12} />
+                            {bdayLabel} ({bdayDays === 0 ? 'Today!' : `in ${bdayDays}d`})
+                          </span>
+                        )}
+                        {profile.events.length > 0 && (
+                          <span>
+                            {bdayLabel ? '· ' : ''}
+                            {profile.events.length} event{profile.events.length === 1 ? '' : 's'}
+                          </span>
+                        )}
+                        {callStat ? (
+                          <span>
+                            {bdayLabel || profile.events.length > 0 ? '· ' : ''}
+                            {callStat.count} call{callStat.count === 1 ? '' : 's'} ({formatDuration(callStat.duration)})
+                          </span>
+                        ) : (
+                          <span>
+                            {bdayLabel || profile.events.length > 0 ? '· ' : ''}
+                            No calls logged yet
+                          </span>
+                        )}
+                      </div>
+
+                      {profile.notes && (
+                        <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
+                          {maskPrivateText(profile.notes, privacyMode)}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 sm:pl-2">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleTarget(profile)}
+                      className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                    >
+                      <Clock size={13} className="text-[#FF6A00]" />
+                      Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWishTarget(profile)}
+                      className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                    >
+                      <Sparkles size={13} className="text-[#FF6A00]" />
+                      Wish
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectContact(profile.number)}
+                      aria-label={`View ${profile.name} details`}
+                      className="min-h-[38px] px-3 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                    >
+                      <User size={13} className="text-[#FF6A00]" />
+                      Details
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           {hasMoreContacts && (
             <div ref={loadMoreRef} className="flex items-center justify-center pt-1">
               <button

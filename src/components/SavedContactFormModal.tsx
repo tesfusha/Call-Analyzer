@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Cake, CalendarPlus, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { Cake, CalendarPlus, Check, Plus, Tag, Trash2, UserPlus, X } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
-import { DEFAULT_RELATIONSHIP_TAGS, getContactKey } from '@/src/lib/contacts';
+import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { getEthiopianMonthName } from '@/src/lib/ethiopianCalendar';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
@@ -37,7 +37,7 @@ export function SavedContactFormModal({
   onClose: () => void;
   onSaved?: (profile: ContactProfile) => void;
 }) {
-  const { contacts, upsertContactProfile, showNotice } = useCalls();
+  const { contacts, availableTags, addCustomTag, upsertContactProfile, showNotice } = useCalls();
   useLockBodyScroll(open);
   const prefersReducedMotion = useReducedMotion();
 
@@ -128,11 +128,14 @@ export function SavedContactFormModal({
         ]
       : events;
 
+    const cleanTag = tag.trim() || existing?.tag || '';
+    if (cleanTag) addCustomTag(cleanTag);
+
     const profile: ContactProfile = {
       key,
       number: cleanNumber,
       name: name.trim() || existing?.name || cleanNumber,
-      tag: tag.trim() || existing?.tag || '',
+      tag: cleanTag,
       birthday,
       events: mergedEvents,
       notes: notes.trim() || existing?.notes || '',
@@ -145,6 +148,11 @@ export function SavedContactFormModal({
     resetForm();
     onClose();
   };
+
+  const displayedTags = useMemo(
+    () => mergeTagOptions(availableTags, tag.trim() ? [tag.trim()] : []),
+    [availableTags, tag],
+  );
 
   return (
     <AnimatePresence>
@@ -225,32 +233,70 @@ export function SavedContactFormModal({
             </label>
           </div>
 
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Relationship tag
-            </span>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Relationship / role tag
+              </span>
+              {tag.trim() ? (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00]">
+                  <Tag size={12} className="shrink-0" />
+                  <span>Selected: {tag.trim()}</span>
+                </span>
+              ) : (
+                <span className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                  Optional
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap items-center gap-1.5">
-              {DEFAULT_RELATIONSHIP_TAGS.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setTag(tag === preset ? '' : preset)}
-                  className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                    tag.toLowerCase() === preset.toLowerCase()
-                      ? 'bg-[#FF6A00] text-white'
-                      : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white'
-                  }`}
-                >
-                  {preset}
-                </button>
-              ))}
+              {displayedTags.map((preset) => {
+                const selected = tag.trim().toLowerCase() === preset.toLowerCase();
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTag(selected ? '' : preset)}
+                    className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors ${
+                      selected
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white'
+                    }`}
+                  >
+                    <Tag size={11} className="shrink-0" />
+                    <span>{preset}</span>
+                    {selected && <Check size={11} className="shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={tag}
                 onChange={(e) => setTag(e.target.value)}
-                placeholder="Custom tag..."
-                className="flex-1 min-w-[110px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && tag.trim()) {
+                    e.preventDefault();
+                    const saved = addCustomTag(tag);
+                    if (saved) setTag(saved);
+                  }
+                }}
+                placeholder="Type custom tag (e.g. Graphics Designer)..."
+                className="flex-1 min-w-0 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
               />
+              <button
+                type="button"
+                disabled={!tag.trim()}
+                onClick={() => {
+                  const saved = addCustomTag(tag);
+                  if (saved) setTag(saved);
+                }}
+                className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] disabled:opacity-45 text-xs font-semibold text-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0"
+              >
+                <Plus size={13} />
+                Add tag
+              </button>
             </div>
           </div>
 

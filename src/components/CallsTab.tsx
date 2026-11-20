@@ -1,7 +1,8 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
+  ArrowUp,
   ArrowUpDown,
   Bell,
   Cake,
@@ -21,6 +22,7 @@ import {
   ShieldAlert,
   Sparkles,
   Star,
+  Tag,
   TrendingUp,
   Upload,
   User,
@@ -35,6 +37,7 @@ import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { WelcomeHero } from '@/src/components/WelcomeHero';
 import { clusterConsecutiveCalls, filterCalls, groupCalls } from '@/src/lib/calls';
 import {
+  formatShortTag,
   getContactKey,
   getUpcomingContactEvents,
   readUploadedTextFile,
@@ -62,6 +65,8 @@ import { useCalls } from '@/src/store/CallsContext';
 import type { CallDirection, CallRecord } from '@/src/types/call';
 
 type CallsCategory = 'log' | 'action' | 'vip' | 'tools';
+
+const CALLS_PAGE_SIZE = 50;
 
 const CALLS_META: Record<CallsCategory, { title: string; description: string }> = {
   log: {
@@ -140,6 +145,7 @@ export const CallsTab = memo(function CallsTab({
   const [sortBy, setSortBy] = useState<'newest' | 'longest'>('newest');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expandedClusters, setExpandedClusters] = useState<Record<string, boolean>>({});
+  const [visibleClusterLimit, setVisibleClusterLimit] = useState(CALLS_PAGE_SIZE);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [quickScheduleOpen, setQuickScheduleOpen] = useState(false);
   const [ussdOpen, setUssdOpen] = useState(false);
@@ -219,10 +225,20 @@ export const CallsTab = memo(function CallsTab({
     }
   };
 
+  useEffect(() => {
+    setVisibleClusterLimit(CALLS_PAGE_SIZE);
+  }, [query, dirFilter, simFilter, tagFilter, sortBy]);
+
+  const resolveCallTag = useCallback(
+    (call: CallRecord): string =>
+      call.tag?.trim() || contacts[getContactKey(call.number)]?.tag?.trim() || '',
+    [contacts],
+  );
+
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
     calls.forEach((c) => {
-      const t = c.tag?.trim();
+      const t = resolveCallTag(c);
       if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
     });
     const sorted = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -231,7 +247,7 @@ export const CallsTab = memo(function CallsTab({
       { value: 'all', label: 'All tags', count: calls.length },
       ...sorted.map(([tag, count]) => ({ value: tag, label: tag, count })),
     ];
-  }, [calls]);
+  }, [calls, resolveCallTag]);
 
   const unreturnedList = useMemo(() => {
     const list = unreturnedMissedCalls(calls, dismissedMissedIds);
@@ -277,10 +293,10 @@ export const CallsTab = memo(function CallsTab({
         return false;
       }
       if (simFilter !== 'all' && call.sim !== simFilter) return false;
-      if (tagFilter !== 'all' && (call.tag?.trim() ?? '') !== tagFilter) return false;
+      if (tagFilter !== 'all' && resolveCallTag(call) !== tagFilter) return false;
       return true;
     });
-  }, [calls, query, dirFilter, simFilter, tagFilter, unreturnedIds]);
+  }, [calls, query, dirFilter, simFilter, tagFilter, unreturnedIds, resolveCallTag]);
 
   const activeFilterCount =
     (dirFilter !== 'all' ? 1 : 0) +
@@ -321,6 +337,37 @@ export const CallsTab = memo(function CallsTab({
       clusters: clusterConsecutiveCalls(sec.data, getContactKey),
     }));
   }, [visible, sortBy]);
+
+  const { paginatedSections, totalClusterCount, renderedClusterCount } = useMemo(() => {
+    let total = 0;
+    for (const sec of sections) total += sec.clusters.length;
+
+    let remainingBudget = visibleClusterLimit;
+    let rendered = 0;
+    const sliced: typeof sections = [];
+
+    for (const sec of sections) {
+      if (remainingBudget <= 0) break;
+      if (sec.clusters.length <= remainingBudget) {
+        sliced.push(sec);
+        remainingBudget -= sec.clusters.length;
+        rendered += sec.clusters.length;
+      } else {
+        sliced.push({
+          ...sec,
+          clusters: sec.clusters.slice(0, remainingBudget),
+        });
+        rendered += remainingBudget;
+        remainingBudget = 0;
+      }
+    }
+
+    return {
+      paginatedSections: sliced,
+      totalClusterCount: total,
+      renderedClusterCount: rendered,
+    };
+  }, [sections, visibleClusterLimit]);
 
   const vipContactsList = useMemo(() => {
     if (favorites.size === 0) return [];
@@ -671,25 +718,13 @@ export const CallsTab = memo(function CallsTab({
                                   triggerHaptic('tap');
                                   setDirFilter(opt.value);
                                 }}
-                                className={`relative min-h-[36px] px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap truncate transition-colors ${
+                                className={`min-h-[36px] px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap truncate transition-colors ${
                                   active
-                                    ? 'text-white'
+                                    ? 'bg-[#FF6A00] text-white shadow-sm'
                                     : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
                                 }`}
                               >
-                                {active && (
-                                  <motion.span
-                                    layoutId="calls-dir-active-pill"
-                                    transition={
-                                      prefersReducedMotion
-                                        ? { duration: 0.06 }
-                                        : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
-                                    }
-                                    aria-hidden="true"
-                                    className="absolute inset-0 rounded-lg bg-[#FF6A00]"
-                                  />
-                                )}
-                                <span className="relative z-10">{opt.label}</span>
+                                {opt.label}
                               </button>
                             );
                           })}
@@ -831,8 +866,8 @@ export const CallsTab = memo(function CallsTab({
                 )}
               </div>
             ) : (
-              <div className="space-y-5">
-                {sections.map((section) => (
+                <div className="space-y-5">
+                {paginatedSections.map((section) => (
                   <section key={section.key} className="space-y-2">
                     <div className="flex items-center justify-between px-1">
                       <h2 className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
@@ -842,13 +877,18 @@ export const CallsTab = memo(function CallsTab({
                         {section.totalCalls}
                       </span>
                     </div>
-                    <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden">
+                    <div className="rounded-3xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden">
                       {section.clusters.map((cluster) => {
                         const call = cluster.primary;
                         const isGrouped = cluster.calls.length > 1;
                         const isExpanded = Boolean(expandedClusters[cluster.id]);
+                        const contactProfile = contacts[getContactKey(call.number)];
                         const displayName =
-                          call.name?.trim() || maskPhoneNumber(call.number, privacyMode);
+                          call.name?.trim() ||
+                          contactProfile?.name?.trim() ||
+                          maskPhoneNumber(call.number, privacyMode);
+                        const resolvedTag = resolveCallTag(call);
+                        const shortTag = resolvedTag ? formatShortTag(resolvedTag) : '';
                         const groupSpendEtb = cluster.calls.reduce(
                           (sum, item) => sum + estimateCallCostEtb(item, tariffs),
                           0,
@@ -867,7 +907,7 @@ export const CallsTab = memo(function CallsTab({
                                 className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 hover:ring-2 hover:ring-[#FF6A00] transition-all"
                                 style={{ backgroundColor: avatarColor(call.number) }}
                               >
-                                {initials(call.name, call.number)}
+                                {initials(call.name || contactProfile?.name, call.number)}
                               </button>
 
                               <button
@@ -895,15 +935,19 @@ export const CallsTab = memo(function CallsTab({
                                       ({cluster.calls.length})
                                       <ChevronDown
                                         size={13}
-                                        className={`transition-transform duration-200 ${
+                                        className={`transition-transform duration-150 ${
                                           isExpanded ? 'rotate-180' : ''
                                         }`}
                                       />
                                     </span>
                                   )}
-                                  {call.tag && (
-                                    <span className="text-xs text-[#FF6A00] font-medium truncate shrink-0">
-                                      {call.tag}
+                                  {shortTag && (
+                                    <span
+                                      title={resolvedTag}
+                                      className="inline-flex items-center gap-1 text-xs text-[#FF6A00] font-medium truncate max-w-[116px] shrink-0"
+                                    >
+                                      <Tag size={11} className="shrink-0" />
+                                      <span className="truncate">{shortTag}</span>
                                     </span>
                                   )}
                                 </div>
@@ -1050,6 +1094,90 @@ export const CallsTab = memo(function CallsTab({
                     </div>
                   </section>
                 ))}
+
+                {totalClusterCount > 0 && (
+                  <motion.div
+                    initial={prefersReducedMotion ? false : { opacity: 0.45, y: 12, scale: 0.97 }}
+                    whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                    viewport={{ once: false, amount: 0.25 }}
+                    transition={{ type: 'spring', stiffness: 360, damping: 24 }}
+                    className="rounded-3xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3.5 flex flex-wrap items-center justify-between gap-2.5 shadow-sm"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="inline-flex items-end gap-0.5 h-3.5 shrink-0" aria-hidden="true">
+                        {[
+                          [0.45, 1, 0.55, 0.45],
+                          [0.85, 0.4, 1, 0.85],
+                          [0.55, 0.9, 0.35, 0.55],
+                        ].map((heights, idx) => (
+                          <motion.span
+                            key={idx}
+                            className="w-1 h-full rounded-full bg-[#FF6A00] origin-bottom"
+                            animate={
+                              prefersReducedMotion ? { scaleY: 0.7 } : { scaleY: heights }
+                            }
+                            transition={
+                              prefersReducedMotion
+                                ? undefined
+                                : {
+                                    duration: 1.35,
+                                    delay: idx * 0.16,
+                                    repeat: Infinity,
+                                    ease: 'easeInOut',
+                                  }
+                            }
+                          />
+                        ))}
+                      </span>
+                      <span className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        {totalClusterCount > CALLS_PAGE_SIZE
+                          ? `Showing ${renderedClusterCount} of ${totalClusterCount} groups`
+                          : `End of call log · ${totalClusterCount} group${totalClusterCount === 1 ? '' : 's'}`}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {visibleClusterLimit > CALLS_PAGE_SIZE && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tap');
+                            setVisibleClusterLimit(CALLS_PAGE_SIZE);
+                          }}
+                          className="min-h-[40px] px-3 py-1.5 rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white transition-colors"
+                        >
+                          Show less
+                        </button>
+                      )}
+                      {renderedClusterCount < totalClusterCount && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tap');
+                            setVisibleClusterLimit((prev) => prev + CALLS_PAGE_SIZE);
+                          }}
+                          className="min-h-[40px] px-3.5 py-1.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white transition-colors"
+                        >
+                          Show more (+{Math.min(CALLS_PAGE_SIZE, totalClusterCount - renderedClusterCount)})
+                        </button>
+                      )}
+                      {renderedClusterCount > 6 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tap');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          aria-label="Scroll back to top"
+                          className="min-h-[40px] px-3 py-1.5 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-xs font-semibold text-[#FF6A00] hover:bg-[#FF6A00] hover:text-white flex items-center gap-1 transition-colors"
+                        >
+                          <ArrowUp size={13} />
+                          Top
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
               </div>
             )}
           </div>
@@ -1361,90 +1489,82 @@ export const CallsTab = memo(function CallsTab({
                 </button>
               </div>
             ) : (
-              <LayoutGroup id="vip-contacts-list">
-                <div className="relative rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
-                  <AnimatePresence initial={false} mode={prefersReducedMotion ? 'sync' : 'popLayout'}>
-                    {vipContactsList.map((vip) => {
-                      const displayName =
-                        vip.name || maskPhoneNumber(vip.number, privacyMode);
-                      return (
-                        <motion.div
-                          key={vip.key}
-                          layout={prefersReducedMotion ? false : 'position'}
-                          initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.98 }}
-                          transition={{
-                            layout: { type: 'spring', stiffness: 420, damping: 36, mass: 0.8 },
-                            opacity: { duration: prefersReducedMotion ? 0.08 : 0.16 },
-                            y: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
-                          }}
-                          className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-[var(--dark-surface)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] last:border-b-0 hover:bg-[#EEF2F6]/60 dark:hover:bg-[var(--dark-elevated-60)] transition-colors"
+              <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden">
+                {vipContactsList.map((vip) => {
+                  const displayName =
+                    vip.name || maskPhoneNumber(vip.number, privacyMode);
+                  const shortVipTag = vip.tag ? formatShortTag(vip.tag) : '';
+                  return (
+                    <div
+                      key={vip.key}
+                      className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-[var(--dark-surface)] hover:bg-[#EEF2F6]/60 dark:hover:bg-[var(--dark-elevated-60)] transition-colors"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelectContact(vip.number)}
+                        className="flex items-center gap-3 min-w-0 text-left flex-1"
+                      >
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                          style={{ backgroundColor: avatarColor(vip.number) }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => onSelectContact(vip.number)}
-                            className="flex items-center gap-3 min-w-0 text-left flex-1"
-                          >
-                            <div
-                              className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                              style={{ backgroundColor: avatarColor(vip.number) }}
-                            >
-                              {initials(vip.name || null, vip.number)}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                                  {displayName}
-                                </span>
-                                {vip.tag && (
-                                  <span className="text-xs font-medium text-[#FF6A00] shrink-0">
-                                    {vip.tag}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                                {maskPhoneNumber(vip.number, privacyMode)}
-                                {vip.lastTimestamp > 0
-                                  ? ` · Last ${formatTime(vip.lastTimestamp)}`
-                                  : ''}
-                              </p>
-                            </div>
-                          </button>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => onSelectContact(vip.number)}
-                              className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
-                            >
-                              <User size={13} className="text-[#FF6A00]" />
-                              Profile
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => toggleFavorite(vip.rawFavorite)}
-                              aria-label={`Remove ${displayName} from VIP`}
-                              className="min-h-[38px] min-w-[38px] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-center text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15"
-                            >
-                              <Star size={15} className="fill-[#FF6A00]" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onCallBack(vip.number)}
-                              aria-label={`Call ${displayName}`}
-                              className="min-h-[38px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1"
-                            >
-                              <Phone size={13} />
-                              Call
-                            </button>
+                          {initials(vip.name || null, vip.number)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
+                              {displayName}
+                            </span>
+                            {shortVipTag && (
+                              <span
+                                title={vip.tag}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-[#FF6A00] shrink-0"
+                              >
+                                <Tag size={11} className="shrink-0" />
+                                {shortVipTag}
+                              </span>
+                            )}
                           </div>
-                        </motion.div>
-                      );
-                    })}
-                  </AnimatePresence>
-                </div>
-              </LayoutGroup>
+                          <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                            {maskPhoneNumber(vip.number, privacyMode)}
+                            {vip.lastTimestamp > 0
+                              ? ` · Last ${formatTime(vip.lastTimestamp)}`
+                              : ''}
+                          </p>
+                        </div>
+                      </button>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onSelectContact(vip.number)}
+                          className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
+                        >
+                          <User size={13} className="text-[#FF6A00]" />
+                          Profile
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleFavorite(vip.rawFavorite)}
+                          aria-label={`Remove ${displayName} from VIP`}
+                          className="min-h-[38px] min-w-[38px] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-center text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15"
+                        >
+                          <Star size={15} className="fill-[#FF6A00]" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCallBack(vip.number)}
+                          aria-label={`Call ${displayName}`}
+                          className="min-h-[38px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1"
+                        >
+                          <Phone size={13} />
+                          Call
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -1605,7 +1725,7 @@ export const CallsTab = memo(function CallsTab({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: prefersReducedMotion ? 0.1 : 0.16 }}
-            className="fixed inset-0 z-30 bg-black/15 dark:bg-black/35 backdrop-blur-[1px] touch-none overscroll-contain"
+            className="fixed inset-0 z-30 bg-black/25 dark:bg-black/45 touch-none overscroll-contain"
             aria-hidden="true"
             onClick={() => setQuickActionsOpen(false)}
           />

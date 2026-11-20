@@ -10,10 +10,10 @@ import {
   PeakHoursHeatmap,
 } from '@/src/components/Charts';
 import { DateRangePicker } from '@/src/components/DateRangePicker';
-import { formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
+import { formatEtb } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { callsToHtmlReport, downloadTextFile } from '@/src/lib/export';
-import { formatDateTime, formatDuration } from '@/src/lib/format';
+import { formatDuration } from '@/src/lib/format';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
 import { maskPhoneNumber } from '@/src/lib/security';
 import {
@@ -29,9 +29,9 @@ import {
   totalSpendEtb,
 } from '@/src/lib/stats';
 import { useCalls } from '@/src/store/CallsContext';
-import type { CallDirection, CallRecord, DateRangeFilter, TimeRange } from '@/src/types/call';
+import type { DateRangeFilter, TimeRange } from '@/src/types/call';
 
-type SubTab = 'overview' | 'summary' | 'contacts' | 'calls';
+type SubTab = 'overview' | 'summary' | 'contacts';
 
 const SUB_TAB_META: Record<SubTab, { title: string; description: string }> = {
   overview: {
@@ -46,24 +46,17 @@ const SUB_TAB_META: Record<SubTab, { title: string; description: string }> = {
     title: 'Most Frequent & Longest Callers',
     description: 'Most frequent callers and longest total conversations',
   },
-  calls: {
-    title: 'Filtered Call Records',
-    description: 'Direction-filtered call log with Ethiopian and Gregorian dates',
-  },
 };
 
 export function AnalyticsTab({
-  onSelectCall,
   onSelectContact,
 }: {
-  onSelectCall: (call: CallRecord) => void;
   onSelectContact: (number: string) => void;
 }) {
   const { calls, tariffs, simLabels, privacyMode, loadSampleData, showNotice } = useCalls();
   const [range, setRange] = useState<TimeRange>('all');
   const [customRange, setCustomRange] = useState<DateRangeFilter>(null);
   const [subTab, setSubTab] = useState<SubTab>('overview');
-  const [dirFilter, setDirFilter] = useState<'all' | CallDirection>('all');
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -115,19 +108,13 @@ export function AnalyticsTab({
     [contacts],
   );
 
-  const filteredCalls = useMemo(() => {
-    const list = dirFilter === 'all' ? scoped : scoped.filter((c) => c.direction === dirFilter);
-    return [...list].sort((a, b) => b.timestamp - a.timestamp);
-  }, [scoped, dirFilter]);
-
   const categoryItems: Array<CategoryItem<SubTab>> = useMemo(
     () => [
       { key: 'overview', label: 'Overview' },
       { key: 'summary', label: 'Trends' },
       { key: 'contacts', label: 'Top Callers', count: contacts.length },
-      { key: 'calls', label: 'Records', count: filteredCalls.length },
     ],
-    [contacts.length, filteredCalls.length],
+    [contacts.length],
   );
 
   const activeMeta = SUB_TAB_META[subTab];
@@ -501,52 +488,6 @@ export function AnalyticsTab({
                 );
               })}
             </div>
-          </div>
-        </div>
-      )}
-
-      {subTab === 'calls' && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(['all', 'incoming', 'outgoing', 'missed'] as const).map((dir) => (
-              <button
-                key={dir}
-                type="button"
-                onClick={() => setDirFilter(dir)}
-                className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-semibold capitalize whitespace-nowrap shrink-0 transition-colors ${
-                  dirFilter === dir
-                    ? 'bg-[#FF6A00] text-white'
-                    : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                }`}
-              >
-                {dir}
-              </button>
-            ))}
-          </div>
-
-          <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)]">
-            {filteredCalls.map((call) => (
-              <button
-                key={call.id}
-                type="button"
-                onClick={() => onSelectCall(call)}
-                className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[#EEF2F6]/60 dark:hover:bg-[var(--dark-elevated-60)] transition-colors"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                    {call.name?.trim() || maskPhoneNumber(call.number, privacyMode)}
-                  </p>
-                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] capitalize tabular-nums">
-                    {call.direction} · {formatDateTime(call.timestamp)} ·{' '}
-                    {formatEthiopianShort(call.timestamp)} EC
-                    {call.sim ? ` · ${formatSimDisplay(call.sim, simLabels)}` : ''}
-                  </p>
-                </div>
-                <span className="text-xs font-mono tabular-nums text-[#08246B] dark:text-white shrink-0">
-                  {formatDuration(call.duration)}
-                </span>
-              </button>
-            ))}
           </div>
         </div>
       )}

@@ -1,5 +1,4 @@
-import { useId, type ReactNode } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { triggerHaptic } from '@/src/lib/haptics';
 
@@ -34,8 +33,6 @@ export function CategoryTabs<T extends string>({
   showIcons?: boolean;
   className?: string;
 }) {
-  const layoutId = useId();
-  const prefersReducedMotion = useReducedMotion();
   const layoutClass = GRID_CLASS[items.length] ?? 'flex overflow-x-auto md:grid md:grid-cols-4';
   const containerBg =
     variant === 'inset'
@@ -65,31 +62,19 @@ export function CategoryTabs<T extends string>({
               if (!active) triggerHaptic('tap');
               onChange(item.key);
             }}
-            className={`relative min-h-[42px] min-w-0 px-1.5 sm:px-3.5 py-2 rounded-xl text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-colors ${
+            className={`relative min-h-[42px] min-w-0 px-1.5 sm:px-3.5 py-2 rounded-xl text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-colors duration-100 ${
               active
-                ? 'text-white'
+                ? 'bg-[#FF6A00] text-white shadow-sm'
                 : `text-[#4B5563] dark:text-[var(--dark-text-secondary)] ${inactiveHover}`
             }`}
           >
-            {active && (
-              <motion.span
-                layoutId={`cat-pill-${layoutId}`}
-                transition={
-                  prefersReducedMotion
-                    ? { duration: 0.05 }
-                    : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
-                }
-                aria-hidden="true"
-                className="absolute inset-0 rounded-xl bg-[#FF6A00] shadow-sm z-0"
-              />
-            )}
             {showIcons && Icon && (
-              <Icon size={14} className="relative z-10 shrink-0 hidden sm:inline-block" />
+              <Icon size={14} className="shrink-0 hidden sm:inline-block" />
             )}
-            <span className="relative z-10 truncate">{item.label}</span>
+            <span className="truncate">{item.label}</span>
             {typeof item.count === 'number' && (
               <span
-                className={`relative z-10 font-mono tabular-nums text-[10px] sm:text-[11px] shrink-0 ${
+                className={`font-mono tabular-nums text-[10px] sm:text-[11px] shrink-0 ${
                   active ? 'text-white/90' : 'text-[#8A93A0] dark:text-[var(--dark-text-muted)]'
                 }`}
               >
@@ -107,7 +92,6 @@ export function CategoryPanel({
   activeKey,
   label,
   children,
-  transitionStyle = 'fade',
   className = 'space-y-4',
 }: {
   activeKey: string;
@@ -116,29 +100,14 @@ export function CategoryPanel({
   transitionStyle?: 'slide' | 'fade';
   className?: string;
 }) {
-  const prefersReducedMotion = useReducedMotion();
-  const fadeOnly = prefersReducedMotion || transitionStyle === 'fade';
-
   return (
-    <motion.div
+    <div
       key={activeKey}
       role="tabpanel"
       aria-label={label}
-      initial={
-        prefersReducedMotion
-          ? false
-          : fadeOnly
-            ? { opacity: 0.7 }
-            : { opacity: 0.7, y: 3 }
-      }
-      animate={{ opacity: 1, y: 0 }}
-      transition={{
-        duration: prefersReducedMotion ? 0.04 : 0.08,
-        ease: [0.22, 1, 0.36, 1],
-      }}
       className={className}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }

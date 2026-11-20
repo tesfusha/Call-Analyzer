@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Clock, FileText, Phone, Star, Trash2, User, X } from 'lucide-react';
+import { Check, Clock, FileText, Phone, Plus, Star, Tag, Trash2, User, X } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { DateTimePicker } from '@/src/components/DateTimePicker';
-import { DEFAULT_RELATIONSHIP_TAGS } from '@/src/lib/contacts';
+import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
@@ -29,12 +29,21 @@ export function CallDetailModal({
   isFavorite: boolean;
   onToggleFavorite: () => void;
   onClose: () => void;
-  onSave: (patch: CallPatch) => void;
+  onSave: (patch: CallPatch, options?: { applyTagToContact?: boolean }) => void;
   onDelete: () => void;
   onCallBack: () => void;
   onOpenContact: (number: string) => void;
 }) {
-  const { tariffs, simLabels, privacyMode, scheduleCall } = useCalls();
+  const {
+    contacts,
+    tariffs,
+    simLabels,
+    privacyMode,
+    availableTags,
+    addCustomTag,
+    scheduleCall,
+    showNotice,
+  } = useCalls();
   useLockBodyScroll(Boolean(call));
   const prefersReducedMotion = useReducedMotion();
   const bodyScrollRef = useRef<HTMLDivElement>(null);
@@ -42,6 +51,7 @@ export function CallDetailModal({
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [tag, setTag] = useState('');
+  const [applyTagToContact, setApplyTagToContact] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(() =>
     toDateTimeLocalValue(Date.now() + 30 * 60_000),
@@ -50,14 +60,26 @@ export function CallDetailModal({
 
   useEffect(() => {
     if (!call) return;
+    const contactProfile = contacts[getContactKey(call.number)];
     setActiveCategory('details');
     setName(call.name ?? '');
     setNote(call.note ?? '');
-    setTag(call.tag ?? '');
+    setTag(call.tag?.trim() || contactProfile?.tag?.trim() || '');
+    setApplyTagToContact(true);
     setConfirmDelete(false);
     setScheduleAt(toDateTimeLocalValue(Date.now() + 30 * 60_000));
     setScheduleNote(call.direction === 'missed' ? 'Return missed call' : '');
-  }, [call]);
+  }, [call, contacts]);
+
+  const displayedTags = useMemo(
+    () =>
+      mergeTagOptions(
+        availableTags,
+        ['Follow up', 'Quoted ETB', 'Paid', 'Confirmed', 'Urgent'],
+        tag.trim() ? [tag.trim()] : [],
+      ),
+    [availableTags, tag],
+  );
 
   useEffect(() => {
     if (!call) return;
@@ -228,40 +250,96 @@ export function CallDetailModal({
                 />
               </label>
 
-              <div className="space-y-1.5">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Tag or Call Outcome
-                </span>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {[
-                    ...DEFAULT_RELATIONSHIP_TAGS,
-                    'Follow up',
-                    'Quoted ETB',
-                    'Paid',
-                    'Confirmed',
-                    'Urgent',
-                  ].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setTag(tag === preset ? '' : preset)}
-                      className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap ${
-                        tag.toLowerCase() === preset.toLowerCase()
-                          ? 'bg-[#FF6A00] text-white'
-                          : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                      }`}
-                    >
-                      {preset}
-                    </button>
-                  ))}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Tag or Call Outcome
+                  </span>
+                  {tag.trim() ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00]">
+                      <Tag size={12} className="shrink-0" />
+                      <span>Selected: {tag.trim()}</span>
+                      <button
+                        type="button"
+                        onClick={() => setTag('')}
+                        aria-label="Clear selected tag"
+                        className="ml-0.5 p-0.5 rounded hover:bg-[#FF6A00]/15"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                      No tag selected
+                    </span>
+                  )}
                 </div>
-                <input
-                  type="text"
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
-                  placeholder="Family, Follow up, Paid..."
-                  className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] dark:placeholder:text-[var(--dark-text-muted)] focus:outline-none focus:border-[#FF6A00]"
-                />
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {displayedTags.map((preset) => {
+                    const selected = tag.trim().toLowerCase() === preset.toLowerCase();
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setTag(selected ? '' : preset)}
+                        className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 whitespace-nowrap ${
+                          selected
+                            ? 'bg-[#FF6A00] text-white'
+                            : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:border-[#FF6A00]'
+                        }`}
+                      >
+                        <Tag size={11} className="shrink-0" />
+                        <span>{preset}</span>
+                        {selected && <Check size={11} className="shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={tag}
+                    onChange={(e) => setTag(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && tag.trim()) {
+                        e.preventDefault();
+                        const saved = addCustomTag(tag);
+                        if (saved) setTag(saved);
+                      }
+                    }}
+                    placeholder="Type custom tag (e.g. Graphics Designer)..."
+                    className="flex-1 min-w-0 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] dark:placeholder:text-[var(--dark-text-muted)] focus:outline-none focus:border-[#FF6A00]"
+                  />
+                  <button
+                    type="button"
+                    disabled={!tag.trim()}
+                    onClick={() => {
+                      const saved = addCustomTag(tag);
+                      if (saved) {
+                        setTag(saved);
+                        showNotice(`Tag "${saved}" added. Tap Save to apply.`);
+                      }
+                    }}
+                    className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] disabled:opacity-45 text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0"
+                  >
+                    <Plus size={13} />
+                    Add tag
+                  </button>
+                </div>
+
+                <label className="flex items-center gap-2 pt-0.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={applyTagToContact}
+                    onChange={(e) => setApplyTagToContact(e.target.checked)}
+                    className="w-4 h-4 accent-[#FF6A00] rounded"
+                  />
+                  <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Apply tag to contact profile &amp; all calls from this number
+                  </span>
+                </label>
               </div>
 
               <label className="block space-y-1">
@@ -399,11 +477,16 @@ export function CallDetailModal({
                 <button
                   type="button"
                   onClick={() => {
-                    onSave({
-                      name: name.trim() || null,
-                      note: note.trim() || null,
-                      tag: tag.trim() || null,
-                    });
+                    const cleanTag = tag.trim() || null;
+                    if (cleanTag) addCustomTag(cleanTag);
+                    onSave(
+                      {
+                        name: name.trim() || null,
+                        note: note.trim() || null,
+                        tag: cleanTag,
+                      },
+                      { applyTagToContact },
+                    );
                     onClose();
                   }}
                   className="min-h-[44px] px-5 py-2 rounded-xl text-xs font-semibold bg-[#FF6A00] hover:bg-[#E65F00] text-white whitespace-nowrap shrink-0 transition-colors"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BarChart3,
@@ -99,12 +99,14 @@ function AppShell() {
   useLockBodyScroll(authPromptMode !== 'closed');
 
   const [activeTab, setActiveTab] = useState<TabKey>('calls');
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(() => new Set(['calls']));
   const [detailId, setDetailId] = useState<string | null>(null);
   const [selectedContactNumber, setSelectedContactNumber] = useState<string | null>(null);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [checkingVerify, setCheckingVerify] = useState(false);
   const [resendingVerify, setResendingVerify] = useState(false);
+  const mainContentRef = useRef<HTMLDivElement>(null);
 
   const visibleTabs = useMemo(
     () =>
@@ -120,6 +122,7 @@ function AppShell() {
     setSelectedContactNumber(null);
     setRemindersOpen(false);
     setActiveTab('calls');
+    setVisitedTabs(new Set(['calls']));
   }, [authUid, isGuest]);
 
   const handleCloseGuide = useCallback(() => {
@@ -161,9 +164,134 @@ function AppShell() {
 
   const handleSwitchTab = useCallback((nextTab: TabKey) => {
     triggerHaptic('tap');
+    setVisitedTabs((prev) => {
+      if (prev.has(nextTab)) return prev;
+      const next = new Set(prev);
+      next.add(nextTab);
+      return next;
+    });
     setActiveTab(nextTab);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
+
+  useEffect(() => {
+    if (prefersReducedMotion || authLoading || needsEmailVerification || isLocked) return;
+    if (!authUser && !isGuest) return;
+
+    const modalOpen =
+      Boolean(detailId) ||
+      Boolean(selectedContactNumber) ||
+      remindersOpen ||
+      guideOpen ||
+      authPromptMode !== 'closed';
+    if (modalOpen) return;
+
+    let lastY = 0;
+    let pullAnchorY: number | null = null;
+    let currentOffset = 0;
+    let wasAtBottom = false;
+
+    const resetTransform = () => {
+      const el = mainContentRef.current;
+      if (!el || currentOffset === 0) {
+        pullAnchorY = null;
+        return;
+      }
+      el.style.transition = 'transform 400ms cubic-bezier(0.22, 1, 0.36, 1)';
+      el.style.transform = 'translate3d(0, 0, 0)';
+      currentOffset = 0;
+      pullAnchorY = null;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      lastY = e.touches[0].clientY;
+      pullAnchorY = null;
+      const el = mainContentRef.current;
+      if (el) el.style.transition = 'none';
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const el = mainContentRef.current;
+      if (!el) return;
+
+      const y = e.touches[0].clientY;
+      const stepY = y - lastY;
+      lastY = y;
+
+      const docEl = document.documentElement;
+      const scrollY = window.scrollY;
+      const maxScroll = Math.max(0, docEl.scrollHeight - window.innerHeight);
+      const atTop = scrollY <= 1;
+      const atBottom = maxScroll > 0 && scrollY >= maxScroll - 2;
+
+      if (pullAnchorY === null) {
+        if ((atTop && stepY > 0) || (atBottom && stepY < 0)) {
+          pullAnchorY = y;
+        } else {
+          return;
+        }
+      }
+
+      const rawPull = y - pullAnchorY;
+      if ((atTop && rawPull > 0) || (atBottom && rawPull < 0)) {
+        const damped = Math.sign(rawPull) * Math.min(28, Math.pow(Math.abs(rawPull), 0.72) * 1.25);
+        currentOffset = damped;
+        el.style.transition = 'none';
+        el.style.transform = `translate3d(0, ${damped.toFixed(1)}px, 0)`;
+      } else if (currentOffset !== 0) {
+        resetTransform();
+      }
+    };
+
+    const onScroll = () => {
+      const docEl = document.documentElement;
+      const maxScroll = Math.max(0, docEl.scrollHeight - window.innerHeight);
+      const atBottomNow = maxScroll > 120 && window.scrollY >= maxScroll - 2;
+
+      if (atBottomNow && !wasAtBottom && currentOffset === 0) {
+        const el = mainContentRef.current;
+        if (el && typeof el.animate === 'function') {
+          el.animate(
+            [
+              { transform: 'translate3d(0, 0, 0)' },
+              { transform: 'translate3d(0, -7px, 0)' },
+              { transform: 'translate3d(0, 0, 0)' },
+            ],
+            { duration: 280, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+          );
+        }
+      }
+      wasAtBottom = maxScroll > 120 && window.scrollY >= maxScroll - 24;
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', resetTransform, { passive: true });
+    window.addEventListener('touchcancel', resetTransform, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', resetTransform);
+      window.removeEventListener('touchcancel', resetTransform);
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, [
+    prefersReducedMotion,
+    authLoading,
+    needsEmailVerification,
+    isLocked,
+    authUser,
+    isGuest,
+    detailId,
+    selectedContactNumber,
+    remindersOpen,
+    guideOpen,
+    authPromptMode,
+  ]);
 
   const handleSelectCall = useCallback((call: CallRecord) => {
     triggerHaptic('tap');
@@ -343,7 +471,7 @@ function AppShell() {
               transition={{ duration: 0.16 }}
               className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
             >
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/95 dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md backdrop-blur-md">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
                 <span className="truncate">{notice}</span>
               </div>
@@ -394,7 +522,7 @@ function AppShell() {
               transition={{ duration: 0.16 }}
               className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
             >
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/95 dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md backdrop-blur-md">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
                 <span className="truncate">{notice}</span>
               </div>
@@ -440,26 +568,14 @@ function AppShell() {
                   key={tab.key}
                   type="button"
                   onClick={() => handleSwitchTab(tab.key)}
-                  className={`relative w-full min-h-[44px] px-3 py-2.5 rounded-xl flex items-center gap-3 text-sm font-semibold whitespace-nowrap transition-colors ${
+                  className={`w-full min-h-[44px] px-3 py-2.5 rounded-xl flex items-center gap-3 text-sm font-semibold whitespace-nowrap transition-colors ${
                     active
-                      ? 'text-[#FF6A00]'
+                      ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00]'
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] hover:text-[#08246B] dark:hover:text-white'
                   }`}
                 >
-                  {active && (
-                    <motion.span
-                      layoutId="desktop-nav-active-pill"
-                      transition={
-                        prefersReducedMotion
-                          ? { duration: 0.06 }
-                          : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
-                      }
-                      aria-hidden="true"
-                      className="absolute inset-0 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 z-0"
-                    />
-                  )}
-                  <Icon size={18} className="relative z-10 shrink-0" />
-                  <span className="relative z-10">{tab.label}</span>
+                  <Icon size={18} className="shrink-0" />
+                  <span>{tab.label}</span>
                 </button>
               );
             })}
@@ -536,7 +652,7 @@ function AppShell() {
           {authUser ? (
             <button
               type="button"
-              onClick={() => setActiveTab('settings')}
+              onClick={() => handleSwitchTab('settings')}
               className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center gap-2.5 text-left hover:border-[#FF6A00] transition-colors"
             >
               {authUser.photoURL ? (
@@ -622,7 +738,7 @@ function AppShell() {
           )}
           <button
             type="button"
-            onClick={() => setActiveTab('settings')}
+            onClick={() => handleSwitchTab('settings')}
             aria-label={authUser ? 'Account settings' : 'Sign in or open settings'}
             className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
           >
@@ -655,8 +771,11 @@ function AppShell() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:pb-8">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7">
+      <main className="flex-1 min-w-0 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:pb-8 overflow-x-clip">
+        <div
+          ref={mainContentRef}
+          className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7 will-change-transform"
+        >
           {isGuest && (
             <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-0">
@@ -688,15 +807,8 @@ function AppShell() {
             </div>
           )}
 
-          <motion.div
-            key={activeTab}
-            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0.72 }}
-            animate={{ opacity: 1 }}
-            transition={{
-              duration: prefersReducedMotion ? 0.06 : 0.09,
-            }}
-          >
-            {activeTab === 'calls' && (
+          {visitedTabs.has('calls') && (
+            <div className={activeTab === 'calls' ? 'block' : 'hidden'}>
               <CallsTab
                 onSelectCall={handleSelectCall}
                 onSelectContact={handleSelectContact}
@@ -704,34 +816,43 @@ function AppShell() {
                 onOpenReminders={handleOpenReminders}
                 onOpenAnalytics={handleOpenAnalytics}
               />
-            )}
-            {activeTab === 'analytics' && (
-              <AnalyticsTab
-                onSelectCall={handleSelectCall}
-                onSelectContact={handleSelectContact}
-              />
-            )}
-            {activeTab === 'usage' && (
+            </div>
+          )}
+          {visitedTabs.has('analytics') && (
+            <div className={activeTab === 'analytics' ? 'block' : 'hidden'}>
+              <AnalyticsTab onSelectContact={handleSelectContact} />
+            </div>
+          )}
+          {visitedTabs.has('usage') && (
+            <div className={activeTab === 'usage' ? 'block' : 'hidden'}>
               <UsageTab
                 onSelectCall={handleSelectCall}
                 onSelectContact={handleSelectContact}
               />
-            )}
-            {activeTab === 'calendar' && (
+            </div>
+          )}
+          {visitedTabs.has('calendar') && (
+            <div className={activeTab === 'calendar' ? 'block' : 'hidden'}>
               <EthiopianCalendarView
                 onSelectCall={handleSelectCall}
                 onSelectContact={handleSelectContact}
                 onOpenWishes={handleOpenReminders}
               />
-            )}
-            {activeTab === 'settings' && (
+            </div>
+          )}
+          {visitedTabs.has('settings') && (
+            <div className={activeTab === 'settings' ? 'block' : 'hidden'}>
               <SettingsTab
                 onOpenReminders={handleOpenReminders}
                 onOpenGuide={handleOpenGuide}
               />
-            )}
-            {activeTab === 'admin' && isAdmin && <AdminTab />}
-          </motion.div>
+            </div>
+          )}
+          {isAdmin && visitedTabs.has('admin') && (
+            <div className={activeTab === 'admin' ? 'block' : 'hidden'}>
+              <AdminTab />
+            </div>
+          )}
         </div>
       </main>
 
@@ -760,19 +881,13 @@ function AppShell() {
                 }`}
               >
                 {active && (
-                  <motion.span
-                    layoutId="mobile-nav-top-bar"
-                    transition={
-                      prefersReducedMotion
-                        ? { duration: 0.06 }
-                        : { type: 'spring', stiffness: 680, damping: 44, mass: 0.5 }
-                    }
+                  <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute top-0 left-3 right-3 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00] z-0"
+                    className="pointer-events-none absolute top-0 left-3 right-3 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00]"
                   />
                 )}
-                <Icon size={19} className="relative z-10 shrink-0" />
-                <span className="relative z-10 text-[10px] font-semibold leading-none whitespace-nowrap">
+                <Icon size={19} className="shrink-0" />
+                <span className="text-[10px] font-semibold leading-none whitespace-nowrap">
                   {tab.label}
                 </span>
               </button>
@@ -787,9 +902,9 @@ function AppShell() {
         isFavorite={detailCall ? favorites.has(detailCall.number) : false}
         onToggleFavorite={() => detailCall && toggleFavorite(detailCall.number)}
         onClose={() => setDetailId(null)}
-        onSave={(patch) => {
+        onSave={(patch, options) => {
           if (!detailCall) return;
-          patchCall(detailCall.id, patch);
+          patchCall(detailCall.id, patch, options);
           showNotice('Saved.');
         }}
         onDelete={() => {
@@ -833,7 +948,7 @@ function AppShell() {
             exit={{ opacity: 0 }}
             transition={{ duration: prefersReducedMotion ? 0.1 : 0.16 }}
             onClick={closeAuthPrompt}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto overscroll-contain"
+            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto overscroll-contain"
           >
             <motion.div
               initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
@@ -868,7 +983,7 @@ function AppShell() {
             transition={{ duration: 0.16 }}
             className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
           >
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/95 dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md backdrop-blur-md">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md">
               <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
               <span className="truncate">{notice}</span>
             </div>
