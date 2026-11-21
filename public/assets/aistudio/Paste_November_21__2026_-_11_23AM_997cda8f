@@ -1,0 +1,937 @@
+PS C:\Users\OLY-104\Desktop\Call-Analyzer\android> $dest = "C:\Users\OLY-104\Desktop\Call-Analyzer"
+>> $javaDir = "$dest\android\app\src\main\java\com\callanalyzer\eth"
+>> $manifestPath = "$dest\android\app\src\main\AndroidManifest.xml"
+>> New-Item -ItemType Directory -Force -Path $javaDir | Out-Null
+>>
+>> # 1) Apply Android Native Notification Reply Fix
+>> @'
+>> package com.callanalyzer.eth;
+>>
+>> import android.app.Activity;
+>> import android.app.NotificationManager;
+>> import android.content.Context;
+>> import android.content.Intent;
+>> import android.net.Uri;
+>> import android.os.Bundle;
+>>
+>> public class NotificationActionActivity extends Activity {
+>>     @Override
+>>     protected void onCreate(Bundle savedInstanceState) {
+>>         super.onCreate(savedInstanceState);
+>>         Intent intent = getIntent();
+>>         if (intent == null) {
+>>             finish();
+>>             return;
+>>         }
+>>
+>>         int notifId = intent.getIntExtra("notifId", 0);
+>>         String actionId = intent.getStringExtra("actionId");
+>>         String idKey = intent.getStringExtra("idKey");
+>>         String title = intent.getStringExtra("title");
+>>         String body = intent.getStringExtra("body");
+>>         String category = intent.getStringExtra("category");
+>>         String number = intent.getStringExtra("number");
+>>         String contactKey = intent.getStringExtra("contactKey");
+>>         String eventId = intent.getStringExtra("eventId");
+>>         String muteKey = intent.getStringExtra("muteKey");
+>>         String wishText = intent.getStringExtra("wishText");
+>>
+>>         if (notifId != 0) {
+>>             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+>>             if (nm != null) nm.cancel(notifId);
+>>         }
+>>
+>>         boolean launchedExternal = false;
+>>         String cleanNumber = number != null ? number.trim() : "";
+>>
+>>         if ("call".equals(actionId) && !cleanNumber.isEmpty()) {
+>>             try {
+>>                 Intent dial = new Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", cleanNumber, null));
+>>                 dial.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+>>                 startActivity(dial);
+>>                 launchedExternal = true;
+>>             } catch (Exception ignored) {}
+>>         } else if ("wish".equals(actionId) && !cleanNumber.isEmpty() && wishText != null && !wishText.trim().isEmpty()) {
+>>             try {
+>>                 Intent sms = new Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", cleanNumber, null));
+>>                 sms.putExtra("sms_body", wishText);
+>>                 sms.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+>>                 startActivity(sms);
+>>                 launchedExternal = true;
+>>             } catch (Exception ignored) {}
+>>         }
+>>
+>>         NotificationsPlugin.dispatchAction(
+>>             this,
+>>             notifId,
+>>             idKey,
+>>             actionId != null ? actionId : "open",
+>>             title,
+>>             body,
+>>             category,
+>>             number,
+>>             contactKey,
+>>             eventId,
+>>             muteKey,
+>>             wishText,
+>>             launchedExternal
+>>         );
+>>
+>>         if (!launchedExternal) {
+>>             Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());>>             if (launch != null) {
+>>                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+>>                 startActivity(launch);
+>>             }
+>>         }
+>>
+>>         finish();
+>>         overridePendingTransition(0, 0);
+>>     }
+>> }
+>> '@ | Set-Content -Path "$javaDir\NotificationActionActivity.java" -Encoding UTF8
+>>
+>> @'
+>> package com.callanalyzer.eth;
+>>
+>> import android.app.NotificationManager;
+>> import android.content.BroadcastReceiver;
+>> import android.content.Context;
+>> import android.content.Intent;
+>> import android.widget.Toast;
+>>
+>> public class NotificationActionReceiver extends BroadcastReceiver {
+>>     @Override
+>>     public void onReceive(Context context, Intent intent) {
+>>         if (intent == null) return;
+>>
+>>         int notifId = intent.getIntExtra("notifId", 0);
+>>         String actionId = intent.getStringExtra("actionId");
+>>         String idKey = intent.getStringExtra("idKey");
+>>         String title = intent.getStringExtra("title");
+>>         String body = intent.getStringExtra("body");
+>>         String category = intent.getStringExtra("category");
+>>         String number = intent.getStringExtra("number");
+>>         String contactKey = intent.getStringExtra("contactKey");
+>>         String eventId = intent.getStringExtra("eventId");
+>>         String muteKey = intent.getStringExtra("muteKey");
+>>         String wishText = intent.getStringExtra("wishText");
+>>
+>>         if (notifId != 0) {
+>>             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+>>             if (nm != null) nm.cancel(notifId);
+>>         }
+>>
+>>         long delayMs = 0L;
+>>         String toastText = null;
+>>         if ("snooze_15m".equals(actionId)) {
+>>             delayMs = 15L * 60_000L;
+>>             toastText = "Snoozed for 15 minutes";
+>>         } else if ("snooze_60m".equals(actionId)) {
+>>             delayMs = 60L * 60_000L;
+>>             toastText = "Snoozed for 1 hour";
+>>         } else if ("remind_later".equals(actionId)) {
+>>             delayMs = 2L * 60L * 60_000L;
+>>             toastText = "Reminder postponed by 2 hours";
+>>         } else if ("clear".equals(actionId)) {
+>>             toastText = "Reminder cleared";
+>>         } else if ("mute".equals(actionId)) {
+>>             toastText = "Contact alerts muted";
+>>         }
+>>
+>>         boolean handledNatively = false;
+>>         if (delayMs > 0L) {
+>>             long triggerAtMs = System.currentTimeMillis() + delayMs;
+>>             NotificationsPlugin.scheduleAlarm(
+>>                 context,
+>>                 notifId != 0 ? notifId : (int) (System.currentTimeMillis() % 99_999_000L + 100),
+>>                 idKey,
+>>                 title != null ? title : "Call Reminder",
+>>                 body != null ? body : "Tap to view details.",
+>>                 triggerAtMs,
+>>                 category,
+>>                 number,
+>>                 contactKey,
+>>                 eventId,
+>>                 muteKey,
+>>                 wishText
+>>             );
+>>             handledNatively = true;
+>>         }
+>>
+>>         if (toastText != null) {
+>>             Toast.makeText(context.getApplicationContext(), toastText, Toast.LENGTH_SHORT).show();
+>>         }
+>>
+>>         NotificationsPlugin.dispatchAction(
+>>             context,
+>>             notifId,
+>>             idKey,
+>>             actionId != null ? actionId : "clear",
+>>             title,
+>>             body,
+>>             category,
+>>             number,
+>>             contactKey,
+>>             eventId,
+>>             muteKey,
+>>             wishText,
+>>             handledNatively
+>>         );
+>>     }
+>> }
+>> '@ | Set-Content -Path "$javaDir\NotificationActionReceiver.java" -Encoding UTF8
+>>
+>> @'
+>> package com.callanalyzer.eth;
+>>
+>> import android.content.BroadcastReceiver;
+>> import android.content.Context;
+>> import android.content.Intent;
+>>
+>> public class NotificationReceiver extends BroadcastReceiver {
+>>     @Override
+>>     public void onReceive(Context context, Intent intent) {
+>>         if (intent == null) return;
+>>         int notifId = intent.getIntExtra("notifId", 1001);
+>>         String idKey = intent.getStringExtra("idKey");
+>>         String title = intent.getStringExtra("title");
+>>         String body = intent.getStringExtra("body");
+>>         String category = intent.getStringExtra("category");
+>>         String number = intent.getStringExtra("number");
+>>         String contactKey = intent.getStringExtra("contactKey");
+>>         String eventId = intent.getStringExtra("eventId");
+>>         String muteKey = intent.getStringExtra("muteKey");
+>>         String wishText = intent.getStringExtra("wishText");
+>>
+>>         NotificationsPlugin.showNow(
+>>             context,
+>>             notifId,
+>>             idKey,
+>>             title != null ? title : "Call Reminder",
+>>             body != null ? body : "",
+>>             category,
+>>             number,
+>>             contactKey,
+>>             eventId,
+>>             muteKey,
+>>             wishText
+>>         );
+>>     }
+>> }
+>> '@ | Set-Content -Path "$javaDir\NotificationReceiver.java" -Encoding UTF8
+>>
+>> @'
+>> package com.callanalyzer.eth;
+>>
+>> import android.Manifest;
+>> import android.app.AlarmManager;
+>> import android.app.NotificationChannel;
+>> import android.app.NotificationManager;
+>> import android.app.PendingIntent;
+>> import android.content.Context;
+>> import android.content.Intent;
+>> import android.content.SharedPreferences;
+>> import android.os.Build;
+>>
+>> import androidx.core.app.NotificationCompat;
+>>
+>> import com.getcapacitor.JSArray;
+>> import com.getcapacitor.JSObject;
+>> import com.getcapacitor.PermissionState;
+>> import com.getcapacitor.Plugin;
+>> import com.getcapacitor.PluginCall;
+>> import com.getcapacitor.PluginMethod;
+>> import com.getcapacitor.annotation.CapacitorPlugin;
+>> import com.getcapacitor.annotation.Permission;
+>> import com.getcapacitor.annotation.PermissionCallback;
+>>
+>> import org.json.JSONArray;
+>>
+>> @CapacitorPlugin(
+>>     name = "AppNotifications",
+>>     permissions = {
+>>         @Permission(strings = { Manifest.permission.POST_NOTIFICATIONS }, alias = "notifications")
+>>     }
+>> )
+>> public class NotificationsPlugin extends Plugin {
+>>     private static final String CHANNEL_ID = "call_analyzer_reminders";
+>>     private static final String PREFS_NAME = "ca_notif_actions";
+>>     private static final String KEY_PENDING = "pending_actions";
+>>     private static final Object LOCK = new Object();
+>>
+>>     private static volatile NotificationsPlugin sActiveInstance = null;
+>>     private static volatile boolean sIsForeground = false;
+>>
+>>     @Override
+>>     public void load() {
+>>         sActiveInstance = this;
+>>         ensureChannel(getContext());
+>>     }
+>>
+>>     @Override
+>>     protected void handleOnResume() {
+>>         super.handleOnResume();
+>>         sActiveInstance = this;
+>>         sIsForeground = true;
+>>     }
+>>
+>>     @Override
+>>     protected void handleOnPause() {
+>>         sIsForeground = false;
+>>         super.handleOnPause();
+>>     }
+>>
+>>     @Override
+>>     protected void handleOnDestroy() {
+>>         sIsForeground = false;
+>>         if (sActiveInstance == this) {
+>>             sActiveInstance = null;
+>>         }
+>>         super.handleOnDestroy();
+>>     }
+>>
+>>     @PluginMethod
+>>     public void getPermissionStatus(PluginCall call) {
+>>         JSObject ret = new JSObject();
+>>         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+>>             ret.put("state", "granted");
+>>             call.resolve(ret);
+>>             return;
+>>         }
+>>         PermissionState state = getPermissionState("notifications");
+>>         ret.put("state", mapState(state));
+>>         call.resolve(ret);
+>>     }
+>>
+>>     @PluginMethod
+>>     public void requestPermission(PluginCall call) {
+>>         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+>>             JSObject ret = new JSObject();
+>>             ret.put("state", "granted");
+>>             call.resolve(ret);
+>>             return;
+>>         }
+>>         if (getPermissionState("notifications") == PermissionState.GRANTED) {
+>>             JSObject ret = new JSObject();
+>>             ret.put("state", "granted");
+>>             call.resolve(ret);
+>>             return;
+>>         }
+>>         requestPermissionForAlias("notifications", call, "onPermissionResult");
+>>     }
+>>
+>>     @PermissionCallback
+>>     private void onPermissionResult(PluginCall call) {
+>>         JSObject ret = new JSObject();
+>>         ret.put("state", mapState(getPermissionState("notifications")));
+>>         call.resolve(ret);
+>>     }
+>>
+>>     @PluginMethod
+>>     public void showNotification(PluginCall call) {
+>>         int id = normalizeId(call.getInt("id", 1001));
+>>         String idKey = call.getString("idKey");
+>>         String title = call.getString("title", "Call Reminder");
+>>         String body = call.getString("body", "");
+>>         String category = call.getString("category", "other");
+>>         String number = call.getString("number");
+>>         String contactKey = call.getString("contactKey");
+>>         String eventId = call.getString("eventId");
+>>         String muteKey = call.getString("muteKey");
+>>         String wishText = call.getString("wishText");
+>>
+>>         showNow(getContext(), id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText);
+>>         call.resolve();
+>>     }
+>>
+>>     @PluginMethod
+>>     public void scheduleNotification(PluginCall call) {
+>>         int id = normalizeId(call.getInt("id", 1001));
+>>         String idKey = call.getString("idKey");
+>>         String title = call.getString("title", "Call Reminder");
+>>         String body = call.getString("body", "");
+>>         Double triggerDouble = call.getDouble("triggerAtMs", (double) (System.currentTimeMillis() + 60_000L));
+>>         long triggerAtMs = triggerDouble != null ? triggerDouble.longValue() : (System.currentTimeMillis() + 60_000L);
+>>         String category = call.getString("category", "schedule");
+>>         String number = call.getString("number");
+>>         String contactKey = call.getString("contactKey");
+>>         String eventId = call.getString("eventId");
+>>         String muteKey = call.getString("muteKey");
+>>         String wishText = call.getString("wishText");
+>>
+>>         scheduleAlarm(getContext(), id, idKey, title, body, triggerAtMs, category, number, contactKey, eventId, muteKey, wishText);
+>>         call.resolve();
+>>     }
+>>
+>>     @PluginMethod
+>>     public void cancelNotification(PluginCall call) {
+>>         int id = normalizeId(call.getInt("id", 0));
+>>         Context ctx = getContext();
+>>         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+>>         if (nm != null && id != 0) nm.cancel(id);
+>>
+>>         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+>>         if (am != null && id != 0) {
+>>             Intent intent = new Intent(ctx, NotificationReceiver.class);
+>>             intent.setAction("com.callanalyzer.eth.ALARM." + id);
+>>             int flags = PendingIntent.FLAG_NO_CREATE | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+>>             PendingIntent pi = PendingIntent.getBroadcast(ctx, id, intent, flags);
+>>             if (pi != null) {
+>>                 am.cancel(pi);
+>>                 pi.cancel();
+>>             }
+>>         }
+>>         call.resolve();
+>>     }
+>>
+>>     @PluginMethod
+>>     public void getPendingActions(PluginCall call) {
+>>         JSArray out = new JSArray();
+>>         synchronized (LOCK) {
+>>             SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+>>             String raw = prefs.getString(KEY_PENDING, "[]");
+>>             prefs.edit().remove(KEY_PENDING).apply();
+>>             try {
+>>                 JSONArray arr = new JSONArray(raw);
+>>                 for (int i = 0; i < arr.length(); i++) {
+>>                     try {
+>>                         out.put(new JSObject(arr.getString(i)));
+>>                     } catch (Exception ignored) {}
+>>                 }
+>>             } catch (Exception ignored) {}
+>>         }
+>>         JSObject ret = new JSObject();
+>>         ret.put("actions", out);
+>>         call.resolve(ret);
+>>     }
+>>
+>>     public static void dispatchAction(
+>>         Context ctx,
+>>         int notifId,
+>>         String idKey,
+>>         String actionId,
+>>         String title,
+>>         String body,
+>>         String category,
+>>         String number,
+>>         String contactKey,
+>>         String eventId,
+>>         String muteKey,
+>>         String wishText,
+>>         boolean handledNatively
+>>     ) {
+>>         JSObject ev = new JSObject();
+>>         ev.put("notificationId", notifId);
+>>         ev.put("idKey", idKey);
+>>         ev.put("actionId", actionId);
+>>         ev.put("title", title);
+>>         ev.put("body", body);
+>>         ev.put("category", category);
+>>         ev.put("number", number);
+>>         ev.put("contactKey", contactKey);
+>>         ev.put("eventId", eventId);
+>>         ev.put("muteKey", muteKey);
+>>         ev.put("wishText", wishText);
+>>         ev.put("timestamp", System.currentTimeMillis());
+>>         ev.put("handledNatively", handledNatively);
+>>
+>>         NotificationsPlugin active = sActiveInstance;
+>>         if (active != null && sIsForeground) {
+>>             try {
+>>                 active.notifyListeners("notificationAction", ev, false);
+>>                 return;
+>>             } catch (Exception ignored) {}
+>>         }
+>>
+>>         synchronized (LOCK) {
+>>             SharedPreferences prefs = ctx.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+>>             String raw = prefs.getString(KEY_PENDING, "[]");
+>>             JSONArray arr;
+>>             try {
+>>                 arr = new JSONArray(raw);
+>>             } catch (Exception e) {
+>>                 arr = new JSONArray();
+>>             }
+>>             arr.put(ev.toString());
+>>             while (arr.length() > 40) {
+>>                 arr.remove(0);
+>>             }
+>>             prefs.edit().putString(KEY_PENDING, arr.toString()).apply();
+>>         }
+>>     }
+>>
+>>     public static void scheduleAlarm(
+>>         Context ctx,
+>>         int id,
+>>         String idKey,
+>>         String title,
+>>         String body,
+>>         long triggerAtMs,
+>>         String category,
+>>         String number,
+>>         String contactKey,
+>>         String eventId,
+>>         String muteKey,
+>>         String wishText
+>>     ) {
+>>         int safeId = normalizeId(id);
+>>         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+>>         if (am == null) return;
+>>
+>>         Intent intent = new Intent(ctx, NotificationReceiver.class);
+>>         intent.setAction("com.callanalyzer.eth.ALARM." + safeId);
+>>         intent.putExtra("notifId", safeId);
+>>         intent.putExtra("idKey", idKey);
+>>         intent.putExtra("title", title);
+>>         intent.putExtra("body", body);
+>>         intent.putExtra("category", category);
+>>         intent.putExtra("number", number);
+>>         intent.putExtra("contactKey", contactKey);
+>>         intent.putExtra("eventId", eventId);
+>>         intent.putExtra("muteKey", muteKey);
+>>         intent.putExtra("wishText", wishText);
+>>
+>>         int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+>>         PendingIntent pi = PendingIntent.getBroadcast(ctx, safeId, intent, flags);
+>>
+>>         long when = Math.max(triggerAtMs, System.currentTimeMillis() + 1000L);
+>>         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+>>             if (am.canScheduleExactAlarms()) {
+>>                 am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+>>             } else {
+>>                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+>>             }
+>>         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+>>             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+>>         } else {
+>>             am.setExact(AlarmManager.RTC_WAKEUP, when, pi);
+>>         }
+>>     }
+>>
+>>     public static void showNow(
+>>         Context ctx,
+>>         int id,
+>>         String idKey,
+>>         String title,
+>>         String body,
+>>         String category,
+>>         String number,
+>>         String contactKey,
+>>         String eventId,
+>>         String muteKey,
+>>         String wishText
+>>     ) {
+>>         int safeId = normalizeId(id);
+>>         ensureChannel(ctx);
+>>         String cat = category != null ? category : "other";
+>>
+>>         PendingIntent openPi = buildActionPendingIntent(
+>>             ctx, safeId, 0, true, "open",
+>>             idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText
+>>         );
+>>
+>>         int smallIcon = ctx.getApplicationInfo().icon != 0 ? ctx.getApplicationInfo().icon : android.R.drawable.ic_dialog_info;
+>>         NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)>>             .setSmallIcon(smallIcon)
+>>             .setContentTitle(title != null ? title : "Call Reminder")
+>>             .setContentText(body != null ? body : "")
+>>             .setStyle(new NotificationCompat.BigTextStyle().bigText(body != null ? body : ""))
+>>             .setPriority(NotificationCompat.PRIORITY_HIGH)
+>>             .setAutoCancel(true)
+>>             .setContentIntent(openPi);
+>>
+>>         if ("schedule".equals(cat)) {
+>>             builder.addAction(0, "Call", buildActionPendingIntent(ctx, safeId, 1, true, "call", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "+ 15 Min", buildActionPendingIntent(ctx, safeId, 2, false, "snooze_15m", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "Snooze 1h", buildActionPendingIntent(ctx, safeId, 3, false, "snooze_60m", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>         } else if ("birthday".equals(cat)) {
+>>             builder.addAction(0, "Wish", buildActionPendingIntent(ctx, safeId, 1, true, "wish", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "Call", buildActionPendingIntent(ctx, safeId, 2, true, "call", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "Remind later", buildActionPendingIntent(ctx, safeId, 3, false, "remind_later", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));>>         } else if ("holiday".equals(cat)) {
+>>             builder.addAction(0, "Wish", buildActionPendingIntent(ctx, safeId, 1, true, "wish", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "Remind later", buildActionPendingIntent(ctx, safeId, 2, false, "remind_later", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));>>         } else {
+>>             builder.addAction(0, "View", buildActionPendingIntent(ctx, safeId, 1, true, "view", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "Clear", buildActionPendingIntent(ctx, safeId, 2, false, "clear", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>             builder.addAction(0, "Mute", buildActionPendingIntent(ctx, safeId, 3, false, "mute", idKey, title, body, cat, number, contactKey, eventId, muteKey, wishText));
+>>         }
+>>
+>>         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+>>         if (nm != null) {
+>>             nm.notify(safeId, builder.build());
+>>         }
+>>     }
+>>
+>>     private static PendingIntent buildActionPendingIntent(
+>>         Context ctx,
+>>         int safeId,
+>>         int reqOffset,
+>>         boolean isActivityAction,
+>>         String actionId,
+>>         String idKey,
+>>         String title,
+>>         String body,
+>>         String category,
+>>         String number,
+>>         String contactKey,
+>>         String eventId,
+>>         String muteKey,
+>>         String wishText
+>>     ) {
+>>         int reqCode = safeId * 10 + (reqOffset % 10);
+>>         Intent intent = new Intent(ctx, isActivityAction ? NotificationActionActivity.class : NotificationActionReceiver.class);
+>>         intent.setAction("com.callanalyzer.eth.NOTIF_ACTION." + actionId + "." + safeId + "." + reqOffset);
+>>         intent.putExtra("notifId", safeId);
+>>         intent.putExtra("idKey", idKey);
+>>         intent.putExtra("actionId", actionId);
+>>         intent.putExtra("title", title);
+>>         intent.putExtra("body", body);
+>>         intent.putExtra("category", category);
+>>         intent.putExtra("number", number);
+>>         intent.putExtra("contactKey", contactKey);
+>>         intent.putExtra("eventId", eventId);
+>>         intent.putExtra("muteKey", muteKey);
+>>         intent.putExtra("wishText", wishText);
+>>
+>>         int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+>>         return isActivityAction
+>>             ? PendingIntent.getActivity(ctx, reqCode, intent, flags)
+>>             : PendingIntent.getBroadcast(ctx, reqCode, intent, flags);
+>>     }
+>>
+>>     private static int normalizeId(int rawId) {
+>>         if (rawId == 0) return 1001;
+>>         return Math.abs(rawId % 99_999_000) + 100;
+>>     }
+>>
+>>     private static void ensureChannel(Context ctx) {
+>>         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+>>             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+>>             if (nm != null && nm.getNotificationChannel(CHANNEL_ID) == null) {
+>>                 NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "Call & Event Reminders", NotificationManager.IMPORTANCE_HIGH);
+>>                 ch.enableVibration(true);
+>>                 nm.createNotificationChannel(ch);
+>>             }
+>>         }
+>>     }
+>>
+>>     private String mapState(PermissionState state) {
+>>         if (state == PermissionState.GRANTED) return "granted";                             >>         if (state == PermissionState.DENIED) return "denied";                               >>         return "prompt";                                                                    >>     }                                                                                       >> }                                                                                           >> '@ | Set-Content -Path "$javaDir\NotificationsPlugin.java" -Encoding UTF8                   >>
+>> $xml = Get-Content -Path $manifestPath -Raw
+>> if ($xml -notmatch "NotificationActionActivity") {
+>>     $entry = @"
+>>         <activity
+>>             android:name=".NotificationActionActivity"
+>>             android:exported="false"
+>>             android:excludeFromRecents="true"
+>>             android:noHistory="true"
+>>             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+>> "@
+>>     $xml = $xml -replace "</application>", "$entry`r`n    </application>"
+>>     Set-Content -Path $manifestPath -Value $xml -Encoding UTF8
+>> }
+>>
+>> # 2) Copy Latest AI Studio Export & Build Debug APK
+>> $zip = Get-ChildItem "$HOME\Downloads\*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+>> if (-not $zip) { throw "No .zip found in Downloads" }
+>> $tmp = "$env:TEMP\ca_update_$(Get-Random)"
+>> Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
+>> $marker = Get-ChildItem -Path $tmp -Filter "SpecialEventsEditor.tsx" -Recurse | Select-Object -First 1
+>> if (-not $marker) { throw "Downloaded zip does not contain v2.5.1 files!" }
+>> $new = Split-Path (Split-Path (Split-Path $marker.FullName -Parent) -Parent) -Parent
+>>
+>> robocopy "$new\src" "$dest\src" /MIR | Out-Null
+>> robocopy "$new" "$dest" index.html package.json tsconfig.json vite.config.ts metadata.json firestore.rules firebase-blueprint.json | Out-Null
+>>
+>> Set-Location $dest
+>> npm.cmd run build
+>> npx.cmd cap sync android
+>> Set-Location "$dest\android"
+>> .\gradlew assembleDebug
+[plugin builtin:vite-reporter] app\build\outputs\apk\debug"
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.native'`, which is p✓ built in 2.70s
+√ Copying web assets from dist to android\app\src\main\assets\public in 26.84ms
+√ Creating capacitor.config.json in android\app\src\main\assets in 2.07ms
+√ copy android in 57.97ms
+√ Updating Android plugins in 7.35ms
+√ update android in 373.01ms
+[info] Sync finished in 0.493s           3.29 kB │ gzip:   1.24 kB
+
+> Configure project :app
+WARNING: Using flatDir should be avoided because it doesn't support any meta-data formats.
+
+> Configure project :capacitor-cordova-android-plugins
+WARNING: Using flatDir should be avoided because it doesn't support any meta-data formats.
+
+> Task :app:compileDebugJavaWithJavac FAILED
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:1: error: illegal character: '\ufeff'
+∩╗┐package com.callanalyzer.eth;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:1: error: class, interface, enum, or record expected
+∩╗┐package com.callanalyzer.eth;
+         ^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:3: error: class, interface, enum, or record expected
+import android.app.Activity;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:4: error: class, interface, enum, or record expected
+import android.app.NotificationManager;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:5: error: class, interface, enum, or record expected
+import android.content.Context;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:6: error: class, interface, enum, or record expected
+import android.content.Intent;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:7: error: class, interface, enum, or record expected
+import android.net.Uri;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:8: error: class, interface, enum, or record expected
+import android.os.Bundle;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:1: error: illegal character: '\ufeff'
+∩╗┐package com.callanalyzer.eth;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:1: error: class, interface, enum, or record expected
+∩╗┐package com.callanalyzer.eth;
+         ^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:3: error: class, interface, enum, or record expected
+import android.app.NotificationManager;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:4: error: class, interface, enum, or record expected
+import android.content.BroadcastReceiver;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:5: error: class, interface, enum, or record expected
+import android.content.Context;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:6: error: class, interface, enum, or record expected
+import android.content.Intent;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:7: error: class, interface, enum, or record expected
+import android.widget.Toast;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:1: error: illegal character: '\ufeff'
+∩╗┐package com.callanalyzer.eth;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:1: error: class, interface, enum, or record expected
+∩╗┐package com.callanalyzer.eth;
+         ^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:3: error: class, interface, enum, or record expected
+import android.content.BroadcastReceiver;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:4: error: class, interface, enum, or record expected
+import android.content.Context;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:5: error: class, interface, enum, or record expected
+import android.content.Intent;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:1: error: illegal character: '\ufeff'
+∩╗┐package com.callanalyzer.eth;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:1: error: class, interface, enum, or record expected
+∩╗┐package com.callanalyzer.eth;
+         ^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:3: error: class, interface, enum, or record expected
+import android.Manifest;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:4: error: class, interface, enum, or record expected
+import android.app.AlarmManager;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:5: error: class, interface, enum, or record expected
+import android.app.NotificationChannel;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:6: error: class, interface, enum, or record expected
+import android.app.NotificationManager;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:7: error: class, interface, enum, or record expected
+import android.app.PendingIntent;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:8: error: class, interface, enum, or record expected
+import android.content.Context;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:9: error: class, interface, enum, or record expected
+import android.content.Intent;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:10: error: class, interface, enum, or record expected
+import android.content.SharedPreferences;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:11: error: class, interface, enum, or record expected
+import android.os.Build;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:13: error: class, interface, enum, or record expected
+import androidx.core.app.NotificationCompat;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:15: error: class, interface, enum, or record expected
+import com.getcapacitor.JSArray;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:16: error: class, interface, enum, or record expected
+import com.getcapacitor.JSObject;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:17: error: class, interface, enum, or record expected
+import com.getcapacitor.PermissionState;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:18: error: class, interface, enum, or record expected
+import com.getcapacitor.Plugin;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:19: error: class, interface, enum, or record expected
+import com.getcapacitor.PluginCall;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:20: error: class, interface, enum, or record expected
+import com.getcapacitor.PluginMethod;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:21: error: class, interface, enum, or record expected
+import com.getcapacitor.annotation.CapacitorPlugin;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:22: error: class, interface, enum, or record expected
+import com.getcapacitor.annotation.Permission;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:23: error: class, interface, enum, or record expected
+import com.getcapacitor.annotation.PermissionCallback;
+^
+C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:25: error: class, interface, enum, or record expected
+import org.json.JSONArray;
+^
+42 errors
+
+[Incubating] Problems report is available at: file:///C:/Users/OLY-104/Desktop/Call-Analyzer/android/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:1: error: class, interface, enum, or record expected
+  ∩╗┐package com.callanalyzer.eth;
+           ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:3: error: class, interface, enum, or record expected
+  import android.app.Activity;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:4: error: class, interface, enum, or record expected
+  import android.app.NotificationManager;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:5: error: class, interface, enum, or record expected
+  import android.content.Context;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:6: error: class, interface, enum, or record expected
+  import android.content.Intent;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:7: error: class, interface, enum, or record expected
+  import android.net.Uri;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:8: error: class, interface, enum, or record expected
+  import android.os.Bundle;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:1: error: class, interface, enum, or record expected
+  ∩╗┐package com.callanalyzer.eth;
+           ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:3: error: class, interface, enum, or record expected
+  import android.app.NotificationManager;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:4: error: class, interface, enum, or record expected
+  import android.content.BroadcastReceiver;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:5: error: class, interface, enum, or record expected
+  import android.content.Context;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:6: error: class, interface, enum, or record expected
+  import android.content.Intent;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:7: error: class, interface, enum, or record expected
+  import android.widget.Toast;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:1: error: class, interface, enum, or record expected
+  ∩╗┐package com.callanalyzer.eth;
+           ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:3: error: class, interface, enum, or record expected
+  import android.content.BroadcastReceiver;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:4: error: class, interface, enum, or record expected
+  import android.content.Context;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:5: error: class, interface, enum, or record expected
+  import android.content.Intent;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:1: error: class, interface, enum, or record expected
+  ∩╗┐package com.callanalyzer.eth;
+           ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:3: error: class, interface, enum, or record expected
+  import android.Manifest;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:4: error: class, interface, enum, or record expected
+  import android.app.AlarmManager;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:5: error: class, interface, enum, or record expected
+  import android.app.NotificationChannel;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:6: error: class, interface, enum, or record expected
+  import android.app.NotificationManager;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:7: error: class, interface, enum, or record expected
+  import android.app.PendingIntent;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:8: error: class, interface, enum, or record expected
+  import android.content.Context;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:9: error: class, interface, enum, or record expected
+  import android.content.Intent;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:10: error: class, interface, enum, or record expected
+  import android.content.SharedPreferences;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:11: error: class, interface, enum, or record expected
+  import android.os.Build;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:13: error: class, interface, enum, or record expected
+  import androidx.core.app.NotificationCompat;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:15: error: class, interface, enum, or record expected
+  import com.getcapacitor.JSArray;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:16: error: class, interface, enum, or record expected
+  import com.getcapacitor.JSObject;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:17: error: class, interface, enum, or record expected
+  import com.getcapacitor.PermissionState;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:18: error: class, interface, enum, or record expected
+  import com.getcapacitor.Plugin;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:19: error: class, interface, enum, or record expected
+  import com.getcapacitor.PluginCall;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:20: error: class, interface, enum, or record expected
+  import com.getcapacitor.PluginMethod;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:21: error: class, interface, enum, or record expected
+  import com.getcapacitor.annotation.CapacitorPlugin;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:22: error: class, interface, enum, or record expected
+  import com.getcapacitor.annotation.Permission;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:23: error: class, interface, enum, or record expected
+  import com.getcapacitor.annotation.PermissionCallback;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:25: error: class, interface, enum, or record expected
+  import org.json.JSONArray;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionActivity.java:1: error: illegal character: '\ufeff'
+  ∩╗┐package com.callanalyzer.eth;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationActionReceiver.java:1: error: illegal character: '\ufeff'
+  ∩╗┐package com.callanalyzer.eth;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationReceiver.java:1: error: illegal character: '\ufeff'
+  ∩╗┐package com.callanalyzer.eth;
+  ^
+  C:\Users\OLY-104\Desktop\Call-Analyzer\android\app\src\main\java\com\callanalyzer\eth\NotificationsPlugin.java:1: error: illegal character: '\ufeff'
+  ∩╗┐package com.callanalyzer.eth;
+  ^
+  42 errors
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 5s
+89 actionable tasks: 31 executed, 58 up-to-date
+PS C:\Users\OLY-104\Desktop\Call-Analyzer\android>
