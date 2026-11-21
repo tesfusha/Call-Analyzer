@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Check,
@@ -180,7 +181,7 @@ export function ProfileEditModal({
         ? 'Choose Profile Avatar'
         : 'Account Password';
 
-  return (
+  const modalNode = (
     <AnimatePresence>
       {open && (
         <motion.div
@@ -198,7 +199,7 @@ export function ProfileEditModal({
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
             transition={{ duration: prefersReducedMotion ? 0.12 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col h-[84vh] sm:h-[620px] max-h-[90vh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90vh] overflow-hidden shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -518,4 +519,7 @@ export function ProfileEditModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalNode;
+  return createPortal(modalNode, document.body);
 }

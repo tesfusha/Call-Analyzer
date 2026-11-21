@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Signal,
   Smartphone,
+  Sparkles,
   Trash2,
   Type,
   Upload,
@@ -116,9 +117,11 @@ const SETTINGS_CATEGORIES: Array<{
 export function SettingsTab({
   onOpenReminders,
   onOpenGuide,
+  onOpenWhatsNew,
 }: {
   onOpenReminders: () => void;
   onOpenGuide?: () => void;
+  onOpenWhatsNew?: () => void;
 }) {
   const {
     calls,
@@ -386,7 +389,7 @@ export function SettingsTab({
             <>
               {/* Account & Cloud Sync */}
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             {effectivePhotoUrl ? (
               <img
@@ -440,13 +443,19 @@ export function SettingsTab({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div
+            className={
+              authUser
+                ? 'grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto shrink-0'
+                : 'flex flex-wrap items-center gap-2 shrink-0'
+            }
+          >
             {authUser ? (
               <>
                 <button
                   type="button"
                   onClick={() => setProfileModalOpen(true)}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                 >
                   <Edit3 size={14} />
                   Edit Profile
@@ -454,7 +463,7 @@ export function SettingsTab({
                 <button
                   type="button"
                   onClick={() => void handleShareMyContact()}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                 >
                   <Share2 size={14} className="text-[#FF6A00]" />
                   Share Contact
@@ -463,7 +472,7 @@ export function SettingsTab({
                   type="button"
                   onClick={() => void syncNow()}
                   disabled={syncStatus === 'syncing'}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                 >
                   <RefreshCw size={14} className={syncStatus === 'syncing' ? 'animate-spin' : ''} />
                   Sync now
@@ -471,7 +480,7 @@ export function SettingsTab({
                 <button
                   type="button"
                   onClick={() => void signOutAccount()}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                 >
                   <LogOut size={14} />
                   Sign out
@@ -709,16 +718,28 @@ export function SettingsTab({
             </div>
           </div>
 
-          {onOpenGuide && (
-            <button
-              type="button"
-              onClick={onOpenGuide}
-              className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <PlayCircle size={15} />
-              Launch App Guide
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onOpenWhatsNew && (
+              <button
+                type="button"
+                onClick={onOpenWhatsNew}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Sparkles size={15} className="text-[#FF6A00]" />
+                What&apos;s New
+              </button>
+            )}
+            {onOpenGuide && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <PlayCircle size={15} />
+                Launch App Guide
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

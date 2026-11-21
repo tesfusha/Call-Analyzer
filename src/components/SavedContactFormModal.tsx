@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Cake, CalendarPlus, Check, Plus, Tag, Trash2, UserPlus, X } from 'lucide-react';
+import { Cake, Check, Plus, Tag, UserPlus, X } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { SpecialEventsEditor } from '@/src/components/SpecialEventsEditor';
 import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { getEthiopianMonthName } from '@/src/lib/ethiopianCalendar';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
@@ -116,17 +117,31 @@ export function SavedContactFormModal({
         }
       : existing?.birthday ?? null;
 
+    const pendingDraftEvent: ContactEvent[] = newEvtTitle.trim()
+      ? [
+          {
+            id: `evt-${Date.now()}-${events.length + 1}`,
+            title: newEvtTitle.trim(),
+            calendar: newEvtCalendar,
+            month: Math.max(1, Math.min(maxEvtMonth, newEvtMonth)),
+            day: Math.max(1, Math.min(newEvtCalendar === 'ethiopian' ? 30 : 31, newEvtDay)),
+          },
+        ]
+      : [];
+
+    const combinedEvents = [...events, ...pendingDraftEvent];
+
     const mergedEvents = existing
       ? [
           ...existing.events,
-          ...events.filter(
+          ...combinedEvents.filter(
             (evt) =>
               !existing.events.some(
                 (old) => old.title === evt.title && old.month === evt.month && old.day === evt.day,
               ),
           ),
         ]
-      : events;
+      : combinedEvents;
 
     const cleanTag = tag.trim() || existing?.tag || '';
     if (cleanTag) addCustomTag(cleanTag);
@@ -373,96 +388,20 @@ export function SavedContactFormModal({
             )}
           </div>
 
-          {/* Special Events */}
-          <div className="space-y-2 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
-            <div className="flex items-center gap-2">
-              <CalendarPlus size={15} className="text-[#FF6A00]" />
-              <span className="text-xs font-semibold text-[#08246B] dark:text-white">
-                Special events ({events.length})
-              </span>
-            </div>
-
-            {events.length > 0 && (
-              <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)]">
-                {events.map((evt) => (
-                  <div key={evt.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
-                    <span className="text-[#08246B] dark:text-white font-medium truncate">
-                      {evt.title} ·{' '}
-                      <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
-                        {evt.calendar === 'ethiopian'
-                          ? `${getEthiopianMonthName(evt.month, 'english')} ${evt.day} EC`
-                          : `${GREGORIAN_MONTHS[evt.month - 1]} ${evt.day}`}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setEvents((prev) => prev.filter((item) => item.id !== evt.id))}
-                      aria-label={`Remove ${evt.title}`}
-                      className="p-1 text-[#DC2626] dark:text-[#F28B82]"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] gap-2">
-              <input
-                type="text"
-                value={newEvtTitle}
-                onChange={(e) => setNewEvtTitle(e.target.value)}
-                placeholder="Event title (e.g. Anniversary)"
-                className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs text-[#08246B] dark:text-white"
-              />
-              <CustomSelect
-                ariaLabel="Event calendar"
-                value={newEvtCalendar}
-                variant="inset"
-                compact
-                options={[
-                  { value: 'ethiopian', label: 'EC' },
-                  { value: 'gregorian', label: 'GC' },
-                ]}
-                onChange={(val) => {
-                  const nextCal = val as CalendarKind;
-                  setNewEvtCalendar(nextCal);
-                  if (nextCal === 'gregorian' && newEvtMonth > 12) setNewEvtMonth(12);
-                }}
-              />
-              <CustomSelect
-                ariaLabel="Event month"
-                value={String(newEvtMonth)}
-                variant="inset"
-                compact
-                options={Array.from({ length: maxEvtMonth }, (_, idx) => idx + 1).map((m) => ({
-                  value: String(m),
-                  label:
-                    newEvtCalendar === 'ethiopian'
-                      ? getEthiopianMonthName(m, 'english')
-                      : GREGORIAN_MONTHS[m - 1],
-                }))}
-                onChange={(val) => setNewEvtMonth(Number(val))}
-              />
-              <input
-                type="number"
-                min={1}
-                max={newEvtCalendar === 'ethiopian' ? 30 : 31}
-                value={newEvtDay}
-                onChange={(e) => setNewEvtDay(Math.max(1, Number(e.target.value) || 1))}
-                aria-label="Event day"
-                className="w-16 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
-              />
-              <button
-                type="button"
-                onClick={handleAddEvent}
-                className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#FF6A00] hover:text-white flex items-center justify-center gap-1 whitespace-nowrap"
-              >
-                <Plus size={14} />
-                Add
-              </button>
-            </div>
-          </div>
+          <SpecialEventsEditor
+            events={events}
+            onRemoveEvent={(id) => setEvents((prev) => prev.filter((item) => item.id !== id))}
+            newTitle={newEvtTitle}
+            onNewTitleChange={setNewEvtTitle}
+            newCalendar={newEvtCalendar}
+            onNewCalendarChange={setNewEvtCalendar}
+            newMonth={newEvtMonth}
+            onNewMonthChange={setNewEvtMonth}
+            newDay={newEvtDay}
+            onNewDayChange={setNewEvtDay}
+            onAddEvent={handleAddEvent}
+            variant="inset"
+          />
 
           <label className="block space-y-1">
             <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">

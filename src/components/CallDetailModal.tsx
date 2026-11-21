@@ -193,9 +193,21 @@ export function CallDetailModal({
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)] py-2.5 tabular-nums">
-                <span className="capitalize font-medium text-[#08246B] dark:text-white">{call.direction}</span>
+                <span
+                  className={
+                    call.direction === 'missed'
+                      ? 'font-semibold text-[#EF4444] dark:text-[#F28B82]'
+                      : 'font-semibold text-[#08246B] dark:text-white'
+                  }
+                >
+                  {call.direction === 'incoming'
+                    ? 'Incoming Call'
+                    : call.direction === 'outgoing'
+                      ? 'Outgoing Call'
+                      : 'Missed Call'}
+                </span>
                 <span aria-hidden="true">·</span>
-                <span>{formatDuration(call.duration)}</span>
+                <span>{call.duration > 0 ? formatDuration(call.duration) : '0s'}</span>
                 <span aria-hidden="true">·</span>
                 <span>{formatDateTime(call.timestamp)}</span>
                 <span aria-hidden="true">·</span>
@@ -208,6 +220,12 @@ export function CallDetailModal({
                 )}
                 <span aria-hidden="true">·</span>
                 <span>{detectCarrier(call.number)}</span>
+                {tag.trim() && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="text-[#FF6A00] font-medium">{tag.trim()}</span>
+                  </>
+                )}
                 {call.direction === 'outgoing' && call.duration > 0 && (
                   <>
                     <span aria-hidden="true">·</span>

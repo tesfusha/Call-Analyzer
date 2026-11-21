@@ -33,7 +33,8 @@ import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
 import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
 import { UsageTab } from '@/src/components/UsageTab';
-import { GUIDE_SEEN_KEY } from '@/src/lib/appInfo';
+import { WhatsNewModal } from '@/src/components/WhatsNewModal';
+import { APP_VERSION, GUIDE_SEEN_KEY, WHATS_NEW_SEEN_KEY } from '@/src/lib/appInfo';
 import { getContactKey, getUpcomingContactEvents } from '@/src/lib/contacts';
 import {
   formatEthiopianShort,
@@ -112,6 +113,7 @@ function AppShell() {
     'action' | 'wishes' | 'quiet' | 'reports'
   >('action');
   const [guideOpen, setGuideOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [checkingVerify, setCheckingVerify] = useState(false);
   const [resendingVerify, setResendingVerify] = useState(false);
   const mainContentRef = useRef<HTMLDivElement>(null);
@@ -137,6 +139,16 @@ function AppShell() {
     setGuideOpen(false);
     try {
       localStorage.setItem(GUIDE_SEEN_KEY, '1');
+      localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  const handleCloseWhatsNew = useCallback(() => {
+    setWhatsNewOpen(false);
+    try {
+      localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
     } catch {
       // ignore storage errors
     }
@@ -149,6 +161,10 @@ function AppShell() {
       if (localStorage.getItem(GUIDE_SEEN_KEY) !== '1') {
         setGuideOpen(true);
         localStorage.setItem(GUIDE_SEEN_KEY, '1');
+        localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
+      } else if (localStorage.getItem(WHATS_NEW_SEEN_KEY) !== APP_VERSION) {
+        setWhatsNewOpen(true);
+        localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
       }
     } catch {
       // ignore storage errors
@@ -204,6 +220,7 @@ function AppShell() {
       Boolean(selectedContactNumber) ||
       remindersOpen ||
       guideOpen ||
+      whatsNewOpen ||
       authPromptMode !== 'closed';
     if (modalOpen) return;
 
@@ -311,6 +328,7 @@ function AppShell() {
     selectedContactNumber,
     remindersOpen,
     guideOpen,
+    whatsNewOpen,
     authPromptMode,
   ]);
 
@@ -343,6 +361,11 @@ function AppShell() {
   const handleOpenGuide = useCallback(() => {
     triggerHaptic('tap');
     setGuideOpen(true);
+  }, []);
+
+  const handleOpenWhatsNew = useCallback(() => {
+    triggerHaptic('tap');
+    setWhatsNewOpen(true);
   }, []);
 
   const pendingFollowUps = useMemo(() => {
@@ -809,7 +832,7 @@ function AppShell() {
       <main className="flex-1 min-w-0 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:pb-8 overflow-x-clip">
         <div
           ref={mainContentRef}
-          className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7 will-change-transform"
+          className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7"
         >
           {isGuest && (
             <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
@@ -880,6 +903,7 @@ function AppShell() {
               <SettingsTab
                 onOpenReminders={handleOpenReminders}
                 onOpenGuide={handleOpenGuide}
+                onOpenWhatsNew={handleOpenWhatsNew}
               />
             </div>
           )}
@@ -974,6 +998,12 @@ function AppShell() {
       />
 
       <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />
+
+      <WhatsNewModal
+        open={whatsNewOpen}
+        onClose={handleCloseWhatsNew}
+        onOpenGuide={handleOpenGuide}
+      />
 
       <AnimatePresence>
         {authPromptMode !== 'closed' && (

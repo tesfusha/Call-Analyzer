@@ -77,6 +77,7 @@ export type NotificationActionEvent = NotificationMeta & {
   title?: string | null;
   body?: string | null;
   timestamp?: number;
+  handledNatively?: boolean;
 };
 
 type NativeAppNotificationPermissionState = 'granted' | 'denied' | 'prompt';
@@ -378,7 +379,7 @@ export function hashNotificationId(key: string): number {
   for (let i = 0; i < key.length; i += 1) {
     hash = (hash * 31 + key.charCodeAt(i)) | 0;
   }
-  return Math.abs(hash % 2_000_000_000) + 100;
+  return Math.abs(hash % 99_999_000) + 100;
 }
 
 export async function showNativeNotification(

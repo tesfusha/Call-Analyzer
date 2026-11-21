@@ -111,6 +111,17 @@ export function formatSimDisplay(sim: SimSlot, labels: SimLabels): string {
   return `${sim} (${custom})`;
 }
 
+export function formatSimCompact(sim: SimSlot, labels: SimLabels): string {
+  if (!sim) return '';
+  const slotCompact = sim.replace(/\s+/g, '');
+  const raw = sim === 'SIM 1' ? labels.sim1Label.trim() : labels.sim2Label.trim();
+  const custom = formatCarrierShort(raw);
+  if (!custom || custom === sim || custom.replace(/\s+/g, '') === slotCompact) {
+    return slotCompact;
+  }
+  return `${slotCompact}(${custom})`;
+}
+
 /** Normalise Ethiopian numbers to compact digits for carrier matching & contact comparison. */
 export function normaliseEthPhone(raw: string): string {
   const cleaned = raw.replace(/[\s()-]/g, '');

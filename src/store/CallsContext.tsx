@@ -345,7 +345,12 @@ type CallsContextValue = {
   getContactProfile: (number: string) => ContactProfile | null;
   scheduleCall: (input: ScheduleCallInput) => ScheduledCall;
   completeScheduledCall: (id: string) => void;
-  snoozeScheduledCall: (id: string, minutes: number) => void;
+  snoozeScheduledCall: (
+    id: string,
+    minutes: number,
+    customNextTime?: number,
+    skipNativeAlarm?: boolean,
+  ) => void;
   removeScheduledCall: (id: string) => void;
   dismissMissedCall: (id: string) => void;
   muteAlertKey: (key: string) => void;
@@ -3318,10 +3323,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   );
 
   const snoozeScheduledCall = useCallback(
-    (id: string, minutes: number) => {
+    (id: string, minutes: number, customNextTime?: number, skipNativeAlarm?: boolean) => {
       const user = requireSignedInUser();
       if (!user) return;
-      const nextTime = Date.now() + minutes * 60_000;
+      const nextTime =
+        typeof customNextTime === 'number' && customNextTime > 0
+          ? customNextTime
+          : Date.now() + minutes * 60_000;
       const existingItem = stateRef.current.scheduledCalls.find((item) => item.id === id);
       const updatedItem: ScheduledCall | null = existingItem
         ? {
@@ -3346,6 +3354,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           .sort((a, b) => a.scheduledFor - b.scheduledFor),
       );
       if (
+        !skipNativeAlarm &&
         updatedItem &&
         notificationsEnabled &&
         !isWithinQuietHours(reminderPrefs) &&
@@ -3582,7 +3591,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           completeScheduledCall(targetId);
         }
         if (number) {
-          window.location.href = `tel:${number}`;
+          if (!event.handledNatively) {
+            window.location.href = `tel:${number}`;
+          }
         } else {
           setNotificationActionTarget({ openReminders: 'action' });
         }
@@ -3591,12 +3602,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       if (action === 'snooze_15m' || action === 'snooze_60m') {
         const mins = action === 'snooze_15m' ? 15 : 60;
+        const baseTs =
+          event.timestamp && event.timestamp > 0 ? event.timestamp : Date.now();
+        const snoozeUntil = baseTs + mins * 60_000;
+        if (event.handledNatively && snoozeUntil <= Date.now()) {
+          return;
+        }
         if (targetId && stateRef.current.scheduledCalls.some((s) => s.id === targetId)) {
-          snoozeScheduledCall(targetId, mins);
-        } else if (number) {
+          snoozeScheduledCall(targetId, mins, snoozeUntil, Boolean(event.handledNatively));
+        } else if (number && !event.handledNatively) {
           scheduleCall({
             number,
-            scheduledFor: Date.now() + mins * 60_000,
+            scheduledFor: snoozeUntil,
             note: event.title || 'Follow-up call',
           });
         }
@@ -3604,29 +3621,33 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
 
       if (action === 'remind_later') {
-        const nextMs = Date.now() + 2 * 60 * 60_000;
-        const idKey = `${event.idKey || event.eventId || 'remind'}-later-${nextMs}`;
-        void scheduleNativeNotification(
-          idKey,
-          event.title || 'Reminder',
-          event.body || 'Tap to view reminder details.',
-          nextMs,
-          {
-            category: event.category ?? 'other',
-            number: event.number ?? null,
-            contactKey: event.contactKey ?? null,
-            eventId: event.eventId ?? null,
-            muteKey: event.muteKey ?? null,
-            wishText: event.wishText ?? null,
-          },
-        );
+        if (!event.handledNatively) {
+          const nextMs = Date.now() + 2 * 60 * 60_000;
+          const idKey = `${event.idKey || event.eventId || 'remind'}-later-${nextMs}`;
+          void scheduleNativeNotification(
+            idKey,
+            event.title || 'Reminder',
+            event.body || 'Tap to view reminder details.',
+            nextMs,
+            {
+              category: event.category ?? 'other',
+              number: event.number ?? null,
+              contactKey: event.contactKey ?? null,
+              eventId: event.eventId ?? null,
+              muteKey: event.muteKey ?? null,
+              wishText: event.wishText ?? null,
+            },
+          );
+        }
         showNotice('Reminder postponed by 2 hours.');
         return;
       }
 
       if (action === 'wish') {
         if (number && event.wishText) {
-          window.location.href = `sms:${number}?body=${encodeURIComponent(event.wishText)}`;
+          if (!event.handledNatively) {
+            window.location.href = `sms:${number}?body=${encodeURIComponent(event.wishText)}`;
+          }
         } else if (number) {
           setNotificationActionTarget({ contactNumber: number });
         } else {

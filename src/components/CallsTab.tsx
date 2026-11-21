@@ -8,10 +8,12 @@ import {
   Cake,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock,
   Flame,
   Hash,
   HeartPulse,
+  Layers,
   ListFilter,
   Phone,
   PhoneIncoming,
@@ -44,8 +46,8 @@ import {
 } from '@/src/lib/contacts';
 import {
   ETHIOPIAN_EMERGENCY_HOTLINES,
-  estimateCallCostEtb,
   formatEtb,
+  formatSimCompact,
   formatSimDisplay,
   toDialableUssdHref,
 } from '@/src/lib/ethiopia';
@@ -58,7 +60,7 @@ import { triggerHaptic } from '@/src/lib/haptics';
 import { parseCallImport } from '@/src/lib/import';
 import { unreturnedMissedCalls } from '@/src/lib/reminders';
 import { formatScheduledCountdown, formatScheduledLabel } from '@/src/lib/schedule';
-import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { maskPhoneNumber } from '@/src/lib/security';
 import { filterByRange, totalSpendEtb } from '@/src/lib/stats';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
@@ -95,6 +97,12 @@ function DirectionIcon({ direction }: { direction: CallDirection }) {
     return <PhoneOutgoing size={14} className="text-[#FF6A00] shrink-0" />;
   }
   return <PhoneMissed size={14} className="text-[#EF4444] shrink-0" />;
+}
+
+function formatCallStatus(direction: CallDirection): string {
+  if (direction === 'incoming') return 'Incoming Call';
+  if (direction === 'outgoing') return 'Outgoing Call';
+  return 'Missed Call';
 }
 
 export const CallsTab = memo(function CallsTab({
@@ -889,10 +897,7 @@ export const CallsTab = memo(function CallsTab({
                           maskPhoneNumber(call.number, privacyMode);
                         const resolvedTag = resolveCallTag(call);
                         const shortTag = resolvedTag ? formatShortTag(resolvedTag) : '';
-                        const groupSpendEtb = cluster.calls.reduce(
-                          (sum, item) => sum + estimateCallCostEtb(item, tariffs),
-                          0,
-                        );
+                        const compactSim = call.sim ? formatSimCompact(call.sim, simLabels) : '';
                         const hasUnreturned = cluster.calls.some((item) =>
                           unreturnedIds.has(item.id),
                         );
@@ -924,68 +929,94 @@ export const CallsTab = memo(function CallsTab({
                                   }
                                 }}
                                 aria-expanded={isGrouped ? isExpanded : undefined}
-                                className="flex-1 min-w-0 text-left space-y-0.5"
+                                className="flex-1 min-w-0 text-left space-y-1 py-0.5"
                               >
                                 <div className="flex items-center gap-1.5 min-w-0">
                                   <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
                                     {displayName}
                                   </span>
-                                  {isGrouped && (
-                                    <span className="inline-flex items-center gap-0.5 text-xs font-mono font-bold tabular-nums text-[#FF6A00] shrink-0">
-                                      ({cluster.calls.length})
-                                      <ChevronDown
-                                        size={13}
-                                        className={`transition-transform duration-150 ${
-                                          isExpanded ? 'rotate-180' : ''
-                                        }`}
-                                      />
-                                    </span>
-                                  )}
                                   {shortTag && (
-                                    <span
-                                      title={resolvedTag}
-                                      className="inline-flex items-center gap-1 text-xs text-[#FF6A00] font-medium truncate max-w-[116px] shrink-0"
-                                    >
-                                      <Tag size={11} className="shrink-0" />
-                                      <span className="truncate">{shortTag}</span>
-                                    </span>
+                                    <>
+                                      <span
+                                        aria-hidden="true"
+                                        className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0"
+                                      >
+                                        ·
+                                      </span>
+                                      <span
+                                        title={resolvedTag}
+                                        className="inline-flex items-center gap-1 text-xs text-[#FF6A00] font-medium truncate max-w-[96px] shrink-0"
+                                      >
+                                        <Tag size={11} className="shrink-0" />
+                                        <span className="truncate">{shortTag}</span>
+                                      </span>
+                                    </>
+                                  )}
+                                  {compactSim && (
+                                    <>
+                                      <span
+                                        aria-hidden="true"
+                                        className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0"
+                                      >
+                                        ·
+                                      </span>
+                                      <span className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap shrink-0 tabular-nums">
+                                        {compactSim}
+                                      </span>
+                                    </>
                                   )}
                                 </div>
-                                <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+
+                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                                   <DirectionIcon direction={call.direction} />
-                                  <span className="capitalize">{call.direction}</span>
+                                  <span
+                                    className={
+                                      call.direction === 'missed'
+                                        ? 'text-[#EF4444] dark:text-[#F28B82] font-medium'
+                                        : 'font-medium text-[#08246B] dark:text-white'
+                                    }
+                                  >
+                                    {formatCallStatus(call.direction)}
+                                  </span>
                                   <span aria-hidden="true">·</span>
                                   <span>
                                     {cluster.totalDuration > 0
                                       ? formatDuration(cluster.totalDuration)
                                       : '0s'}
                                   </span>
-                                  {call.direction === 'outgoing' && groupSpendEtb > 0 && (
-                                    <>
-                                      <span aria-hidden="true">·</span>
-                                      <span className="text-[#FF6A00]">
-                                        {formatEtb(groupSpendEtb)}
-                                      </span>
-                                    </>
-                                  )}
-                                  {call.sim && (
-                                    <>
-                                      <span aria-hidden="true">·</span>
-                                      <span>{formatSimDisplay(call.sim, simLabels)}</span>
-                                    </>
-                                  )}
+                                  <span aria-hidden="true">·</span>
+                                  <span className="font-mono text-[11px]">
+                                    {formatTime(call.timestamp)}
+                                  </span>
                                 </div>
-                                {call.note && !isGrouped && (
-                                  <p className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
-                                    {maskPrivateText(call.note, privacyMode)}
-                                  </p>
-                                )}
                               </button>
 
-                              <div className="flex items-center gap-1 shrink-0">
-                                <span className="text-[11px] font-mono tabular-nums text-[#8A93A0] dark:text-[var(--dark-text-muted)] mr-0.5 whitespace-nowrap">
-                                  {formatTime(call.timestamp)}
-                                </span>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                {isGrouped && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      triggerHaptic('tap');
+                                      setExpandedClusters((prev) => ({
+                                        ...prev,
+                                        [cluster.id]: !prev[cluster.id],
+                                      }));
+                                    }}
+                                    aria-expanded={isExpanded}
+                                    aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${cluster.calls.length} calls`}
+                                    title={`${cluster.calls.length} consecutive calls`}
+                                    className="min-h-[44px] px-2 rounded-xl flex items-center gap-1 text-xs font-mono font-bold tabular-nums text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 transition-colors whitespace-nowrap shrink-0"
+                                  >
+                                    <Layers size={14} className="shrink-0" />
+                                    <span>({cluster.calls.length})</span>
+                                    <ChevronDown
+                                      size={13}
+                                      className={`transition-transform duration-150 ${
+                                        isExpanded ? 'rotate-180' : ''
+                                      }`}
+                                    />
+                                  </button>
+                                )}
 
                                 {hasUnreturned && (
                                   <button
@@ -1002,7 +1033,7 @@ export const CallsTab = memo(function CallsTab({
                                     }
                                     aria-label={`Schedule ${delayLabel} callback for ${displayName}`}
                                     title={`Remind me to call back in ${delayLabel}`}
-                                    className="min-h-[42px] min-w-[42px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0 transition-colors"
+                                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0 transition-colors"
                                   >
                                     <Clock size={16} />
                                   </button>
@@ -1012,7 +1043,7 @@ export const CallsTab = memo(function CallsTab({
                                   type="button"
                                   onClick={() => onCallBack(call.number)}
                                   aria-label={`Call ${displayName}`}
-                                  className="min-h-[42px] min-w-[42px] flex items-center justify-center rounded-xl text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0 transition-colors"
+                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0 transition-colors"
                                 >
                                   <Phone size={17} />
                                 </button>
@@ -1050,38 +1081,40 @@ export const CallsTab = memo(function CallsTab({
                                         key={subCall.id}
                                         type="button"
                                         onClick={() => onSelectCall(subCall)}
-                                        className="w-full py-2.5 flex items-center justify-between gap-2 text-left hover:text-[#FF6A00] transition-colors"
+                                        className="w-full min-h-[44px] py-2.5 flex items-center justify-between gap-2 text-left hover:text-[#FF6A00] transition-colors"
                                       >
-                                        <div className="min-w-0 space-y-0.5">
-                                          <div className="flex items-center gap-1.5 text-xs font-medium text-[#08246B] dark:text-white tabular-nums">
-                                            <DirectionIcon direction={subCall.direction} />
-                                            <span>{formatTime(subCall.timestamp)}</span>
-                                            <span aria-hidden="true">·</span>
-                                            <span>
-                                              {subCall.duration > 0
-                                                ? formatDuration(subCall.duration)
-                                                : '0s'}
-                                            </span>
-                                            {subCall.sim && (
-                                              <>
-                                                <span aria-hidden="true">·</span>
-                                                <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                                                  {formatSimDisplay(subCall.sim, simLabels)}
-                                                </span>
-                                              </>
-                                            )}
-                                          </div>
-                                          {subCall.note && (
-                                            <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
-                                              {maskPrivateText(subCall.note, privacyMode)}
-                                            </p>
+                                        <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+                                          <DirectionIcon direction={subCall.direction} />
+                                          <span
+                                            className={
+                                              subCall.direction === 'missed'
+                                                ? 'text-[#EF4444] dark:text-[#F28B82] font-medium'
+                                                : 'font-medium text-[#08246B] dark:text-white'
+                                            }
+                                          >
+                                            {formatCallStatus(subCall.direction)}
+                                          </span>
+                                          <span aria-hidden="true">·</span>
+                                          <span>
+                                            {subCall.duration > 0
+                                              ? formatDuration(subCall.duration)
+                                              : '0s'}
+                                          </span>
+                                          <span aria-hidden="true">·</span>
+                                          <span className="font-mono text-[11px]">
+                                            {formatTime(subCall.timestamp)}
+                                          </span>
+                                          {subCall.sim && (
+                                            <>
+                                              <span aria-hidden="true">·</span>
+                                              <span>{formatSimCompact(subCall.sim, simLabels)}</span>
+                                            </>
                                           )}
                                         </div>
-                                        {subCall.direction === 'outgoing' && subCall.duration > 0 && (
-                                          <span className="text-[11px] font-mono tabular-nums text-[#FF6A00] shrink-0">
-                                            {formatEtb(estimateCallCostEtb(subCall, tariffs))}
-                                          </span>
-                                        )}
+                                        <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0">
+                                          Details
+                                          <ChevronRight size={13} />
+                                        </span>
                                       </button>
                                     ))}
                                   </div>
