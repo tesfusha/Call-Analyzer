@@ -1,3 +1,8 @@
+import {
+  hasNativeFileExportPlugin,
+  isNativeCapacitor,
+  runNativeFileExport,
+} from '@/src/lib/capacitor';
 import { estimateCallCostEtb, formatEtb, formatSimDisplay, type TariffConfig } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
@@ -130,14 +135,179 @@ export function callsToHtmlReport(
 </html>`;
 }
 
-export function downloadTextFile(filename: string, content: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
+export type ExportDeliveryResult = 'native' | 'shared' | 'downloaded';
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+export async function saveAndShareBytes(
+  filename: string,
+  bytes: Uint8Array,
+  mimeType: string,
+  shareTitle?: string,
+): Promise<ExportDeliveryResult> {
+  const baseMime = mimeType.split(';')[0]?.trim() || 'application/octet-stream';
+
+  if (isNativeCapacitor() && hasNativeFileExportPlugin()) {
+    try {
+      const res = await runNativeFileExport({
+        filename,
+        mimeType: baseMime,
+        base64Data: uint8ToBase64(bytes),
+        shareTitle: shareTitle || filename,
+      });
+      if (res?.saved || res?.shared) {
+        return 'native';
+      }
+    } catch {
+      // fall through to Web Share / Blob fallback
+    }
+  }
+
+  if (
+    isNativeCapacitor() &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function'
+  ) {
+    try {
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      const file = new File([copy.buffer], filename, { type: baseMime });
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: shareTitle || filename,
+        });
+        return 'shared';
+      }
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') {
+        return 'shared';
+      }
+      // fall through to browser download
+    }
+  }
+
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const blob = new Blob([copy.buffer], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.rel = 'noopener';
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1500);
+  return 'downloaded';
+}
+
+export async function downloadTextFile(
+  filename: string,
+  content: string,
+  mimeType: string,
+  shareTitle?: string,
+): Promise<ExportDeliveryResult> {
+  const bytes = new TextEncoder().encode(content);
+  return saveAndShareBytes(filename, bytes, mimeType, shareTitle || filename);
+}
+
+export type QuickShareContactInput = {
+  name: string;
+  number: string;
+  email?: string | null;
+  tag?: string | null;
+  note?: string | null;
+};
+
+export function buildContactVcard(input: QuickShareContactInput): string {
+  const cleanName = (input.name || input.number || 'Contact').trim();
+  const cleanNumber = (input.number || '').trim();
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', `FN:${cleanName}`, `N:${cleanName};;;;`];
+  if (cleanNumber) lines.push(`TEL;TYPE=CELL:${cleanNumber}`);
+  if (input.email?.trim()) lines.push(`EMAIL;TYPE=INTERNET:${input.email.trim()}`);
+  if (input.tag?.trim()) lines.push(`CATEGORIES:${input.tag.trim()}`);
+  if (input.note?.trim()) lines.push(`NOTE:${input.note.trim().replace(/\r?\n/g, ' ')}`);
+  lines.push('END:VCARD');
+  return lines.join('\r\n');
+}
+
+export async function shareContactVcard(
+  input: QuickShareContactInput,
+): Promise<'shared' | 'native' | 'copied'> {
+  const cleanName = (input.name || input.number || 'Contact').trim();
+  const vcf = buildContactVcard(input);
+  const slug =
+    cleanName
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'contact';
+  const filename = `${slug}.vcf`;
+  const bytes = new TextEncoder().encode(vcf);
+  const summary = [
+    cleanName,
+    input.number?.trim(),
+    input.email?.trim(),
+    input.tag?.trim() ? `Tag: ${input.tag.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  if (isNativeCapacitor() && hasNativeFileExportPlugin()) {
+    try {
+      const res = await runNativeFileExport({
+        filename,
+        mimeType: 'text/vcard',
+        base64Data: uint8ToBase64(bytes),
+        shareTitle: `Share ${cleanName}`,
+      });
+      if (res?.saved || res?.shared) return 'native';
+    } catch {
+      // fall through
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      const file = new File([copy.buffer], filename, { type: 'text/vcard' });
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: cleanName,
+          text: summary,
+        });
+        return 'shared';
+      }
+      await navigator.share({
+        title: cleanName,
+        text: summary,
+      });
+      return 'shared';
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') {
+        return 'shared';
+      }
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(summary);
+    return 'copied';
+  } catch {
+    await saveAndShareBytes(filename, bytes, 'text/vcard;charset=utf-8', `Share ${cleanName}`);
+    return 'native';
+  }
 }

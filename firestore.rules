@@ -143,6 +143,7 @@ service cloud.firestore {
           'displayName',
           'email',
           'phone',
+          'photoURL',
           'passwordHint',
           'termsAccepted',
           'termsAcceptedAt',
@@ -155,6 +156,7 @@ service cloud.firestore {
           'reminderPrefs',
           'favorites',
           'dismissedMissedIds',
+          'mutedAlertKeys',
           'voiceBundles',
           'syncedAt'
         ])
@@ -164,6 +166,7 @@ service cloud.firestore {
         && isBoundedString(data.email, 0, 254)
         && (!('email' in request.auth.token) || !(request.auth.token.email is string) || data.email == request.auth.token.email)
         && (!('phone' in data) || isNullableString(data.phone, 40))
+        && (!('photoURL' in data) || isNullableString(data.photoURL, 500))
         && (!('passwordHint' in data) || isNullableString(data.passwordHint, 120))
         && (!('termsAccepted' in data) || data.termsAccepted is bool)
         && (!('termsAcceptedAt' in data) || data.termsAcceptedAt == null || (data.termsAcceptedAt is int && data.termsAcceptedAt >= 0))
@@ -176,6 +179,7 @@ service cloud.firestore {
         && isValidReminderPrefs(data.reminderPrefs)
         && isValidStringList(data.favorites, 200)
         && isValidStringList(data.dismissedMissedIds, 500)
+        && (!('mutedAlertKeys' in data) || isValidStringList(data.mutedAlertKeys, 200))
         && (!('voiceBundles' in data) || isValidVoiceBundles(data.voiceBundles))
         && data.syncedAt == request.time;
     }
@@ -401,6 +405,7 @@ service cloud.firestore {
           'displayName',
           'email',
           'phone',
+          'photoURL',
           'passwordHint',
           'termsAccepted',
           'termsAcceptedAt',
@@ -413,6 +418,7 @@ service cloud.firestore {
           'reminderPrefs',
           'favorites',
           'dismissedMissedIds',
+          'mutedAlertKeys',
           'voiceBundles',
           'syncedAt'
         ]);

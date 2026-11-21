@@ -24,6 +24,25 @@ function median(values: number[]): number {
     : sorted[mid];
 }
 
+function hasAtLeastCallsInWindow(
+  sortedCalls: CallRecord[],
+  minCalls: number,
+  windowDays: number,
+): boolean {
+  if (sortedCalls.length < minCalls) return false;
+  const windowMs = windowDays * MS_PER_DAY;
+  let left = 0;
+  for (let right = 0; right < sortedCalls.length; right += 1) {
+    while (sortedCalls[right].timestamp - sortedCalls[left].timestamp > windowMs) {
+      left += 1;
+    }
+    if (right - left + 1 >= minCalls) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function typicalIntervalDays(calls: CallRecord[]): number | null {
   if (calls.length < 2) return null;
   const sorted = [...calls].sort((a, b) => a.timestamp - b.timestamp);
@@ -52,9 +71,14 @@ export function quietContacts(
 
   const result: QuietContact[] = [];
   byNumber.forEach((contactCalls) => {
-    const interval = typicalIntervalDays(contactCalls);
+    if (contactCalls.length < 5) return;
+    const sorted = [...contactCalls].sort((a, b) => a.timestamp - b.timestamp);
+    if (!hasAtLeastCallsInWindow(sorted, 5, 30)) return;
+
+    const interval = typicalIntervalDays(sorted);
     if (interval === null || interval > maxIntervalDays) return;
-    const lastTimestamp = Math.max(...contactCalls.map((call) => call.timestamp));
+
+    const lastTimestamp = sorted[sorted.length - 1].timestamp;
     const daysSinceLast = (nowMs - lastTimestamp) / MS_PER_DAY;
     const threshold = Math.max(interval * 1.5, Math.min(7, maxIntervalDays));
     if (daysSinceLast >= threshold) {
@@ -94,13 +118,17 @@ export function quietMessage(contact: QuietContact): string {
 }
 
 /**
- * Finds missed calls where no later incoming/outgoing call happened with the same
- * contact, excluding any call IDs the user marked as handled.
+ * Finds missed calls within the last 7 days where no later incoming/outgoing call
+ * happened with the same contact, excluding any call IDs marked as handled.
  */
 export function unreturnedMissedCalls(
   calls: CallRecord[],
   dismissedIds: Set<string> = new Set(),
+  now: Date = new Date(),
+  maxAgeDays = 7,
 ): CallRecord[] {
+  const nowMs = now.getTime();
+  const maxAgeMs = maxAgeDays * MS_PER_DAY;
   const latestAnsweredByContact = new Map<string, number>();
   const latestMissedByContact = new Map<string, CallRecord>();
 
@@ -119,6 +147,7 @@ export function unreturnedMissedCalls(
 
   const pending: CallRecord[] = [];
   latestMissedByContact.forEach((missedCall, key) => {
+    if (nowMs - missedCall.timestamp > maxAgeMs) return;
     const answeredAfter = latestAnsweredByContact.get(key) ?? 0;
     if (missedCall.timestamp > answeredAfter) {
       pending.push(missedCall);

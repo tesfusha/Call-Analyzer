@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BarChart3,
   Bell,
+  BellOff,
   Cake,
   Check,
   Clock,
@@ -81,11 +82,13 @@ export function RemindersModal({
   onClose,
   onCallBack,
   onSelectContact,
+  initialCategory = 'action',
 }: {
   open: boolean;
   onClose: () => void;
   onCallBack: (number: string) => void;
   onSelectContact: (number: string) => void;
+  initialCategory?: RemindersCategory;
 }) {
   const {
     calls,
@@ -97,6 +100,10 @@ export function RemindersModal({
     reminderPrefs,
     privacyMode,
     dismissedMissedIds,
+    mutedAlertKeys,
+    mutedAlertSet,
+    muteAlertKey,
+    unmuteAlertKey,
     dismissMissedCall,
     scheduleCall,
     completeScheduledCall,
@@ -129,8 +136,8 @@ export function RemindersModal({
   const bodyScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (open) setActiveCategory('action');
-  }, [open]);
+    if (open) setActiveCategory(initialCategory);
+  }, [open, initialCategory]);
 
   useEffect(() => {
     if (!open) return;
@@ -150,9 +157,9 @@ export function RemindersModal({
   const pendingScheduled = useMemo(
     () =>
       scheduledCalls
-        .filter((s) => s.status === 'pending')
+        .filter((s) => s.status === 'pending' && !mutedAlertSet.has(`sched:${s.id}`))
         .sort((a, b) => a.scheduledFor - b.scheduledFor),
-    [scheduledCalls],
+    [scheduledCalls, mutedAlertSet],
   );
 
   const upcomingHolidays = useMemo(
@@ -161,8 +168,8 @@ export function RemindersModal({
         new Date(),
         Math.max(365, reminderPrefs.eventLeadDays),
         calendarPrefs.defaultLang,
-      ),
-    [reminderPrefs.eventLeadDays, calendarPrefs.defaultLang],
+      ).filter((h) => !mutedAlertSet.has(`holiday:${h.key}`)),
+    [reminderPrefs.eventLeadDays, calendarPrefs.defaultLang, mutedAlertSet],
   );
   const upcomingEvents = useMemo(
     () =>
@@ -170,20 +177,26 @@ export function RemindersModal({
         contacts,
         calls,
         Math.max(14, reminderPrefs.eventLeadDays),
-      ),
-    [contacts, calls, reminderPrefs.eventLeadDays],
+      ).filter((evt) => !mutedAlertSet.has(`bday:${evt.contactKey}`)),
+    [contacts, calls, reminderPrefs.eventLeadDays, mutedAlertSet],
   );
   const frequentAndLong = useMemo(
     () => getFrequentAndLongCallers(calls, contacts),
     [calls, contacts],
   );
   const quiet = useMemo(
-    () => quietContacts(calls, new Date(), reminderPrefs.quietContactDays),
-    [calls, reminderPrefs.quietContactDays],
+    () =>
+      quietContacts(calls, new Date(), reminderPrefs.quietContactDays).filter(
+        (q) => !mutedAlertSet.has(`quiet:${getContactKey(q.number)}`),
+      ),
+    [calls, reminderPrefs.quietContactDays, mutedAlertSet],
   );
   const unreturned = useMemo(
-    () => unreturnedMissedCalls(calls, dismissedMissedIds),
-    [calls, dismissedMissedIds],
+    () =>
+      unreturnedMissedCalls(calls, dismissedMissedIds).filter(
+        (m) => !mutedAlertSet.has(`missed:${getContactKey(m.number)}`),
+      ),
+    [calls, dismissedMissedIds, mutedAlertSet],
   );
   const weekly = useMemo(() => buildPeriodReport(calls, 'weekly', tariffs), [calls, tariffs]);
   const monthly = useMemo(() => buildPeriodReport(calls, 'monthly', tariffs), [calls, tariffs]);
@@ -850,13 +863,18 @@ export function RemindersModal({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            downloadTextFile(
+                          onClick={async () => {
+                            const delivery = await downloadTextFile(
                               `call-${item.id}.ics`,
                               buildScheduledCallIcs(item),
                               'text/calendar;charset=utf-8',
+                              `Call Reminder (${displayName})`,
                             );
-                            showNotice('Saved .ics calendar file.');
+                            showNotice(
+                              delivery === 'native'
+                                ? 'Calendar invite saved to Downloads & ready to open.'
+                                : 'Saved .ics calendar file.',
+                            );
                           }}
                           aria-label={`Download calendar file for ${displayName}`}
                           className="min-h-[36px] min-w-[36px] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] flex items-center justify-center"
@@ -987,46 +1005,85 @@ export function RemindersModal({
 
         {/* Quiet Contacts */}
         {activeCategory === 'quiet' && (
+          <div className="space-y-4">
           <div className="space-y-2.5">
             <h3 className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
               Contacts gone quiet ({quiet.length})
             </h3>
             {quiet.length === 0 ? (
               <p className="text-sm text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                No overdue frequent contacts right now. Contacts appear here when they pass 1.5× their usual calling interval (and at least 7 days).
+                No overdue frequent contacts right now. Contacts appear here when they call at least 5 times within 30 days and then pass 1.5× their usual calling interval.
               </p>
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                {quiet.map((item) => (
-                  <div key={item.number} className="py-3 flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        onSelectContact(item.number);
-                      }}
-                      className="min-w-0 text-left"
-                    >
-                      <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                        {item.name}
-                      </p>
-                      <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                        {quietMessage(item)}
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onCallBack(item.number)}
-                      aria-label={`Call ${item.name}`}
-                      className="min-h-[44px] min-w-[44px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                    >
-                      <Phone size={14} />
-                      Call
-                    </button>
-                  </div>
-                ))}
+                {quiet.map((item) => {
+                  const qMuteKey = `quiet:${getContactKey(item.number)}`;
+                  return (
+                    <div key={item.number} className="py-3 flex items-center justify-between gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onSelectContact(item.number);
+                        }}
+                        className="min-w-0 text-left flex-1"
+                      >
+                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
+                          {item.name}
+                        </p>
+                        <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                          {quietMessage(item)}
+                        </p>
+                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => muteAlertKey(qMuteKey)}
+                          aria-label={`Mute quiet reminders for ${item.name}`}
+                          className="min-h-[40px] min-w-[40px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#DC2626] flex items-center justify-center"
+                        >
+                          <BellOff size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCallBack(item.number)}
+                          aria-label={`Call ${item.name}`}
+                          className="min-h-[40px] min-w-[44px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Phone size={14} />
+                          Call
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
+          </div>
+
+          {mutedAlertKeys.length > 0 && (
+            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
+                  <BellOff size={13} className="text-[#FF6A00]" />
+                  Muted contact/event alerts ({mutedAlertKeys.length})
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {mutedAlertKeys.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => unmuteAlertKey(key)}
+                    className="min-h-[32px] px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5"
+                  >
+                    <span className="truncate max-w-[180px]">{key}</span>
+                    <span className="text-[#FF6A00]">Unmute</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           </div>
         )}
 

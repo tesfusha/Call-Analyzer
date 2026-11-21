@@ -22,6 +22,10 @@
           "type": "string",
           "maxLength": 40
         },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
         "passwordHint": {
           "type": "string",
           "maxLength": 120
@@ -58,6 +62,9 @@
           "type": "array"
         },
         "dismissedMissedIds": {
+          "type": "array"
+        },
+        "mutedAlertKeys": {
           "type": "array"
         },
         "voiceBundles": {

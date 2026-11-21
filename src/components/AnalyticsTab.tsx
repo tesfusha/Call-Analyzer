@@ -210,7 +210,7 @@ export function AnalyticsTab({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => {
+                onClick={async () => {
                   setExportMenuOpen(false);
                   const html = callsToHtmlReport(
                     scoped,
@@ -218,8 +218,17 @@ export function AnalyticsTab({
                     simLabels,
                     `Call Analyzer - ETH Statement (${range})`,
                   );
-                  downloadTextFile('call-statement.html', html, 'text/html;charset=utf-8');
-                  showNotice('Printable statement (.html) downloaded.');
+                  const delivery = await downloadTextFile(
+                    'call-statement.html',
+                    html,
+                    'text/html;charset=utf-8',
+                    'Call Statement (.html)',
+                  );
+                  showNotice(
+                    delivery === 'native'
+                      ? 'Statement saved to Downloads & ready to share.'
+                      : 'Printable statement (.html) exported.',
+                  );
                 }}
                 className="w-full min-h-[40px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
               >

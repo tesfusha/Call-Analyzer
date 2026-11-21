@@ -7,6 +7,7 @@ import {
   Cloud,
   Contact,
   Download,
+  Edit3,
   Eye,
   EyeOff,
   FileDown,
@@ -18,6 +19,7 @@ import {
   LogOut,
   PlayCircle,
   RefreshCw,
+  Share2,
   ShieldCheck,
   Signal,
   Smartphone,
@@ -31,6 +33,7 @@ import { BrandLogo } from '@/src/components/BrandLogo';
 import { CategoryPanel, CategoryTabs } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
+import { ProfileEditModal } from '@/src/components/ProfileEditModal';
 import {
   APP_FEATURES,
   APP_NAME,
@@ -46,7 +49,13 @@ import {
   readUploadedTextFile,
 } from '@/src/lib/contacts';
 import { CARRIER_PRESETS } from '@/src/lib/ethiopia';
-import { callsToCsv, callsToHtmlReport, callsToJson, downloadTextFile } from '@/src/lib/export';
+import {
+  callsToCsv,
+  callsToHtmlReport,
+  callsToJson,
+  downloadTextFile,
+  shareContactVcard,
+} from '@/src/lib/export';
 import { formatTime } from '@/src/lib/format';
 import { isHapticsEnabled, setHapticsEnabledStorage, triggerHaptic } from '@/src/lib/haptics';
 import { parseCallImport } from '@/src/lib/import';
@@ -144,6 +153,8 @@ export function SettingsTab({
     authLoading,
     isGuest,
     authProvider,
+    profileName,
+    userPhotoUrl,
     userPhone,
     passwordHint,
     openAuthPrompt,
@@ -172,6 +183,7 @@ export function SettingsTab({
   const [confirmPin, setConfirmPin] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() => isHapticsEnabled());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -304,6 +316,29 @@ export function SettingsTab({
   const contactCount = Object.keys(contacts).length;
   const birthdayCount = Object.values(contacts).filter((c) => c.birthday !== null).length;
   const isDark = theme === 'dark-gray';
+  const effectivePhotoUrl = userPhotoUrl || authUser?.photoURL || null;
+  const effectiveDisplayName =
+    profileName || authUser?.displayName || authUser?.email || 'Signed-in Account';
+
+  const handleShareMyContact = async () => {
+    if (!authUser) return;
+    try {
+      const delivery = await shareContactVcard({
+        name: effectiveDisplayName,
+        number: userPhone || '',
+        email: authUser.email || null,
+      });
+      if (delivery === 'native') {
+        showNotice('Contact card (.vcf) saved to Downloads & ready to share.');
+      } else if (delivery === 'shared') {
+        showNotice('Contact card ready to share.');
+      } else {
+        showNotice('Contact details copied to clipboard.');
+      }
+    } catch {
+      showNotice('Could not share your contact card.');
+    }
+  };
 
   const activeMeta =
     SETTINGS_CATEGORIES.find((cat) => cat.key === activeCategory) ?? SETTINGS_CATEGORIES[0];
@@ -353,10 +388,10 @@ export function SettingsTab({
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            {authUser?.photoURL ? (
+            {effectivePhotoUrl ? (
               <img
-                src={authUser.photoURL}
-                alt={authUser.displayName || 'Account avatar'}
+                src={effectivePhotoUrl}
+                alt={effectiveDisplayName}
                 referrerPolicy="no-referrer"
                 className="w-11 h-11 rounded-full object-cover border border-[#DDE4EA] dark:border-[var(--dark-border)] shrink-0"
               />
@@ -370,7 +405,7 @@ export function SettingsTab({
                 {authLoading
                   ? 'Checking account...'
                   : authUser
-                    ? authUser.displayName || authUser.email || 'Signed-in Account'
+                    ? effectiveDisplayName
                     : isGuest
                       ? 'Guest Mode (Sample Preview)'
                       : 'Sign in required'}
@@ -408,6 +443,22 @@ export function SettingsTab({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {authUser ? (
               <>
+                <button
+                  type="button"
+                  onClick={() => setProfileModalOpen(true)}
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <Edit3 size={14} />
+                  Edit Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleShareMyContact()}
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <Share2 size={14} className="text-[#FF6A00]" />
+                  Share Contact
+                </button>
                 <button
                   type="button"
                   onClick={() => void syncNow()}
@@ -1333,9 +1384,22 @@ export function SettingsTab({
           <button
             type="button"
             disabled={calls.length === 0}
-            onClick={() => {
-              downloadTextFile('call-log-export.csv', callsToCsv(calls), 'text/csv;charset=utf-8');
-              showNotice('CSV exported.');
+            onClick={async () => {
+              try {
+                const delivery = await downloadTextFile(
+                  'call-log-export.csv',
+                  callsToCsv(calls),
+                  'text/csv;charset=utf-8',
+                  'Call Log Export (CSV)',
+                );
+                showNotice(
+                  delivery === 'native'
+                    ? 'CSV saved to Downloads & ready to share.'
+                    : 'CSV exported.',
+                );
+              } catch {
+                showNotice('Could not export CSV report.');
+              }
             }}
             className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
@@ -1346,13 +1410,22 @@ export function SettingsTab({
           <button
             type="button"
             disabled={calls.length === 0}
-            onClick={() => {
-              downloadTextFile(
-                'call-log-export.json',
-                callsToJson(calls),
-                'application/json;charset=utf-8',
-              );
-              showNotice('JSON exported.');
+            onClick={async () => {
+              try {
+                const delivery = await downloadTextFile(
+                  'call-log-export.json',
+                  callsToJson(calls),
+                  'application/json;charset=utf-8',
+                  'Call Log Export (JSON)',
+                );
+                showNotice(
+                  delivery === 'native'
+                    ? 'JSON saved to Downloads & ready to share.'
+                    : 'JSON exported.',
+                );
+              } catch {
+                showNotice('Could not export JSON report.');
+              }
             }}
             className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
@@ -1366,13 +1439,17 @@ export function SettingsTab({
             onClick={async () => {
               setExportingPdf(true);
               try {
-                await exportCallHistoryPdfReport({
+                const delivery = await exportCallHistoryPdfReport({
                   calls,
                   tariffs,
                   simLabels,
                   privacyMode,
                 });
-                showNotice('Formatted PDF report with charts exported.');
+                showNotice(
+                  delivery === 'native'
+                    ? 'PDF saved to Downloads & ready to share.'
+                    : 'Formatted PDF report with charts exported.',
+                );
               } catch {
                 showNotice('Could not generate PDF report.');
               } finally {
@@ -1388,13 +1465,22 @@ export function SettingsTab({
           <button
             type="button"
             disabled={calls.length === 0}
-            onClick={() => {
-              downloadTextFile(
-                'call-statement.html',
-                callsToHtmlReport(calls, tariffs, simLabels),
-                'text/html;charset=utf-8',
-              );
-              showNotice('Printable statement (.html) exported.');
+            onClick={async () => {
+              try {
+                const delivery = await downloadTextFile(
+                  'call-statement.html',
+                  callsToHtmlReport(calls, tariffs, simLabels),
+                  'text/html;charset=utf-8',
+                  'Call Statement Report',
+                );
+                showNotice(
+                  delivery === 'native'
+                    ? 'Statement (.html) saved to Downloads & ready to share.'
+                    : 'Printable statement (.html) exported.',
+                );
+              } catch {
+                showNotice('Could not export HTML statement.');
+              }
             }}
             className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
@@ -1444,6 +1530,11 @@ export function SettingsTab({
             </>
           )}
       </CategoryPanel>
+
+      <ProfileEditModal
+        open={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+      />
     </div>
   );
 }

@@ -34,7 +34,7 @@ import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
 import { UsageTab } from '@/src/components/UsageTab';
 import { GUIDE_SEEN_KEY } from '@/src/lib/appInfo';
-import { getUpcomingContactEvents } from '@/src/lib/contacts';
+import { getContactKey, getUpcomingContactEvents } from '@/src/lib/contacts';
 import {
   formatEthiopianShort,
   getHolidaysInGregorianYearOrUpcoming,
@@ -62,6 +62,7 @@ function AppShell() {
     scheduledCalls,
     favorites,
     dismissedMissedIds,
+    mutedAlertSet,
     calendarPrefs,
     reminderPrefs,
     theme,
@@ -77,7 +78,11 @@ function AppShell() {
     authUser,
     authLoading,
     isGuest,
+    profileName,
+    userPhotoUrl,
     needsEmailVerification,
+    notificationActionTarget,
+    clearNotificationActionTarget,
     authPromptMode,
     authPromptReason,
     openAuthPrompt,
@@ -103,6 +108,9 @@ function AppShell() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [selectedContactNumber, setSelectedContactNumber] = useState<string | null>(null);
   const [remindersOpen, setRemindersOpen] = useState(false);
+  const [remindersInitialCategory, setRemindersInitialCategory] = useState<
+    'action' | 'wishes' | 'quiet' | 'reports'
+  >('action');
   const [guideOpen, setGuideOpen] = useState(false);
   const [checkingVerify, setCheckingVerify] = useState(false);
   const [resendingVerify, setResendingVerify] = useState(false);
@@ -173,6 +181,19 @@ function AppShell() {
     setActiveTab(nextTab);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
+
+  useEffect(() => {
+    if (!notificationActionTarget) return;
+    if (notificationActionTarget.contactNumber) {
+      setSelectedContactNumber(notificationActionTarget.contactNumber);
+    } else if (notificationActionTarget.openReminders) {
+      setRemindersInitialCategory(notificationActionTarget.openReminders);
+      setRemindersOpen(true);
+    } else if (notificationActionTarget.tab) {
+      handleSwitchTab(notificationActionTarget.tab);
+    }
+    clearNotificationActionTarget();
+  }, [notificationActionTarget, clearNotificationActionTarget, handleSwitchTab]);
 
   useEffect(() => {
     if (prefersReducedMotion || authLoading || needsEmailVerification || isLocked) return;
@@ -305,6 +326,13 @@ function AppShell() {
 
   const handleOpenReminders = useCallback(() => {
     triggerHaptic('tap');
+    setRemindersInitialCategory('action');
+    setRemindersOpen(true);
+  }, []);
+
+  const handleOpenWishes = useCallback(() => {
+    triggerHaptic('tap');
+    setRemindersInitialCategory('wishes');
     setRemindersOpen(true);
   }, []);
 
@@ -318,25 +346,32 @@ function AppShell() {
   }, []);
 
   const pendingFollowUps = useMemo(() => {
-    const missedCount = unreturnedMissedCalls(calls, dismissedMissedIds).length;
-    const scheduledCount = scheduledCalls.filter((s) => s.status === 'pending').length;
-    const quietCount = quietContacts(calls, new Date(), reminderPrefs.quietContactDays).length;
+    const missedCount = unreturnedMissedCalls(calls, dismissedMissedIds).filter(
+      (m) => !mutedAlertSet.has(`missed:${getContactKey(m.number)}`),
+    ).length;
+    const scheduledCount = scheduledCalls.filter(
+      (s) => s.status === 'pending' && !mutedAlertSet.has(`sched:${s.id}`),
+    ).length;
+    const quietCount = quietContacts(calls, new Date(), reminderPrefs.quietContactDays).filter(
+      (q) => !mutedAlertSet.has(`quiet:${getContactKey(q.number)}`),
+    ).length;
     const eventsCount = getUpcomingContactEvents(
       contacts,
       calls,
       reminderPrefs.eventLeadDays,
-    ).length;
+    ).filter((evt) => !mutedAlertSet.has(`bday:${evt.contactKey}`)).length;
     const holidaysCount = getHolidaysInGregorianYearOrUpcoming(
       new Date(),
       reminderPrefs.eventLeadDays,
       calendarPrefs.defaultLang,
-    ).length;
+    ).filter((h) => !mutedAlertSet.has(`holiday:${h.key}`)).length;
     return missedCount + scheduledCount + quietCount + eventsCount + holidaysCount;
   }, [
     calls,
     contacts,
     scheduledCalls,
     dismissedMissedIds,
+    mutedAlertSet,
     reminderPrefs.quietContactDays,
     reminderPrefs.eventLeadDays,
     calendarPrefs.defaultLang,
@@ -626,7 +661,7 @@ function AppShell() {
 
           <button
             type="button"
-            onClick={() => setRemindersOpen(true)}
+            onClick={handleOpenReminders}
             className="w-full min-h-[44px] px-3 py-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-between gap-2 whitespace-nowrap transition-colors"
           >
             <span className="flex items-center gap-2.5">
@@ -655,21 +690,21 @@ function AppShell() {
               onClick={() => handleSwitchTab('settings')}
               className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center gap-2.5 text-left hover:border-[#FF6A00] transition-colors"
             >
-              {authUser.photoURL ? (
+              {(userPhotoUrl || authUser.photoURL) ? (
                 <img
-                  src={authUser.photoURL}
-                  alt={authUser.displayName || 'Account'}
+                  src={userPhotoUrl || authUser.photoURL || ''}
+                  alt={profileName || authUser.displayName || 'Account'}
                   referrerPolicy="no-referrer"
                   className="w-7 h-7 rounded-full object-cover shrink-0"
                 />
               ) : (
                 <span className="w-7 h-7 rounded-full bg-[#FF6A00] text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  {firstGraphemes(authUser.displayName || authUser.email || 'U', 1).toLocaleUpperCase()}
+                  {firstGraphemes(profileName || authUser.displayName || authUser.email || 'U', 1).toLocaleUpperCase()}
                 </span>
               )}
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                  {authUser.displayName || authUser.email?.split('@')[0] || 'Account'}
+                  {profileName || authUser.displayName || authUser.email?.split('@')[0] || 'Account'}
                 </p>
                 <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
                   {authUser.email}
@@ -742,10 +777,10 @@ function AppShell() {
             aria-label={authUser ? 'Account settings' : 'Sign in or open settings'}
             className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
           >
-            {authUser?.photoURL ? (
+            {(userPhotoUrl || authUser?.photoURL) ? (
               <img
-                src={authUser.photoURL}
-                alt={authUser.displayName || 'Account'}
+                src={userPhotoUrl || authUser?.photoURL || ''}
+                alt={profileName || authUser?.displayName || 'Account'}
                 referrerPolicy="no-referrer"
                 className="w-6 h-6 rounded-full object-cover border border-[#DDE4EA] dark:border-[var(--dark-border)]"
               />
@@ -755,7 +790,7 @@ function AppShell() {
           </button>
           <button
             type="button"
-            onClick={() => setRemindersOpen(true)}
+            onClick={handleOpenReminders}
             aria-label="Notifications, wishes, and follow-ups"
             className="min-h-[44px] px-2 flex items-center justify-center gap-1 rounded-xl text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0"
           >
@@ -836,7 +871,7 @@ function AppShell() {
               <EthiopianCalendarView
                 onSelectCall={handleSelectCall}
                 onSelectContact={handleSelectContact}
-                onOpenWishes={handleOpenReminders}
+                onOpenWishes={handleOpenWishes}
               />
             </div>
           )}
@@ -935,6 +970,7 @@ function AppShell() {
           handleCallBack(number);
         }}
         onSelectContact={handleSelectContact}
+        initialCategory={remindersInitialCategory}
       />
 
       <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />

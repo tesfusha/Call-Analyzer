@@ -10,15 +10,19 @@ import {
 import type { ReactNode } from 'react';
 import type { User } from 'firebase/auth';
 import {
+  EmailAuthProvider,
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  reauthenticateWithCredential,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updatePassword,
+  updateProfile,
 } from 'firebase/auth';
 import {
   Timestamp,
@@ -36,6 +40,8 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import {
+  type NotificationActionEvent,
+  type NotificationMeta,
   cancelNativeNotification,
   fetchNativeRecentCalls,
   getNativeNotificationPermission,
@@ -49,6 +55,7 @@ import {
   scheduleNativeNotification,
   showNativeNotification,
   subscribeNativeCallLog,
+  subscribeNativeNotificationActions,
   syncNativeStatusBar,
 } from '@/src/lib/capacitor';
 import {
@@ -56,8 +63,14 @@ import {
   buildSampleContactProfiles,
   decodeIfQuotedPrintableText,
   getContactKey,
+  getUpcomingContactEvents,
   mergeTagOptions,
 } from '@/src/lib/contacts';
+import {
+  buildBirthdayWish,
+  buildHolidayWish,
+  getHolidaysInGregorianYearOrUpcoming,
+} from '@/src/lib/ethiopianCalendar';
 import {
   DEFAULT_SIM_LABELS,
   DEFAULT_TARIFFS,
@@ -76,7 +89,7 @@ import {
   toFirestoreDocId,
 } from '@/src/lib/firebase';
 import { buildSampleCalls, makeCallId } from '@/src/lib/import';
-import { isWithinQuietHours } from '@/src/lib/reminders';
+import { isWithinQuietHours, quietContacts, quietMessage } from '@/src/lib/reminders';
 import { hashPin, verifyPin } from '@/src/lib/security';
 import { triggerHaptic, type HapticKind } from '@/src/lib/haptics';
 import type {
@@ -91,6 +104,7 @@ import type {
   ScheduledCall,
   SimLabels,
   SimSlot,
+  TabKey,
   VoiceBundleSlot,
   VoiceBundles,
 } from '@/src/types/call';
@@ -126,12 +140,14 @@ const SCOPED_SUFFIXES = [
   'scheduledCalls',
   'favorites',
   'dismissedMissed',
+  'mutedAlerts',
   'tariffs',
   'simLabels',
   'calendarPrefs',
   'reminderPrefs',
   'voiceBundles',
   'profile',
+  'photoUrl',
   'notifications',
   'privacyMode',
   'pinHash',
@@ -231,12 +247,33 @@ export type ScheduleCallInput = {
   sourceCallId?: string | null;
 };
 
+export type UpdateUserProfileInput = {
+  displayName: string;
+  phone?: string | null;
+  photoURL?: string | null;
+};
+
+export type ChangePasswordInput = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+  passwordHint?: string;
+};
+
+export type NotificationActionTarget = {
+  tab?: TabKey;
+  openReminders?: 'action' | 'wishes' | 'quiet';
+  contactNumber?: string;
+};
+
 type CallsContextValue = {
   calls: CallRecord[];
   contacts: Record<string, ContactProfile>;
   scheduledCalls: ScheduledCall[];
   favorites: Set<string>;
   dismissedMissedIds: Set<string>;
+  mutedAlertKeys: string[];
+  mutedAlertSet: Set<string>;
   tariffs: TariffConfig;
   simLabels: SimLabels;
   calendarPrefs: CalendarPrefs;
@@ -248,6 +285,7 @@ type CallsContextValue = {
   fontSizeScale: FontSizeScale;
   setFontSizeScale: (scale: FontSizeScale) => void;
   profileName: string;
+  userPhotoUrl: string | null;
   notificationsEnabled: boolean;
   notificationPermission: NotificationPermissionStatus;
   refreshNotificationPermission: () => Promise<NotificationPermissionStatus>;
@@ -263,6 +301,8 @@ type CallsContextValue = {
   authProvider: AuthProviderType | null;
   userPhone: string | null;
   passwordHint: string | null;
+  notificationActionTarget: NotificationActionTarget | null;
+  clearNotificationActionTarget: () => void;
   authPromptMode: AuthPromptMode;
   authPromptReason: string | null;
   openAuthPrompt: (mode?: 'signin' | 'signup', reason?: string) => void;
@@ -308,6 +348,10 @@ type CallsContextValue = {
   snoozeScheduledCall: (id: string, minutes: number) => void;
   removeScheduledCall: (id: string) => void;
   dismissMissedCall: (id: string) => void;
+  muteAlertKey: (key: string) => void;
+  unmuteAlertKey: (key: string) => void;
+  updateUserProfile: (input: UpdateUserProfileInput) => Promise<AuthActionResult>;
+  changeUserPassword: (input: ChangePasswordInput) => Promise<AuthActionResult>;
   setTariffs: (next: TariffConfig) => void;
   setSimLabels: (next: SimLabels) => void;
   setCalendarPrefs: (next: CalendarPrefs) => void;
@@ -361,12 +405,14 @@ type ScopedUserSnapshot = {
   scheduledCalls: ScheduledCall[];
   favoritesArray: string[];
   dismissedMissedArray: string[];
+  mutedAlertKeys: string[];
   tariffs: TariffConfig;
   simLabels: SimLabels;
   calendarPrefs: CalendarPrefs;
   reminderPrefs: ReminderPrefs;
   voiceBundles: VoiceBundles;
   profileName: string;
+  userPhotoUrl: string | null;
   notificationsEnabled: boolean;
   privacyMode: boolean;
   pinHash: string;
@@ -379,12 +425,14 @@ function createEmptySnapshot(): ScopedUserSnapshot {
     scheduledCalls: [],
     favoritesArray: [],
     dismissedMissedArray: [],
+    mutedAlertKeys: [],
     tariffs: { ...DEFAULT_TARIFFS },
     simLabels: { ...DEFAULT_SIM_LABELS },
     calendarPrefs: { ...DEFAULT_CALENDAR_PREFS },
     reminderPrefs: { ...DEFAULT_REMINDER_PREFS },
     voiceBundles: sanitizeVoiceBundles(DEFAULT_VOICE_BUNDLES),
     profileName: '',
+    userPhotoUrl: null,
     notificationsEnabled: true,
     privacyMode: false,
     pinHash: '',
@@ -406,6 +454,7 @@ function readScopedUserState(uid: string): ScopedUserSnapshot {
     ),
     favoritesArray: readJson<string[]>(userStorageKey(uid, 'favorites'), []),
     dismissedMissedArray: readJson<string[]>(userStorageKey(uid, 'dismissedMissed'), []),
+    mutedAlertKeys: readJson<string[]>(userStorageKey(uid, 'mutedAlerts'), []),
     tariffs: sanitizeTariffs({
       ...DEFAULT_TARIFFS,
       ...readJson<Partial<TariffConfig>>(userStorageKey(uid, 'tariffs'), {}),
@@ -426,6 +475,7 @@ function readScopedUserState(uid: string): ScopedUserSnapshot {
       readJson<Partial<VoiceBundles>>(userStorageKey(uid, 'voiceBundles'), DEFAULT_VOICE_BUNDLES),
     ),
     profileName: readJson<string>(userStorageKey(uid, 'profile'), ''),
+    userPhotoUrl: readJson<string | null>(userStorageKey(uid, 'photoUrl'), null),
     notificationsEnabled: readJson<boolean>(userStorageKey(uid, 'notifications'), true),
     privacyMode: readJson<boolean>(userStorageKey(uid, 'privacyMode'), false),
     pinHash: readJson<string>(userStorageKey(uid, 'pinHash'), ''),
@@ -592,6 +642,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [scheduledCalls, setScheduledCalls] = useState<ScheduledCall[]>([]);
   const [favoritesArray, setFavoritesArray] = useState<string[]>([]);
   const [dismissedMissedArray, setDismissedMissedArray] = useState<string[]>([]);
+  const [mutedAlertKeys, setMutedAlertKeys] = useState<string[]>([]);
   const [tariffs, setTariffsState] = useState<TariffConfig>({ ...DEFAULT_TARIFFS });
   const [simLabels, setSimLabelsState] = useState<SimLabels>({ ...DEFAULT_SIM_LABELS });
   const [calendarPrefs, setCalendarPrefsState] = useState<CalendarPrefs>({
@@ -697,12 +748,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     themePreferenceRef.current = themePreference;
   }, [themePreference]);
   const [profileName, setProfileNameState] = useState<string>('');
+  const [userPhotoUrl, setUserPhotoUrlState] = useState<string | null>(null);
   const [notificationsEnabled, setNotificationsEnabledState] = useState<boolean>(true);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionStatus>('prompt');
   const [privacyMode, setPrivacyModeState] = useState<boolean>(false);
   const [pinHash, setPinHash] = useState<string>('');
   const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [notificationActionTarget, setNotificationActionTarget] =
+    useState<NotificationActionTarget | null>(null);
+  const clearNotificationActionTarget = useCallback(() => {
+    setNotificationActionTarget(null);
+  }, []);
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
@@ -713,11 +770,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [passwordHint, setPasswordHint] = useState<string | null>(null);
   const accountMetaRef = useRef<{
     phone: string | null;
+    photoURL: string | null;
     passwordHint: string | null;
     termsAccepted: boolean | null;
     termsAcceptedAt: number | null;
   }>({
     phone: null,
+    photoURL: null,
     passwordHint: null,
     termsAccepted: null,
     termsAcceptedAt: null,
@@ -743,6 +802,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     scheduledCalls,
     favoritesArray,
     dismissedMissedArray,
+    mutedAlertKeys,
     tariffs,
     simLabels,
     calendarPrefs,
@@ -750,6 +810,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     voiceBundles,
     theme,
     profileName,
+    userPhotoUrl,
     notificationsEnabled,
     privacyMode,
   });
@@ -761,6 +822,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       scheduledCalls,
       favoritesArray,
       dismissedMissedArray,
+      mutedAlertKeys,
       tariffs,
       simLabels,
       calendarPrefs,
@@ -768,6 +830,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       voiceBundles,
       theme,
       profileName,
+      userPhotoUrl,
       notificationsEnabled,
       privacyMode,
     };
@@ -777,6 +840,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     scheduledCalls,
     favoritesArray,
     dismissedMissedArray,
+    mutedAlertKeys,
     tariffs,
     simLabels,
     calendarPrefs,
@@ -784,6 +848,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     voiceBundles,
     theme,
     profileName,
+    userPhotoUrl,
     notificationsEnabled,
     privacyMode,
   ]);
@@ -825,12 +890,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setScheduledCalls(snap.scheduledCalls);
     setFavoritesArray(snap.favoritesArray);
     setDismissedMissedArray(snap.dismissedMissedArray);
+    setMutedAlertKeys(snap.mutedAlertKeys);
     setTariffsState(snap.tariffs);
     setSimLabelsState(snap.simLabels);
     setCalendarPrefsState(snap.calendarPrefs);
     setReminderPrefsState(snap.reminderPrefs);
     setVoiceBundlesState(snap.voiceBundles);
     setProfileNameState(snap.profileName);
+    setUserPhotoUrlState(snap.userPhotoUrl);
     setNotificationsEnabledState(snap.notificationsEnabled);
     setPrivacyModeState(snap.privacyMode);
     setPinHash(snap.pinHash);
@@ -841,6 +908,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       scheduledCalls: snap.scheduledCalls,
       favoritesArray: snap.favoritesArray,
       dismissedMissedArray: snap.dismissedMissedArray,
+      mutedAlertKeys: snap.mutedAlertKeys,
       tariffs: snap.tariffs,
       simLabels: snap.simLabels,
       calendarPrefs: snap.calendarPrefs,
@@ -848,6 +916,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       voiceBundles: snap.voiceBundles,
       theme: stateRef.current.theme,
       profileName: snap.profileName,
+      userPhotoUrl: snap.userPhotoUrl,
       notificationsEnabled: snap.notificationsEnabled,
       privacyMode: snap.privacyMode,
     };
@@ -888,6 +957,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     }
   }, [dismissedMissedArray, hydratedUid]);
   useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      writeJson(userStorageKey(hydratedUid, 'mutedAlerts'), mutedAlertKeys);
+    }
+  }, [mutedAlertKeys, hydratedUid]);
+  useEffect(() => {
     if (canPersistScoped(hydratedUid)) writeJson(userStorageKey(hydratedUid, 'tariffs'), tariffs);
   }, [tariffs, hydratedUid]);
   useEffect(() => {
@@ -917,6 +991,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   }, [profileName, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
+      writeJson(userStorageKey(hydratedUid, 'photoUrl'), userPhotoUrl);
+    }
+  }, [userPhotoUrl, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
       writeJson(userStorageKey(hydratedUid, 'notifications'), notificationsEnabled);
     }
   }, [notificationsEnabled, hydratedUid]);
@@ -938,11 +1017,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const syncUserRegistry = useCallback(
-    async (user: User, preferredDisplayName?: string, phoneOverride?: string | null) => {
+    async (
+      user: User,
+      preferredDisplayName?: string,
+      phoneOverride?: string | null,
+      photoOverride?: string | null,
+    ) => {
       const regRef = doc(db, 'userRegistry', user.uid);
       const displayName = clampStr(preferredDisplayName || user.displayName || '', 120);
       const email = clampStr(user.email || '', 254);
-      const photoURL = user.photoURL ? clampStr(user.photoURL, 500) : null;
+      const resolvedPhotoRaw =
+        photoOverride !== undefined
+          ? photoOverride
+          : accountMetaRef.current.photoURL ?? user.photoURL ?? null;
+      const photoURL = resolvedPhotoRaw ? clampStr(resolvedPhotoRaw, 500) : null;
       const authProvider = detectAuthProvider(user);
       const cleanPhone =
         phoneOverride !== undefined
@@ -992,6 +1080,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         theme: ThemeMode;
         profileName: string;
         phone: string | null;
+        photoURL: string | null;
         passwordHint: string | null;
         termsAccepted: boolean;
         termsAcceptedAt: number | null;
@@ -1004,11 +1093,16 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         voiceBundles: VoiceBundles;
         favoritesArray: string[];
         dismissedMissedArray: string[];
+        mutedAlertKeys: string[];
       }>,
     ) => {
       const s = stateRef.current;
       const meta = accountMetaRef.current;
       const nextPhone = overrides?.phone !== undefined ? overrides.phone : meta.phone;
+      const nextPhotoURL =
+        overrides?.photoURL !== undefined
+          ? overrides.photoURL
+          : meta.photoURL ?? s.userPhotoUrl ?? user.photoURL ?? null;
       const nextHint =
         overrides?.passwordHint !== undefined ? overrides.passwordHint : meta.passwordHint;
       const nextTermsAccepted =
@@ -1029,6 +1123,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           ),
           email: clampStr(user.email || '', 254),
           ...(nextPhone !== null ? { phone: clampStr(nextPhone, 40) } : {}),
+          ...(nextPhotoURL !== null ? { photoURL: clampStr(nextPhotoURL, 500) } : {}),
           ...(nextHint !== null ? { passwordHint: clampStr(nextHint, 120) } : {}),
           ...(typeof nextTermsAccepted === 'boolean' ? { termsAccepted: nextTermsAccepted } : {}),
           ...(typeof nextTermsAcceptedAt === 'number'
@@ -1047,6 +1142,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             .map((v) => clampStr(v, 128)),
           dismissedMissedIds: (overrides?.dismissedMissedArray ?? s.dismissedMissedArray)
             .slice(0, 500)
+            .map((v) => clampStr(v, 128)),
+          mutedAlertKeys: (overrides?.mutedAlertKeys ?? s.mutedAlertKeys)
+            .slice(0, 200)
             .map((v) => clampStr(v, 128)),
           syncedAt: serverTimestamp(),
         });
@@ -1100,6 +1198,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     workspaceReadyRef.current = null;
     accountMetaRef.current = {
       phone: null,
+      photoURL: null,
       passwordHint: null,
       termsAccepted: null,
       termsAcceptedAt: null,
@@ -1213,12 +1312,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         workspaceReadyRef.current = null;
         accountMetaRef.current = {
           phone: null,
+          photoURL: null,
           passwordHint: null,
           termsAccepted: null,
           termsAcceptedAt: null,
         };
         setUserPhone(null);
         setPasswordHint(null);
+        setUserPhotoUrlState(null);
         if (!isGuestRef.current) {
           applySnapshotToState(createEmptySnapshot());
           setSyncStatus('signed-out');
@@ -1262,12 +1363,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       );
       accountMetaRef.current = {
         phone: pendingReg?.phone ?? null,
+        photoURL: user.photoURL ?? scoped.userPhotoUrl ?? null,
         passwordHint: pendingReg?.passwordHint ?? null,
         termsAccepted: pendingReg ? pendingReg.termsAccepted : null,
         termsAcceptedAt: pendingReg ? pendingReg.termsAcceptedAt : null,
       };
       setUserPhone(pendingReg?.phone ?? null);
       setPasswordHint(pendingReg?.passwordHint ?? null);
+      setUserPhotoUrlState(user.photoURL ?? scoped.userPhotoUrl ?? null);
 
       hydratedUidRef.current = uid;
       setHydratedUid(uid);
@@ -1332,6 +1435,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               ...local.dismissedMissedArray,
             ]),
           ).slice(0, 500);
+          const mergedMuted = Array.from(
+            new Set([
+              ...(Array.isArray(data.mutedAlertKeys)
+                ? (data.mutedAlertKeys as string[])
+                : []),
+              ...local.mutedAlertKeys,
+            ]),
+          ).slice(0, 200);
 
           const rawTheme = data.theme;
           const nextTheme: ThemeMode =
@@ -1375,6 +1486,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           const resolvedPhone =
             pendingReg?.phone ??
             (typeof data.phone === 'string' && data.phone.trim() ? data.phone : null);
+          const resolvedPhotoURL =
+            typeof data.photoURL === 'string' && data.photoURL.trim()
+              ? data.photoURL.trim()
+              : user.photoURL ?? local.userPhotoUrl ?? null;
           const resolvedHint =
             pendingReg?.passwordHint ??
             (typeof data.passwordHint === 'string' && data.passwordHint.trim()
@@ -1389,12 +1504,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
           accountMetaRef.current = {
             phone: resolvedPhone,
+            photoURL: resolvedPhotoURL,
             passwordHint: resolvedHint,
             termsAccepted: resolvedTerms,
             termsAcceptedAt: resolvedTermsAt,
           };
           setUserPhone(resolvedPhone);
           setPasswordHint(resolvedHint);
+          setUserPhotoUrlState(resolvedPhotoURL);
 
           if (themePreferenceRef.current !== 'system') {
             setThemePreferenceState(nextTheme);
@@ -1409,12 +1526,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           setVoiceBundlesState(nextBundles);
           setFavoritesArray(mergedFavs);
           setDismissedMissedArray(mergedDismissed);
+          setMutedAlertKeys(mergedMuted);
 
           if (
             Boolean(pendingReg) ||
             mergedFavs.length !== ((data.favorites as string[] | undefined)?.length ?? 0) ||
             mergedDismissed.length !==
-              ((data.dismissedMissedIds as string[] | undefined)?.length ?? 0)
+              ((data.dismissedMissedIds as string[] | undefined)?.length ?? 0) ||
+            mergedMuted.length !== ((data.mutedAlertKeys as string[] | undefined)?.length ?? 0)
           ) {
             currentOp = OperationType.UPDATE;
             currentPath = `users/${uid}`;
@@ -1422,6 +1541,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               theme: nextTheme,
               profileName: nextName,
               phone: resolvedPhone,
+              photoURL: resolvedPhotoURL,
               passwordHint: resolvedHint,
               ...(typeof resolvedTerms === 'boolean' ? { termsAccepted: resolvedTerms } : {}),
               termsAcceptedAt: resolvedTermsAt,
@@ -1434,10 +1554,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               voiceBundles: nextBundles,
               favoritesArray: mergedFavs,
               dismissedMissedArray: mergedDismissed,
+              mutedAlertKeys: mergedMuted,
             });
           }
 
-          await syncUserRegistry(user, nextName, resolvedPhone);
+          await syncUserRegistry(user, nextName, resolvedPhone, resolvedPhotoURL);
           if (pendingReg) {
             removeStorageKey(userStorageKey(uid, 'pendingRegistration'));
           }
@@ -1537,6 +1658,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               accountMetaRef.current.phone = data.phone;
               setUserPhone(data.phone);
             }
+            if (typeof data.photoURL === 'string') {
+              accountMetaRef.current.photoURL = data.photoURL;
+              setUserPhotoUrlState(data.photoURL);
+            }
             if (typeof data.passwordHint === 'string') {
               accountMetaRef.current.passwordHint = data.passwordHint;
               setPasswordHint(data.passwordHint);
@@ -1569,6 +1694,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             if (Array.isArray(data.favorites)) setFavoritesArray(data.favorites as string[]);
             if (Array.isArray(data.dismissedMissedIds)) {
               setDismissedMissedArray(data.dismissedMissedIds as string[]);
+            }
+            if (Array.isArray(data.mutedAlertKeys)) {
+              setMutedAlertKeys(data.mutedAlertKeys as string[]);
             }
             setSyncStatus('synced');
             setLastSyncedAt(Date.now());
@@ -1816,10 +1944,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     }, [persistWorkspaceToCloud, showNotice]);
 
   const deliverSystemNotification = useCallback(
-    async (idKey: string, title: string, body: string): Promise<boolean> => {
+    async (
+      idKey: string,
+      title: string,
+      body: string,
+      meta?: NotificationMeta,
+    ): Promise<boolean> => {
       if (isNativeCapacitor()) {
         if (!hasNativeNotificationsPlugin()) return false;
-        return showNativeNotification(idKey, title, body);
+        return showNativeNotification(idKey, title, body, meta);
       }
       if (
         typeof window !== 'undefined' &&
@@ -1841,7 +1974,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const body =
         customBody?.trim() ||
         'Callback reminders, missed call alerts, and Ethiopian holiday wishes are active.';
-      const sent = await deliverSystemNotification('test-alert', 'Call Analyzer - ETH', body);
+      const sent = await deliverSystemNotification('test-alert', 'Call Analyzer - ETH', body, {
+        category: 'other',
+        muteKey: 'test-alert',
+      });
       if (sent) {
         showNotice('Notification sent.', 'success');
       } else {
@@ -1852,8 +1988,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [deliverSystemNotification, requestAlertPermissions, showNotice],
   );
 
-  // Periodically check due scheduled calls and fire alerts respecting Quiet Hours
+  // Periodically check due scheduled calls and fire alerts respecting Quiet Hours & Muted keys
   useEffect(() => {
+    const mutedSet = new Set(mutedAlertKeys);
     const checkDue = () => {
       const now = Date.now();
       const dueUnnotified = scheduledCalls.filter(
@@ -1881,7 +2018,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      const first = dueUnnotified[0];
+      const first = dueUnnotified.find(
+        (item) =>
+          !mutedSet.has(`sched:${item.id}`) &&
+          !mutedSet.has(`contact:${getContactKey(item.number)}`),
+      );
+      if (!first) return;
+
       const label = first.name?.trim() || first.number;
       showNotice(`Scheduled call reminder: ${label}`);
 
@@ -1890,6 +2033,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           first.id,
           `Call reminder: ${label}`,
           first.note?.trim() || `Scheduled call to ${first.number}`,
+          {
+            category: 'schedule',
+            number: first.number,
+            contactKey: getContactKey(first.number),
+            eventId: first.id,
+            muteKey: `sched:${first.id}`,
+          },
         );
       }
     };
@@ -1899,9 +2049,108 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, [
     scheduledCalls,
+    mutedAlertKeys,
     notificationsEnabled,
     reminderPrefs,
     showNotice,
+    deliverSystemNotification,
+  ]);
+
+  // Daily check for Birthday today, Ethiopian Holiday today, and Quiet contacts (respecting Mute)
+  useEffect(() => {
+    if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
+    if (!notificationsEnabled || isWithinQuietHours(reminderPrefs)) return;
+
+    const now = new Date();
+    const todayIso = now.toISOString().slice(0, 10);
+    const dailyKey = `callanalyzer.u.${authUser.uid}.dailyAlerts.${todayIso}`;
+    const alreadySent = new Set(readJson<string[]>(dailyKey, []));
+    const mutedSet = new Set(mutedAlertKeys);
+    const newlySent: string[] = [];
+
+    // 1. Contact Birthdays / Special Events today
+    const todaysEvents = getUpcomingContactEvents(contacts, calls, 0).filter((e) => e.isToday);
+    for (const evt of todaysEvents.slice(0, 2)) {
+      const muteKey = `bday:${evt.contactKey}`;
+      const idKey = `daily-bday-${evt.id}-${todayIso}`;
+      if (mutedSet.has(muteKey) || alreadySent.has(idKey)) continue;
+      newlySent.push(idKey);
+      const wishText = buildBirthdayWish(evt.name, evt.title, evt.tag);
+      void deliverSystemNotification(
+        idKey,
+        `${evt.title} today: ${evt.name}`,
+        `Send a birthday wish or call ${evt.name} today.`,
+        {
+          category: 'birthday',
+          number: evt.number,
+          contactKey: evt.contactKey,
+          eventId: evt.id,
+          muteKey,
+          wishText,
+        },
+      );
+    }
+
+    // 2. Ethiopian Holiday today
+    const todaysHoliday = getHolidaysInGregorianYearOrUpcoming(
+      now,
+      0,
+      calendarPrefs.defaultLang,
+    ).find((h) => h.isToday);
+    if (todaysHoliday) {
+      const muteKey = `holiday:${todaysHoliday.key}`;
+      const idKey = `daily-holiday-${todaysHoliday.key}-${todayIso}`;
+      if (!mutedSet.has(muteKey) && !alreadySent.has(idKey)) {
+        newlySent.push(idKey);
+        void deliverSystemNotification(
+          idKey,
+          `Happy ${todaysHoliday.name}!`,
+          todaysHoliday.description || 'Send Ethiopian holiday wishes to your contacts.',
+          {
+            category: 'holiday',
+            eventId: todaysHoliday.key,
+            muteKey,
+            wishText: buildHolidayWish(todaysHoliday.name, 'friend'),
+          },
+        );
+      }
+    }
+
+    // 3. Top Quiet Contact (5+ calls in 30 days & gone quiet)
+    const quiet = quietContacts(calls, now, reminderPrefs.quietContactDays);
+    const topQuiet = quiet.find((q) => !mutedSet.has(`quiet:${getContactKey(q.number)}`));
+    if (topQuiet) {
+      const cKey = getContactKey(topQuiet.number);
+      const muteKey = `quiet:${cKey}`;
+      const idKey = `daily-quiet-${cKey}-${todayIso}`;
+      if (!alreadySent.has(idKey)) {
+        newlySent.push(idKey);
+        void deliverSystemNotification(
+          idKey,
+          `Check in with ${topQuiet.name}`,
+          quietMessage(topQuiet),
+          {
+            category: 'other',
+            number: topQuiet.number,
+            contactKey: cKey,
+            muteKey,
+          },
+        );
+      }
+    }
+
+    if (newlySent.length > 0) {
+      writeJson(dailyKey, [...alreadySent, ...newlySent]);
+    }
+  }, [
+    authUser,
+    hydratedUid,
+    calls,
+    contacts,
+    calendarPrefs.defaultLang,
+    mutedAlertKeys,
+    notificationsEnabled,
+    reminderPrefs,
     deliverSystemNotification,
   ]);
 
@@ -2139,12 +2388,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       workspaceReadyRef.current = null;
       accountMetaRef.current = {
         phone: null,
+        photoURL: null,
         passwordHint: null,
         termsAccepted: null,
         termsAcceptedAt: null,
       };
       setUserPhone(null);
       setPasswordHint(null);
+      setUserPhotoUrlState(null);
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -2419,12 +2670,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             notificationsEnabled &&
             !isWithinQuietHours(reminderPrefs)
           ) {
-            const label = latestNewMissed.name?.trim() || latestNewMissed.number;
-            void deliverSystemNotification(
-              latestNewMissed.id,
-              `Missed call from ${label}`,
-              'Open Call Analyzer to call back or schedule a reminder.',
-            );
+            const cKey = getContactKey(latestNewMissed.number);
+            const muteKey = `missed:${cKey}`;
+            if (!stateRef.current.mutedAlertKeys.includes(muteKey)) {
+              const label = latestNewMissed.name?.trim() || latestNewMissed.number;
+              void deliverSystemNotification(
+                latestNewMissed.id,
+                `Missed call from ${label}`,
+                'Open Call Analyzer to call back or schedule a reminder.',
+                {
+                  category: 'other',
+                  number: latestNewMissed.number,
+                  contactKey: cKey,
+                  eventId: latestNewMissed.id,
+                  muteKey,
+                },
+              );
+            }
           }
         } else if (manual) {
           showNotice(`Phone call logs up to date (${fetched.length} checked).`, 'tap');
@@ -2995,6 +3257,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           `Call reminder: ${resolvedName || number}`,
           item.note || `Scheduled call to ${number}`,
           item.scheduledFor,
+          {
+            category: 'schedule',
+            number: item.number,
+            contactKey: getContactKey(item.number),
+            eventId: item.id,
+            muteKey: `sched:${item.id}`,
+          },
         );
       }
 
@@ -3088,6 +3357,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           `Call reminder: ${updatedItem.name?.trim() || updatedItem.number}`,
           updatedItem.note || `Scheduled call to ${updatedItem.number}`,
           nextTime,
+          {
+            category: 'schedule',
+            number: updatedItem.number,
+            contactKey: getContactKey(updatedItem.number),
+            eventId: id,
+            muteKey: `sched:${id}`,
+          },
         );
       }
       if (updatedItem) {
@@ -3154,6 +3430,260 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     },
     [persistWorkspaceToCloud, requireSignedInUser],
   );
+
+  const muteAlertKey = useCallback(
+    (rawKey: string) => {
+      const key = clampStr(rawKey.trim(), 128);
+      if (!key) return;
+      const user = requireSignedInUser();
+      if (!user) return;
+      const current = stateRef.current.mutedAlertKeys;
+      if (current.includes(key)) return;
+      triggerHaptic('tap');
+      const next = [key, ...current].slice(0, 200);
+      setMutedAlertKeys(next);
+      void persistWorkspaceToCloud(user, { mutedAlertKeys: next });
+      showNotice('Muted alerts for this contact/event.');
+    },
+    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+  );
+
+  const unmuteAlertKey = useCallback(
+    (rawKey: string) => {
+      const key = rawKey.trim();
+      if (!key) return;
+      const user = requireSignedInUser();
+      if (!user) return;
+      triggerHaptic('tap');
+      const next = stateRef.current.mutedAlertKeys.filter((item) => item !== key);
+      setMutedAlertKeys(next);
+      void persistWorkspaceToCloud(user, { mutedAlertKeys: next });
+      showNotice('Alerts unmuted.', 'success');
+    },
+    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+  );
+
+  const updateUserProfile = useCallback(
+    async (input: UpdateUserProfileInput): Promise<AuthActionResult> => {
+      const user = requireSignedInUser('Sign in to update your profile.');
+      if (!user) return { ok: false, error: 'Sign in required.' };
+
+      const cleanName = clampStr(input.displayName.trim(), 120);
+      if (!cleanName) {
+        return { ok: false, error: 'Display name cannot be empty.' };
+      }
+      const cleanPhone = input.phone !== undefined
+        ? (input.phone?.trim() ? clampStr(input.phone.trim(), 40) : null)
+        : accountMetaRef.current.phone;
+      const cleanPhoto =
+        input.photoURL !== undefined
+          ? (input.photoURL?.trim() ? clampStr(input.photoURL.trim(), 500) : null)
+          : accountMetaRef.current.photoURL ?? user.photoURL ?? null;
+
+      try {
+        await updateProfile(user, {
+          displayName: cleanName,
+          ...(cleanPhoto !== undefined ? { photoURL: cleanPhoto } : {}),
+        });
+      } catch {
+        // Continue syncing workspace + userRegistry even if Auth profile update throws on edge webview
+      }
+
+      accountMetaRef.current = {
+        ...accountMetaRef.current,
+        phone: cleanPhone,
+        photoURL: cleanPhoto,
+      };
+      setProfileNameState(cleanName);
+      setUserPhone(cleanPhone);
+      setUserPhotoUrlState(cleanPhoto);
+
+      await persistWorkspaceToCloud(user, {
+        profileName: cleanName,
+        phone: cleanPhone,
+        photoURL: cleanPhoto,
+      });
+      await syncUserRegistry(user, cleanName, cleanPhone, cleanPhoto);
+      showNotice('Profile updated.', 'success');
+      return { ok: true };
+    },
+    [persistWorkspaceToCloud, requireSignedInUser, showNotice, syncUserRegistry],
+  );
+
+  const changeUserPassword = useCallback(
+    async (input: ChangePasswordInput): Promise<AuthActionResult> => {
+      const user = requireSignedInUser('Sign in to change your password.');
+      if (!user || !user.email) return { ok: false, error: 'Sign in required.' };
+
+      if (detectAuthProvider(user) === 'google') {
+        return {
+          ok: false,
+          error: 'Google accounts manage their password directly in Google Account settings.',
+        };
+      }
+      if (!input.currentPassword) {
+        return { ok: false, error: 'Enter your current password.' };
+      }
+      if (input.newPassword.length < 6) {
+        return { ok: false, error: 'New password must be at least 6 characters.' };
+      }
+      if (input.newPassword !== input.confirmPassword) {
+        return { ok: false, error: 'New password and confirmation do not match.' };
+      }
+
+      try {
+        const cred = EmailAuthProvider.credential(user.email, input.currentPassword);
+        await reauthenticateWithCredential(user, cred);
+        await updatePassword(user, input.newPassword);
+
+        const nextHint = input.passwordHint?.trim()
+          ? clampStr(input.passwordHint.trim(), 120)
+          : accountMetaRef.current.passwordHint;
+        if (nextHint) {
+          accountMetaRef.current.passwordHint = nextHint;
+          setPasswordHint(nextHint);
+          await persistWorkspaceToCloud(user, { passwordHint: nextHint });
+        }
+        showNotice('Password updated successfully.', 'success');
+        return { ok: true };
+      } catch (error) {
+        const code = (error as { code?: string })?.code ?? '';
+        if (
+          code === 'auth/wrong-password' ||
+          code === 'auth/invalid-credential'
+        ) {
+          return { ok: false, error: 'Current password is incorrect.' };
+        }
+        if (code === 'auth/requires-recent-login') {
+          return { ok: false, error: 'Please sign out and sign in again before changing password.' };
+        }
+        return {
+          ok: false,
+          error: mapFirebaseAuthError(error, 'Could not update password right now.'),
+        };
+      }
+    },
+    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+  );
+
+  // Listen to native notification action button taps (Call, +15m, Snooze, Wish, Remind later, View, Clear, Mute)
+  useEffect(() => {
+    if (!isNativeCapacitor() || !hasNativeNotificationsPlugin()) return;
+    let cancelled = false;
+    let unsub: (() => void) | null = null;
+
+    const handleAction = (event: NotificationActionEvent) => {
+      const action = event.actionId;
+      const targetId = event.eventId || event.idKey || '';
+      const number = event.number?.trim() || '';
+
+      if (action === 'call') {
+        if (targetId && stateRef.current.scheduledCalls.some((s) => s.id === targetId)) {
+          completeScheduledCall(targetId);
+        }
+        if (number) {
+          window.location.href = `tel:${number}`;
+        } else {
+          setNotificationActionTarget({ openReminders: 'action' });
+        }
+        return;
+      }
+
+      if (action === 'snooze_15m' || action === 'snooze_60m') {
+        const mins = action === 'snooze_15m' ? 15 : 60;
+        if (targetId && stateRef.current.scheduledCalls.some((s) => s.id === targetId)) {
+          snoozeScheduledCall(targetId, mins);
+        } else if (number) {
+          scheduleCall({
+            number,
+            scheduledFor: Date.now() + mins * 60_000,
+            note: event.title || 'Follow-up call',
+          });
+        }
+        return;
+      }
+
+      if (action === 'remind_later') {
+        const nextMs = Date.now() + 2 * 60 * 60_000;
+        const idKey = `${event.idKey || event.eventId || 'remind'}-later-${nextMs}`;
+        void scheduleNativeNotification(
+          idKey,
+          event.title || 'Reminder',
+          event.body || 'Tap to view reminder details.',
+          nextMs,
+          {
+            category: event.category ?? 'other',
+            number: event.number ?? null,
+            contactKey: event.contactKey ?? null,
+            eventId: event.eventId ?? null,
+            muteKey: event.muteKey ?? null,
+            wishText: event.wishText ?? null,
+          },
+        );
+        showNotice('Reminder postponed by 2 hours.');
+        return;
+      }
+
+      if (action === 'wish') {
+        if (number && event.wishText) {
+          window.location.href = `sms:${number}?body=${encodeURIComponent(event.wishText)}`;
+        } else if (number) {
+          setNotificationActionTarget({ contactNumber: number });
+        } else {
+          setNotificationActionTarget({ openReminders: 'wishes' });
+        }
+        return;
+      }
+
+      if (action === 'clear') {
+        if (targetId && stateRef.current.scheduledCalls.some((s) => s.id === targetId)) {
+          completeScheduledCall(targetId);
+        } else if (targetId) {
+          dismissMissedCall(targetId);
+        }
+        if (event.idKey) void cancelNativeNotification(event.idKey);
+        showNotice('Reminder cleared.');
+        return;
+      }
+
+      if (action === 'mute') {
+        const mKey =
+          event.muteKey ||
+          (event.contactKey ? `contact:${event.contactKey}` : event.idKey || '');
+        if (mKey) {
+          muteAlertKey(mKey);
+        }
+        if (targetId && stateRef.current.scheduledCalls.some((s) => s.id === targetId)) {
+          completeScheduledCall(targetId);
+        }
+        if (event.idKey) void cancelNativeNotification(event.idKey);
+        return;
+      }
+
+      // Default 'view' / 'open'
+      if (event.category === 'holiday') {
+        setNotificationActionTarget({ openReminders: 'wishes' });
+      } else if (number) {
+        setNotificationActionTarget({ contactNumber: number });
+      } else if (event.category === 'birthday') {
+        setNotificationActionTarget({ openReminders: 'wishes' });
+      } else {
+        setNotificationActionTarget({ openReminders: 'action' });
+      }
+    };
+
+    void subscribeNativeNotificationActions((event) => {
+      if (!cancelled) handleAction(event);
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unsub = cleanup;
+    });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [completeScheduledCall, dismissMissedCall, muteAlertKey, scheduleCall, showNotice, snoozeScheduledCall]);
 
   const setTariffs = useCallback(
     (next: TariffConfig) => {
@@ -3271,6 +3801,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     () => new Set(dismissedMissedArray),
     [dismissedMissedArray],
   );
+  const mutedAlertSet = useMemo(() => new Set(mutedAlertKeys), [mutedAlertKeys]);
   const pinEnabled = Boolean(pinHash);
   const needsEmailVerification = Boolean(authUser && !authUser.emailVerified);
   const authProvider = useMemo<AuthProviderType | null>(
@@ -3288,6 +3819,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       scheduledCalls,
       favorites,
       dismissedMissedIds,
+      mutedAlertKeys,
+      mutedAlertSet,
       tariffs,
       simLabels,
       calendarPrefs,
@@ -3299,6 +3832,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       fontSizeScale,
       setFontSizeScale,
       profileName,
+      userPhotoUrl,
       notificationsEnabled,
       notificationPermission,
       refreshNotificationPermission,
@@ -3314,6 +3848,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       authProvider,
       userPhone,
       passwordHint,
+      notificationActionTarget,
+      clearNotificationActionTarget,
       authPromptMode,
       authPromptReason,
       openAuthPrompt,
@@ -3359,6 +3895,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       snoozeScheduledCall,
       removeScheduledCall,
       dismissMissedCall,
+      muteAlertKey,
+      unmuteAlertKey,
+      updateUserProfile,
+      changeUserPassword,
       setTariffs,
       setSimLabels,
       setCalendarPrefs,
@@ -3375,6 +3915,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       scheduledCalls,
       favorites,
       dismissedMissedIds,
+      mutedAlertKeys,
+      mutedAlertSet,
       tariffs,
       simLabels,
       calendarPrefs,
@@ -3386,6 +3928,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       fontSizeScale,
       setFontSizeScale,
       profileName,
+      userPhotoUrl,
       notificationsEnabled,
       notificationPermission,
       refreshNotificationPermission,
@@ -3401,6 +3944,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       authProvider,
       userPhone,
       passwordHint,
+      notificationActionTarget,
+      clearNotificationActionTarget,
       authPromptMode,
       authPromptReason,
       openAuthPrompt,
@@ -3446,6 +3991,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       snoozeScheduledCall,
       removeScheduledCall,
       dismissMissedCall,
+      muteAlertKey,
+      unmuteAlertKey,
+      updateUserProfile,
+      changeUserPassword,
       setTariffs,
       setSimLabels,
       setCalendarPrefs,

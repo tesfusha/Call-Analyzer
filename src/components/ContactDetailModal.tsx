@@ -13,6 +13,7 @@ import {
   PhoneMissed,
   PhoneOutgoing,
   Plus,
+  Share2,
   Star,
   Tag,
   Trash2,
@@ -35,7 +36,7 @@ import {
   getEthiopianMonthName,
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
-import { downloadTextFile } from '@/src/lib/export';
+import { downloadTextFile, shareContactVcard } from '@/src/lib/export';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
 import {
   buildScheduledCallIcs,
@@ -104,6 +105,7 @@ export function ContactDetailModal({
     favorites,
     tariffs,
     simLabels,
+    calendarPrefs,
     privacyMode,
     availableTags,
     addCustomTag,
@@ -240,9 +242,14 @@ export function ContactDetailModal({
     }
   }, [activeCategory, contactNumber]);
 
-  const nextHoliday = useMemo(
-    () => getHolidaysInGregorianYearOrUpcoming(new Date(), 90, 'english')[0] ?? null,
-    [],
+  const todaysHoliday = useMemo(
+    () =>
+      getHolidaysInGregorianYearOrUpcoming(
+        new Date(),
+        0,
+        calendarPrefs.defaultLang,
+      ).find((h) => h.isToday) ?? null,
+    [calendarPrefs.defaultLang],
   );
 
   const safeNumber = contactNumber ?? '';
@@ -254,6 +261,8 @@ export function ContactDetailModal({
   const bdayCountdown = hasBirthday
     ? daysUntilAnnualDate(bdayMonth, bdayDay, bdayCalendar)
     : null;
+  const isContactBirthdayToday = hasBirthday && bdayCountdown === 0;
+  const canShowWishToday = isContactBirthdayToday || todaysHoliday !== null;
 
   const handleSaveProfile = () => {
     if (!contactNumber) return;
@@ -307,19 +316,36 @@ export function ContactDetailModal({
     setNewEvtTitle('');
   };
 
-  const suggestedWish =
-    bdayCountdown !== null && bdayCountdown <= 14
-      ? buildBirthdayWish(displayName, 'Birthday', tag)
-      : nextHoliday
-        ? buildHolidayWish(nextHoliday.name, displayName, tag)
-        : buildBirthdayWish(displayName, 'Birthday', tag);
+  const suggestedWish = isContactBirthdayToday
+    ? buildBirthdayWish(displayName, 'Birthday', tag)
+    : todaysHoliday
+      ? buildHolidayWish(todaysHoliday.name, displayName, tag)
+      : '';
 
   const handleCopyWish = async () => {
+    if (!suggestedWish) return;
     try {
       await navigator.clipboard.writeText(suggestedWish);
       showNotice('Wish message copied.');
     } catch {
       showNotice('Clipboard unavailable in this browser.');
+    }
+  };
+
+  const handleShareContact = async () => {
+    if (!contactNumber) return;
+    const mode = await shareContactVcard({
+      name: displayName,
+      number: contactCalls[0]?.number || contactNumber,
+      tag: tag.trim() || null,
+      note: notes.trim() || null,
+    });
+    if (mode === 'copied') {
+      showNotice('Contact copied to clipboard.', 'success');
+    } else if (mode === 'native') {
+      showNotice('Contact card saved & ready to share.', 'success');
+    } else {
+      showNotice(`Shared ${displayName}.`, 'success');
     }
   };
 
@@ -455,21 +481,33 @@ export function ContactDetailModal({
             <Clock size={14} className="text-[#FF6A00]" />
             Schedule call
           </button>
-          <a
-            href={`sms:${contactCalls[0]?.number || contactNumber}?body=${encodeURIComponent(suggestedWish)}`}
-            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-          >
-            <MessageSquare size={14} className="text-[#FF6A00]" />
-            SMS Wish
-          </a>
           <button
             type="button"
-            onClick={() => void handleCopyWish()}
+            onClick={() => void handleShareContact()}
             className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
-            <Copy size={14} />
-            Copy Wish
+            <Share2 size={14} className="text-[#FF6A00]" />
+            Share
           </button>
+          {canShowWishToday && (
+            <>
+              <a
+                href={`sms:${contactCalls[0]?.number || contactNumber}?body=${encodeURIComponent(suggestedWish)}`}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#FF6A00]/40 bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <MessageSquare size={14} className="text-[#FF6A00]" />
+                {isContactBirthdayToday ? 'SMS Birthday Wish' : `SMS ${todaysHoliday?.name} Wish`}
+              </a>
+              <button
+                type="button"
+                onClick={() => void handleCopyWish()}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <Copy size={14} />
+                Copy Wish
+              </button>
+            </>
+          )}
         </div>
 
         {scheduleOpen && (
@@ -568,13 +606,18 @@ export function ContactDetailModal({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        downloadTextFile(
+                      onClick={async () => {
+                        const delivery = await downloadTextFile(
                           `call-${item.id}.ics`,
                           buildScheduledCallIcs(item),
                           'text/calendar;charset=utf-8',
+                          `Call Reminder (${displayName})`,
                         );
-                        showNotice('Saved .ics calendar file.');
+                        showNotice(
+                          delivery === 'native'
+                            ? 'Calendar file saved to Downloads & ready to open.'
+                            : 'Saved .ics calendar file.',
+                        );
                       }}
                       aria-label="Download calendar invite"
                       className="min-h-[32px] px-2 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[#08246B] dark:text-white flex items-center"

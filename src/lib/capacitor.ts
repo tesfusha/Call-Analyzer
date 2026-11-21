@@ -48,19 +48,74 @@ type NativeCallLogPlugin = {
   ) => Promise<CapacitorPluginHandle> | CapacitorPluginHandle;
 };
 
+export type NotificationCategory = 'schedule' | 'birthday' | 'holiday' | 'other';
+
+export type NotificationActionId =
+  | 'call'
+  | 'snooze_15m'
+  | 'snooze_60m'
+  | 'wish'
+  | 'remind_later'
+  | 'view'
+  | 'clear'
+  | 'mute'
+  | 'open';
+
+export type NotificationMeta = {
+  category?: NotificationCategory;
+  number?: string | null;
+  contactKey?: string | null;
+  eventId?: string | null;
+  muteKey?: string | null;
+  wishText?: string | null;
+};
+
+export type NotificationActionEvent = NotificationMeta & {
+  actionId: NotificationActionId | string;
+  notificationId?: number;
+  idKey?: string;
+  title?: string | null;
+  body?: string | null;
+  timestamp?: number;
+};
+
 type NativeAppNotificationPermissionState = 'granted' | 'denied' | 'prompt';
 
 type NativeAppNotificationsPlugin = {
   getPermissionStatus?: () => Promise<{ state?: string }>;
   requestPermission?: () => Promise<{ state?: string }>;
-  showNotification?: (opts: { id: number; title: string; body: string }) => Promise<void>;
-  scheduleNotification?: (opts: {
-    id: number;
-    title: string;
-    body: string;
-    triggerAtMs: number;
-  }) => Promise<void>;
+  showNotification?: (
+    opts: {
+      id: number;
+      idKey?: string;
+      title: string;
+      body: string;
+    } & NotificationMeta,
+  ) => Promise<void>;
+  scheduleNotification?: (
+    opts: {
+      id: number;
+      idKey?: string;
+      title: string;
+      body: string;
+      triggerAtMs: number;
+    } & NotificationMeta,
+  ) => Promise<void>;
   cancelNotification?: (opts: { id: number }) => Promise<void>;
+  getPendingActions?: () => Promise<{ actions?: NotificationActionEvent[] }>;
+  addListener?: (
+    eventName: 'notificationAction',
+    listener: (event: NotificationActionEvent) => void,
+  ) => Promise<CapacitorPluginHandle> | CapacitorPluginHandle;
+};
+
+type NativeFileExportPlugin = {
+  saveAndShare?: (opts: {
+    filename: string;
+    mimeType: string;
+    base64Data: string;
+    shareTitle?: string;
+  }) => Promise<{ saved?: boolean; shared?: boolean; path?: string }>;
 };
 
 type CapacitorGlobal = {
@@ -74,6 +129,7 @@ type CapacitorGlobal = {
     App?: NativeAppPlugin;
     CallLog?: NativeCallLogPlugin;
     AppNotifications?: NativeAppNotificationsPlugin;
+    FileExport?: NativeFileExportPlugin;
     [key: string]: unknown;
   };
 };
@@ -329,14 +385,22 @@ export async function showNativeNotification(
   idKey: string,
   title: string,
   body: string,
+  meta?: NotificationMeta,
 ): Promise<boolean> {
   const plugin = getCapacitor()?.Plugins?.AppNotifications;
   if (!plugin || typeof plugin.showNotification !== 'function') return false;
   try {
     await plugin.showNotification({
       id: hashNotificationId(idKey),
+      idKey,
       title,
       body,
+      category: meta?.category ?? 'other',
+      number: meta?.number ?? null,
+      contactKey: meta?.contactKey ?? null,
+      eventId: meta?.eventId ?? null,
+      muteKey: meta?.muteKey ?? null,
+      wishText: meta?.wishText ?? null,
     });
     return true;
   } catch {
@@ -349,15 +413,23 @@ export async function scheduleNativeNotification(
   title: string,
   body: string,
   triggerAtMs: number,
+  meta?: NotificationMeta,
 ): Promise<boolean> {
   const plugin = getCapacitor()?.Plugins?.AppNotifications;
   if (!plugin || typeof plugin.scheduleNotification !== 'function') return false;
   try {
     await plugin.scheduleNotification({
       id: hashNotificationId(idKey),
+      idKey,
       title,
       body,
       triggerAtMs,
+      category: meta?.category ?? 'schedule',
+      number: meta?.number ?? null,
+      contactKey: meta?.contactKey ?? null,
+      eventId: meta?.eventId ?? null,
+      muteKey: meta?.muteKey ?? null,
+      wishText: meta?.wishText ?? null,
     });
     return true;
   } catch {
@@ -373,4 +445,73 @@ export async function cancelNativeNotification(idKey: string): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+export async function consumePendingNotificationActions(): Promise<NotificationActionEvent[]> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.getPendingActions !== 'function') return [];
+  try {
+    const res = await plugin.getPendingActions();
+    return Array.isArray(res?.actions) ? res.actions : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function subscribeNativeNotificationActions(
+  onAction: (event: NotificationActionEvent) => void,
+): Promise<() => void> {
+  const cap = getCapacitor();
+  const plugin = cap?.Plugins?.AppNotifications;
+  if (!plugin) return () => {};
+
+  const handles: CapacitorPluginHandle[] = [];
+  const flushPending = async () => {
+    const pending = await consumePendingNotificationActions();
+    pending.forEach(onAction);
+  };
+
+  try {
+    await flushPending();
+    if (typeof plugin.addListener === 'function') {
+      const h = await plugin.addListener('notificationAction', onAction);
+      if (h) handles.push(h);
+    }
+    const appPlugin = cap?.Plugins?.App;
+    if (appPlugin && typeof appPlugin.addListener === 'function') {
+      const h = await appPlugin.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) {
+          void flushPending();
+        }
+      });
+      if (h) handles.push(h);
+    }
+  } catch {
+    // ignore listener errors
+  }
+
+  return () => {
+    handles.forEach((h) => {
+      try {
+        void h.remove?.();
+      } catch {
+        // ignore
+      }
+    });
+  };
+}
+
+export function hasNativeFileExportPlugin(): boolean {
+  return typeof getCapacitor()?.Plugins?.FileExport?.saveAndShare === 'function';
+}
+
+export async function runNativeFileExport(opts: {
+  filename: string;
+  mimeType: string;
+  base64Data: string;
+  shareTitle?: string;
+}): Promise<{ saved?: boolean; shared?: boolean; path?: string } | null> {
+  const plugin = getCapacitor()?.Plugins?.FileExport;
+  if (!plugin || typeof plugin.saveAndShare !== 'function') return null;
+  return plugin.saveAndShare(opts);
 }

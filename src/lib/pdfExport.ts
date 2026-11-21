@@ -8,6 +8,7 @@ import {
 } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
+import { type ExportDeliveryResult, saveAndShareBytes } from '@/src/lib/export';
 import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import {
   carrierStats,
@@ -505,7 +506,7 @@ export async function exportCallHistoryPdfReport({
   title?: string;
   privacyMode?: boolean;
   filename?: string;
-}): Promise<void> {
+}): Promise<ExportDeliveryResult> {
   const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
   const totals = computeTotals(sorted);
   const totalEtb = totalSpendEtb(sorted, tariffs);
@@ -889,5 +890,7 @@ export async function exportCallHistoryPdfReport({
     doc.text(`Page ${p} of ${totalPages}`, pageW - marginX, pageH - 7.5, { align: 'right' });
   }
 
-  doc.save(filename);
+  const pdfBuffer = doc.output('arraybuffer');
+  const bytes = new Uint8Array(pdfBuffer);
+  return saveAndShareBytes(filename, bytes, 'application/pdf', title);
 }
