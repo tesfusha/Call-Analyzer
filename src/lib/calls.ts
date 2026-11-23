@@ -1,5 +1,6 @@
+import { getContactKey } from '@/src/lib/contacts';
 import { dayKey, dayLabel } from '@/src/lib/format';
-import type { CallRecord } from '@/src/types/call';
+import type { CallRecord, ContactProfile } from '@/src/types/call';
 
 export type CallSection = {
   key: string;
@@ -29,28 +30,60 @@ function editDistance(a: string, b: string, cap = 3): number {
   return previous[b.length];
 }
 
-export function filterCalls(calls: CallRecord[], query: string): CallRecord[] {
+function normalizeSearchDigits(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, '');
+  if (digits.startsWith('251') && digits.length >= 10) {
+    return `0${digits.slice(3)}`;
+  }
+  return digits;
+}
+
+export function filterCalls(
+  calls: CallRecord[],
+  query: string,
+  contacts?: Record<string, ContactProfile>,
+): CallRecord[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return calls;
 
-  const digits = needle.replace(/[^0-9+]/g, '');
+  const rawDigits = needle.replace(/[^0-9+]/g, '');
+  const normalizedQueryDigits = normalizeSearchDigits(needle);
 
   return calls.filter((call) => {
-    const name = (call.name ?? '').toLowerCase();
-    const haystack = [call.name ?? '', call.number, call.note ?? '', call.tag ?? '']
+    const profile = contacts ? contacts[getContactKey(call.number)] : undefined;
+    const callName = (call.name ?? '').trim();
+    const profileName = (profile?.name ?? '').trim();
+    const combinedName = [callName, profileName].filter(Boolean).join(' ').toLowerCase();
+    const combinedTag = [call.tag ?? '', profile?.tag ?? ''].filter(Boolean).join(' ').toLowerCase();
+    const haystack = [
+      callName,
+      profileName,
+      call.number,
+      profile?.number ?? '',
+      call.note ?? '',
+      call.tag ?? '',
+      profile?.tag ?? '',
+    ]
       .join(' ')
       .toLowerCase();
 
     if (haystack.includes(needle)) return true;
 
-    if (digits.length >= 3) {
-      if (call.number.replace(/[\s()-]/g, '').includes(digits)) return true;
+    if (rawDigits.length >= 2) {
+      const compactNumber = call.number.replace(/[\s()-]/g, '');
+      if (compactNumber.includes(rawDigits)) return true;
+      if (normalizedQueryDigits.length >= 2) {
+        const normalizedCallDigits = normalizeSearchDigits(call.number);
+        if (normalizedCallDigits.includes(normalizedQueryDigits)) return true;
+      }
     }
 
-    if (needle.length >= 3 && needle.length <= 24 && !digits) {
-      if (editDistance(name, needle) <= 2) return true;
+    if (needle.length >= 3 && needle.length <= 24 && !rawDigits) {
+      const nameCandidates = [callName.toLowerCase(), profileName.toLowerCase()].filter(Boolean);
+      if (nameCandidates.some((n) => editDistance(n, needle) <= 2)) return true;
+      if (combinedTag && editDistance(combinedTag, needle) <= 2) return true;
       const queryWords = needle.split(/\s+/).filter(Boolean);
-      const nameWords = name.split(/\s+/).filter(Boolean);
+      const nameWords = combinedName.split(/\s+/).filter(Boolean);
       if (
         queryWords.length > 0 &&
         queryWords.every((qw) => nameWords.some((nw) => nw.startsWith(qw)))

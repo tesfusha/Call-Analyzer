@@ -1,7 +1,7 @@
 {
-  "versionCode": 3,
-  "versionName": "2.5.3",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.3.apk",
-  "notes": "Full Android call log history loading, native Save PNG export to Pictures/Gallery, and mobile Launch App Guide button wrapping fix.",
+  "versionCode": 4,
+  "versionName": "2.5.4",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.4.apk",
+  "notes": "Fixed Admin Insights access, added Calls category dropdown and corner expandable search (phone, names, tags), compacted Points History & Contact Streaks with Show more, and removed extra sync banner from Calls.",
   "mandatory": false
 }

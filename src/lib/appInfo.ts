@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '2.5.3';
-export const APP_VERSION_CODE = 3;
+export const APP_VERSION_NAME = '2.5.4';
+export const APP_VERSION_CODE = 4;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Full Call Log Sync, Save PNG & Mobile Layout Fixes';
+export const APP_RELEASE_LABEL = 'Admin Fix, Compact Streak Lists & Calls Dropdown Search';
 export const GUIDE_SEEN_KEY = 'callanalyzer.guideSeen.v1';
 export const WHATS_NEW_SEEN_KEY = 'callanalyzer.whatsNewVersion.v1';
 export const UPDATE_VERSION_URL = 'https://youthful-limiter-kjk7s.web.app/version.json';
@@ -13,28 +13,28 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
-    id: 'clean-call-logs',
-    title: 'Complete Android Call Log Sync',
+    id: 'brand-launcher',
+    title: 'Admin Insights Restored',
     detail:
-      'Fixed Android 11+ call log query paging so older call history loads completely without stopping early on restricted or empty-number entries.',
+      'Fixed Admin role recognition and Firestore permissions so Admin Insights and registered user totals load reliably.',
+  },
+  {
+    id: 'clean-call-logs',
+    title: 'Calls Filter Dropdown & Expandable Search',
+    detail:
+      'Switch between All calls, Follow-ups, VIP, and Tools from the Calls dropdown, and tap the corner search icon to search phone numbers, contact names, and tags.',
   },
   {
     id: 'streak-counting',
-    title: 'Save Streak Milestone PNGs to Pictures',
+    title: 'Compact Points History & Contact Streaks',
     detail:
-      'Added native Android file saving so tapping Save PNG on 3-day and higher streak cards saves directly into Pictures/Call Analyzer - ETH.',
+      'Points History and Contact Streaks now start with a concise summary list and Show more / Show all controls.',
   },
   {
     id: 'mobile-modals',
-    title: 'Clean Mobile Button Wrapping & Layout',
+    title: 'Cleaner Calls Screen & Android Sync Notice',
     detail:
-      'Fixed the Launch App Guide button placement in Settings and wrapped action button groups neatly on compact phone screens.',
-  },
-  {
-    id: 'notification-actions',
-    title: 'Instant Notification Replies & Privacy',
-    detail:
-      'One-tap callback and reminder actions, local-first IndexedDB storage, Privacy Mode masking, and shareable contact milestone cards.',
+      'Removed the extra Android-only auto-sync banner from Calls while keeping it neatly organized inside Settings.',
   },
 ] as const;
 

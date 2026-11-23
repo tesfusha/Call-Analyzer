@@ -76,11 +76,18 @@ export function AchievementsModal({
     showNotice,
   } = useCalls();
 
+const INITIAL_LIST_LIMIT = 8;
+const LIST_PAGE_STEP = 12;
+
   const [tab, setTab] = useState<'general' | 'contacts'>(initialTab);
+  const [pointsLimit, setPointsLimit] = useState(INITIAL_LIST_LIMIT);
+  const [contactsLimit, setContactsLimit] = useState(INITIAL_LIST_LIMIT);
 
   useEffect(() => {
     if (open) {
       setTab(initialTab);
+      setPointsLimit(INITIAL_LIST_LIMIT);
+      setContactsLimit(INITIAL_LIST_LIMIT);
     }
   }, [open, initialTab]);
 
@@ -416,25 +423,77 @@ export function AchievementsModal({
                         No points recorded yet. Open the app daily, connect across consecutive days with contacts, tag or note calls, and return missed calls within {reminderPrefs.missedCallReminderDelayMinutes} minutes.
                       </div>
                     ) : (
-                      <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden bg-white dark:bg-[var(--dark-canvas)]">
-                        {sortedHistory.slice(0, 40).map((entry) => (
-                          <div
-                            key={entry.id}
-                            className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs"
-                          >
-                            <div className="min-w-0">
-                              <p className="font-medium text-[#08246B] dark:text-white truncate">
-                                {formatHistoryLabel(entry)}
-                              </p>
-                              <p className="text-[11px] font-mono tabular-nums text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
-                                {entry.eatDate} EAT · {formatEthiopianShort(new Date(entry.timestamp), calendarPrefs.defaultLang)} EC
-                              </p>
+                      <div className="space-y-2">
+                        <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden bg-white dark:bg-[var(--dark-canvas)]">
+                          {sortedHistory.slice(0, pointsLimit).map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs"
+                            >
+                              <div className="min-w-0">
+                                <p className="font-medium text-[#08246B] dark:text-white truncate">
+                                  {formatHistoryLabel(entry)}
+                                </p>
+                                <p className="text-[11px] font-mono tabular-nums text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                                  {entry.eatDate} EAT · {formatEthiopianShort(new Date(entry.timestamp), calendarPrefs.defaultLang)} EC
+                                </p>
+                              </div>
+                              <span className="font-mono font-bold tabular-nums text-[#FF6A00] shrink-0">
+                                +{entry.points}
+                              </span>
                             </div>
-                            <span className="font-mono font-bold tabular-nums text-[#FF6A00] shrink-0">
-                              +{entry.points}
+                          ))}
+                        </div>
+
+                        {sortedHistory.length > INITIAL_LIST_LIMIT && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                            <span className="text-[11px] font-mono tabular-nums text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                              Showing {Math.min(pointsLimit, sortedHistory.length)} of {sortedHistory.length}
                             </span>
+                            <div className="flex items-center gap-1.5">
+                              {pointsLimit < sortedHistory.length && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      triggerHaptic('tap');
+                                      setPointsLimit((prev) =>
+                                        Math.min(sortedHistory.length, prev + LIST_PAGE_STEP),
+                                      );
+                                    }}
+                                    className="min-h-[34px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] transition-colors"
+                                  >
+                                    Show more (+{Math.min(LIST_PAGE_STEP, sortedHistory.length - pointsLimit)})
+                                  </button>
+                                  {sortedHistory.length - pointsLimit > LIST_PAGE_STEP && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerHaptic('tap');
+                                        setPointsLimit(sortedHistory.length);
+                                      }}
+                                      className="min-h-[34px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] transition-colors"
+                                    >
+                                      Show all
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              {pointsLimit > INITIAL_LIST_LIMIT && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    triggerHaptic('tap');
+                                    setPointsLimit(INITIAL_LIST_LIMIT);
+                                  }}
+                                  className="min-h-[34px] px-2.5 rounded-xl text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00] transition-colors"
+                                >
+                                  Show less
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
                   </div>
@@ -489,90 +548,142 @@ export function AchievementsModal({
                       No contact streaks yet. Incoming or outgoing calls will start building streaks, scores, and badges for each contact.
                     </div>
                   ) : (
-                    <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden bg-white dark:bg-[var(--dark-canvas)]">
-                      {topContactStatuses.slice(0, 60).map((status) => {
-                        const shownName = formatDisplayNameOrPhone(
-                          status.displayName,
-                          status.number,
-                          privacyMode,
-                        );
-                        const shownNumber = maskPhoneNumber(status.number, privacyMode);
-                        const earnedBadges = status.badges.filter((b) => b.earned);
-                        const canOpen = Boolean(onSelectContact);
-                        return (
-                          <button
-                            key={status.contactKey}
-                            type="button"
-                            disabled={!canOpen}
-                            onClick={() => {
-                              if (!onSelectContact) return;
-                              triggerHaptic('tap');
-                              onClose();
-                              onSelectContact(status.number);
-                            }}
-                            className={`w-full px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors ${
-                              canOpen
-                                ? 'hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] cursor-pointer'
-                                : 'cursor-default'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <div
-                                className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                                style={{ backgroundColor: avatarColor(status.number) }}
-                              >
-                                {initials(shownName, status.number)}
-                              </div>
-                              <div className="min-w-0 flex-1 space-y-0.5">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
-                                    {shownName}
-                                  </p>
-                                  {status.tag && (
-                                    <span className="text-[10px] font-semibold text-[#FF6A00] shrink-0">
-                                      · {status.tag}
-                                    </span>
-                                  )}
+                    <div className="space-y-2">
+                      <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden bg-white dark:bg-[var(--dark-canvas)]">
+                        {topContactStatuses.slice(0, contactsLimit).map((status) => {
+                          const shownName = formatDisplayNameOrPhone(
+                            status.displayName,
+                            status.number,
+                            privacyMode,
+                          );
+                          const shownNumber = maskPhoneNumber(status.number, privacyMode);
+                          const earnedBadges = status.badges.filter((b) => b.earned);
+                          const canOpen = Boolean(onSelectContact);
+                          return (
+                            <button
+                              key={status.contactKey}
+                              type="button"
+                              disabled={!canOpen}
+                              onClick={() => {
+                                if (!onSelectContact) return;
+                                triggerHaptic('tap');
+                                onClose();
+                                onSelectContact(status.number);
+                              }}
+                              className={`w-full px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors ${
+                                canOpen
+                                  ? 'hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] cursor-pointer'
+                                  : 'cursor-default'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <div
+                                  className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                                  style={{ backgroundColor: avatarColor(status.number) }}
+                                >
+                                  {initials(shownName, status.number)}
                                 </div>
-                                <p className="text-[11px] font-medium text-[#FF6A00] truncate">
-                                  {status.statusHeadline}
-                                </p>
-                                <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                                  {shownNumber} · Best {status.longestStreak}d ·{' '}
-                                  {earnedBadges.length > 0
-                                    ? `Badges: ${earnedBadges.map((b) => `${b.days}d`).join(', ')}`
-                                    : `${status.totalConnectedDays} connected day${status.totalConnectedDays === 1 ? '' : 's'}`}
-                                </p>
+                                <div className="min-w-0 flex-1 space-y-0.5">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                                      {shownName}
+                                    </p>
+                                    {status.tag && (
+                                      <span className="text-[10px] font-semibold text-[#FF6A00] shrink-0">
+                                        · {status.tag}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] font-medium text-[#FF6A00] truncate">
+                                    {status.statusHeadline}
+                                  </p>
+                                  <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                                    {shownNumber} · Best {status.longestStreak}d ·{' '}
+                                    {earnedBadges.length > 0
+                                      ? `Badges: ${earnedBadges.map((b) => `${b.days}d`).join(', ')}`
+                                      : `${status.totalConnectedDays} connected day${status.totalConnectedDays === 1 ? '' : 's'}`}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
-                              <div className="text-right">
-                                <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-end gap-1">
-                                  <Flame
-                                    size={12}
-                                    className={
-                                      status.currentStreak >= 3
-                                        ? 'text-[#FF6A00]'
-                                        : 'text-[#8A93A0]'
-                                    }
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="text-right">
+                                  <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-end gap-1">
+                                    <Flame
+                                      size={12}
+                                      className={
+                                        status.currentStreak >= 3
+                                          ? 'text-[#FF6A00]'
+                                          : 'text-[#8A93A0]'
+                                      }
+                                    />
+                                    <span>{status.currentStreak}d</span>
+                                  </p>
+                                  <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00]">
+                                    {status.contactScore} pts
+                                  </p>
+                                </div>
+                                {canOpen && (
+                                  <ChevronRight
+                                    size={15}
+                                    className="text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0"
                                   />
-                                  <span>{status.currentStreak}d</span>
-                                </p>
-                                <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00]">
-                                  {status.contactScore} pts
-                                </p>
+                                )}
                               </div>
-                              {canOpen && (
-                                <ChevronRight
-                                  size={15}
-                                  className="text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0"
-                                />
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {topContactStatuses.length > INITIAL_LIST_LIMIT && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                          <span className="text-[11px] font-mono tabular-nums text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                            Showing {Math.min(contactsLimit, topContactStatuses.length)} of {topContactStatuses.length}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {contactsLimit < topContactStatuses.length && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    triggerHaptic('tap');
+                                    setContactsLimit((prev) =>
+                                      Math.min(topContactStatuses.length, prev + LIST_PAGE_STEP),
+                                    );
+                                  }}
+                                  className="min-h-[34px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] transition-colors"
+                                >
+                                  Show more (+{Math.min(LIST_PAGE_STEP, topContactStatuses.length - contactsLimit)})
+                                </button>
+                                {topContactStatuses.length - contactsLimit > LIST_PAGE_STEP && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      triggerHaptic('tap');
+                                      setContactsLimit(topContactStatuses.length);
+                                    }}
+                                    className="min-h-[34px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] transition-colors"
+                                  >
+                                    Show all
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {contactsLimit > INITIAL_LIST_LIMIT && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  triggerHaptic('tap');
+                                  setContactsLimit(INITIAL_LIST_LIMIT);
+                                }}
+                                className="min-h-[34px] px-2.5 rounded-xl text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00] transition-colors"
+                              >
+                                Show less
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

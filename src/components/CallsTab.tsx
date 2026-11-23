@@ -23,7 +23,6 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
-  Smartphone,
   Sparkles,
   Star,
   Tag,
@@ -38,7 +37,7 @@ import {
 } from 'lucide-react';
 import { AchievementsModal } from '@/src/components/AchievementsModal';
 import { CarrierUssdModal, type UssdCategory } from '@/src/components/CarrierUssdModal';
-import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { CategoryPanel } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
@@ -160,6 +159,7 @@ export const CallsTab = memo(function CallsTab({
 
   const [activeCategory, setActiveCategory] = useState<CallsCategory>('log');
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [dirFilter, setDirFilter] = useState<'all' | CallDirection | 'unreturned'>('all');
   const [simFilter, setSimFilter] = useState<'all' | 'SIM 1' | 'SIM 2'>('all');
   const [tagFilter, setTagFilter] = useState<string>('all');
@@ -174,10 +174,10 @@ export const CallsTab = memo(function CallsTab({
   const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [achievementsTab, setAchievementsTab] = useState<'general' | 'contacts'>('general');
   const [budgetAlertDismissed, setBudgetAlertDismissed] = useState(false);
-  const [androidNoticeDismissed, setAndroidNoticeDismissed] = useState(false);
   const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const [syncingPhone, setSyncingPhone] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(quickActionsOpen);
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
@@ -310,7 +310,7 @@ export const CallsTab = memo(function CallsTab({
   );
 
   const visible = useMemo(() => {
-    const searched = filterCalls(calls, query);
+    const searched = filterCalls(calls, query, contacts);
     return searched.filter((call) => {
       if (dirFilter === 'unreturned') {
         if (!unreturnedIds.has(call.id)) return false;
@@ -321,7 +321,7 @@ export const CallsTab = memo(function CallsTab({
       if (tagFilter !== 'all' && resolveCallTag(call) !== tagFilter) return false;
       return true;
     });
-  }, [calls, query, dirFilter, simFilter, tagFilter, unreturnedIds, resolveCallTag]);
+  }, [calls, contacts, query, dirFilter, simFilter, tagFilter, unreturnedIds, resolveCallTag]);
 
   const activeFilterCount =
     (dirFilter !== 'all' ? 1 : 0) +
@@ -504,15 +504,24 @@ export const CallsTab = memo(function CallsTab({
     upcomingEvents.length +
     (upcomingHoliday ? 1 : 0);
 
-  const categories: Array<CategoryItem<CallsCategory>> = useMemo(
+  const categoryDropdownOptions = useMemo(
     () => [
-      { key: 'log', label: 'All Calls', icon: Phone, count: calls.length },
-      { key: 'action', label: 'Follow-up', icon: Bell, count: actionNeededCount },
-      { key: 'vip', label: 'VIP', icon: Star, count: vipContactsList.length },
-      { key: 'tools', label: 'Tools', icon: Zap },
+      { value: 'log', label: 'All calls', count: calls.length },
+      { value: 'action', label: 'Follow-ups', count: actionNeededCount },
+      { value: 'vip', label: 'VIP', count: vipContactsList.length },
+      { value: 'tools', label: 'Tools' },
     ],
     [calls.length, actionNeededCount, vipContactsList.length],
   );
+
+  const activeCategoryIcon =
+    activeCategory === 'action'
+      ? Bell
+      : activeCategory === 'vip'
+        ? Star
+        : activeCategory === 'tools'
+          ? Zap
+          : Phone;
 
   const activeMeta = CALLS_META[activeCategory];
 
@@ -669,15 +678,28 @@ export const CallsTab = memo(function CallsTab({
       })()}
 
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-[#08246B] dark:text-white">Calls</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl font-bold text-[#08246B] dark:text-white">Calls</h1>
+              <CustomSelect
+                value={activeCategory}
+                options={categoryDropdownOptions}
+                onChange={(v) => {
+                  triggerHaptic('tap');
+                  setActiveCategory(v as CallsCategory);
+                }}
+                ariaLabel="Calls view filter"
+                icon={activeCategoryIcon}
+                compact
+              />
+            </div>
             <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
               {activeMeta.description} · {formatEthiopianShort(new Date())} EC
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {canSyncPhoneCalls && (
               <button
                 type="button"
@@ -686,10 +708,10 @@ export const CallsTab = memo(function CallsTab({
                   setSyncingPhone(true);
                   void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
                 }}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                className="min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
               >
                 <RefreshCw
-                  size={15}
+                  size={14}
                   className={syncingPhone ? 'animate-spin text-[#FF6A00]' : 'text-[#FF6A00]'}
                 />
                 {syncingPhone ? 'Syncing...' : 'Sync Phone'}
@@ -698,82 +720,144 @@ export const CallsTab = memo(function CallsTab({
             <button
               type="button"
               onClick={triggerCallImport}
-              className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              className="min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
             >
-              <Upload size={15} />
+              <Upload size={14} />
               Import
             </button>
           </div>
         </div>
-
-        <CategoryTabs
-          items={categories}
-          activeKey={activeCategory}
-          onChange={setActiveCategory}
-          ariaLabel="Calls categories"
-        />
       </div>
 
       <CategoryPanel activeKey={activeCategory} label={activeMeta.title}>
         <div className="flex items-center justify-between gap-2 px-1">
-          <h2 className="text-sm font-bold text-[#08246B] dark:text-white">
+          <h2 className="text-sm font-bold text-[#08246B] dark:text-white truncate">
             {activeMeta.title}
           </h2>
+
+          {activeCategory === 'log' && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setSearchOpen((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      window.setTimeout(() => searchInputRef.current?.focus(), 60);
+                    }
+                    return next;
+                  });
+                }}
+                aria-expanded={searchOpen || Boolean(query)}
+                aria-label="Search phone numbers, names, and tags"
+                title="Search phone no., names & tags"
+                className={`min-h-[38px] min-w-[38px] px-2.5 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-semibold transition-colors ${
+                  searchOpen || query.trim().length > 0
+                    ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#FF6A00]'
+                    : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
+                }`}
+              >
+                <Search size={15} className="shrink-0" />
+              </button>
+
+              {calls.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('tap');
+                    setFiltersOpen((prev) => !prev);
+                  }}
+                  aria-expanded={filtersOpen}
+                  aria-controls="calls-filter-drawer"
+                  className={`min-h-[38px] px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                    filtersOpen || activeFilterCount > 0
+                      ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#FF6A00]'
+                      : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
+                  }`}
+                >
+                  <ListFilter size={15} className="shrink-0" />
+                  <span>Filter</span>
+                  {activeFilterCount > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF6A00] text-white text-[11px] font-mono font-bold tabular-nums flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
         </div>
         {activeCategory === 'log' && (
           <div className="space-y-3.5">
-            {/* Option B: Slim always-visible Search + Collapsible Filter Toggle */}
             <div className="space-y-2.5">
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 min-w-0">
-                  <Search
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8A93A0] dark:text-[var(--dark-text-muted)] pointer-events-none"
-                  />
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search name, number, note or tag"
-                    className="w-full min-h-[44px] pl-10 pr-10 py-2 rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] dark:placeholder:text-[var(--dark-text-muted)] focus:outline-none focus:border-[#FF6A00] transition-colors"
-                  />
-                  {query && (
-                    <button
-                      type="button"
-                      onClick={() => setQuery('')}
-                      aria-label="Clear search"
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[40px] min-w-[40px] flex items-center justify-center text-[#8A93A0] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
-                </div>
-
-                {calls.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHaptic('tap');
-                      setFiltersOpen((prev) => !prev);
+              {/* Expandable Search Bar (toggled from corner Search icon) */}
+              <AnimatePresence initial={false}>
+                {(searchOpen || query.trim().length > 0) && (
+                  <motion.div
+                    key="calls-expandable-search"
+                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0, y: -4 }}
+                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto', y: 0 }}
+                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0, y: -4 }}
+                    transition={{
+                      duration: prefersReducedMotion ? 0.1 : 0.18,
+                      ease: [0.22, 1, 0.36, 1],
                     }}
-                    aria-expanded={filtersOpen}
-                    aria-controls="calls-filter-drawer"
-                    className={`min-h-[44px] px-3.5 rounded-2xl border text-xs font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors ${
-                      filtersOpen || activeFilterCount > 0
-                        ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#FF6A00]'
-                        : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
-                    }`}
+                    className="overflow-hidden"
                   >
-                    <ListFilter size={16} className="shrink-0" />
-                    <span>Filter</span>
-                    {activeFilterCount > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#FF6A00] text-white text-[11px] font-mono font-bold tabular-nums flex items-center justify-center">
-                        {activeFilterCount}
-                      </span>
-                    )}
-                  </button>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <div className="relative flex-1 min-w-0">
+                        <Search
+                          size={16}
+                          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#FF6A00] pointer-events-none"
+                        />
+                        <input
+                          ref={searchInputRef}
+                          type="search"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              if (query) {
+                                setQuery('');
+                              } else {
+                                setSearchOpen(false);
+                              }
+                            }
+                          }}
+                          placeholder="Search phone no., names, or tags..."
+                          className="w-full min-h-[44px] pl-10 pr-10 py-2 rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#FF6A00]/60 dark:border-[#FF6A00]/50 text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] dark:placeholder:text-[var(--dark-text-muted)] focus:outline-none focus:border-[#FF6A00] transition-colors"
+                        />
+                        {query && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuery('');
+                              searchInputRef.current?.focus();
+                            }}
+                            aria-label="Clear search text"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[38px] min-w-[38px] flex items-center justify-center text-[#8A93A0] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white"
+                          >
+                            <X size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuery('');
+                          setSearchOpen(false);
+                        }}
+                        aria-label="Close search"
+                        className="min-h-[44px] px-3 rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white whitespace-nowrap shrink-0 transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </motion.div>
                 )}
-              </div>
+              </AnimatePresence>
 
               {/* Active Filter Summary Chips (1-tap clear even when drawer is closed) */}
               {calls.length > 0 && activeFilterCount > 0 && (
@@ -957,37 +1041,6 @@ export const CallsTab = memo(function CallsTab({
                 )}
               </AnimatePresence>
             </div>
-
-            {!canSyncPhoneCalls && calls.length > 0 && !androidNoticeDismissed && (
-              <div className="rounded-2xl bg-[#EEF2F6]/80 dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
-                <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                  <Smartphone size={16} className="text-[#FF6A00] mt-0.5 shrink-0" />
-                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    <span className="font-semibold text-[#08246B] dark:text-white">
-                      Android-only auto-sync:
-                    </span>{' '}
-                    Automatic call-log fetching works on Android only. Use CSV, JSON, or TXT import on Web and iOS.
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={triggerCallImport}
-                    className="min-h-[34px] px-3 rounded-lg bg-white dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] whitespace-nowrap"
-                  >
-                    Import File
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAndroidNoticeDismissed(true)}
-                    aria-label="Dismiss Android sync notice"
-                    className="min-h-[34px] min-w-[34px] rounded-lg text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-white/70 dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              </div>
-            )}
 
             {calls.length === 0 ? (
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-8 text-center space-y-4">

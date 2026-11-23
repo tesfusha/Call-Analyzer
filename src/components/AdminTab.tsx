@@ -168,6 +168,7 @@ export function AdminTab() {
   const [users, setUsers] = useState<RegisteredUserRecord[]>([]);
   const [dailyActive, setDailyActive] = useState<DailyActiveRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [periodFilter, setPeriodFilter] = useState<UserPeriodFilter>('all');
   const [sortBy, setSortBy] = useState<UserSortKey>('newest');
@@ -175,15 +176,28 @@ export function AdminTab() {
   const loadAdminData = useCallback(async () => {
     if (!isAdmin) return;
     setLoading(true);
+    setLoadError(null);
     try {
-      const [userList, activeList] = await Promise.all([
+      const [usersRes, activeRes] = await Promise.allSettled([
         fetchRegisteredUsers(),
         fetchDailyActiveRecords(),
       ]);
-      setUsers(userList);
-      setDailyActive(activeList);
+      if (usersRes.status === 'fulfilled') {
+        setUsers(usersRes.value);
+      }
+      if (activeRes.status === 'fulfilled') {
+        setDailyActive(activeRes.value);
+      }
+      if (usersRes.status === 'rejected' || activeRes.status === 'rejected') {
+        const msg =
+          'Could not load full admin analytics. Check your connection and Firestore permissions, then tap Refresh.';
+        setLoadError(msg);
+        showNotice('Could not load admin analytics right now.');
+      }
     } catch {
-      showNotice('Could not load admin analytics right now.');
+      const msg = 'Could not load admin analytics right now.';
+      setLoadError(msg);
+      showNotice(msg);
     } finally {
       setLoading(false);
     }
@@ -306,6 +320,20 @@ export function AdminTab() {
           Privacy enforced: Active client counts come from minimal daily open pings (UID + date only) and registered totals from the account registry. No call logs, phone numbers, or contact names are stored in the cloud.
         </span>
       </div>
+
+      {loadError && (
+        <div className="rounded-2xl bg-[#FEF2F2] dark:bg-[#EF4444]/10 border border-[#EF4444]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#B91C1C] dark:text-[#FCA5A5]">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void loadAdminData()}
+            className="min-h-[32px] px-3 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] disabled:opacity-50 text-white font-semibold whitespace-nowrap transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <CategoryPanel activeKey={activeCategory} label={activeMeta.label}>
         <div className="flex items-center justify-between gap-2 px-1">

@@ -30,12 +30,20 @@ import {
   deleteField,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
+
+const BOOTSTRAPPED_ADMIN_EMAILS = new Set(['tesfutilahun33@gmail.com']);
+
+function isBootstrappedAdminUser(user: User | null | undefined): boolean {
+  if (!user || !user.emailVerified || !user.email) return false;
+  return BOOTSTRAPPED_ADMIN_EMAILS.has(user.email.trim().toLowerCase());
+}
 import {
   type NotificationActionEvent,
   type NotificationMeta,
@@ -1020,6 +1028,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const isGuestRef = useRef<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const isAdminRef = useRef<boolean>(false);
+  const updateAdminState = useCallback((next: boolean) => {
+    isAdminRef.current = next;
+    setIsAdmin(next);
+  }, []);
   const [verifyRefreshKey, setVerifyRefreshKey] = useState<number>(0);
   const [userPhone, setUserPhone] = useState<string | null>(null);
   const accountMetaRef = useRef<{
@@ -1532,7 +1544,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     hydratedUidRef.current = null;
     setHydratedUid(null);
     workspaceReadyRef.current = null;
-    setIsAdmin(false);
+    updateAdminState(false);
     setPinLockoutUntil(0);
     accountMetaRef.current = {
       phone: null,
@@ -1637,7 +1649,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         hydratedUidRef.current = null;
         setHydratedUid(null);
         workspaceReadyRef.current = null;
-        setIsAdmin(false);
+        updateAdminState(false);
         setPinLockoutUntil(0);
         accountMetaRef.current = {
           phone: null,
@@ -1662,7 +1674,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         hydratedUidRef.current = null;
         setHydratedUid(null);
         workspaceReadyRef.current = null;
-        setIsAdmin(false);
+        updateAdminState(false);
         setPinLockoutUntil(0);
         setIsGuest(false);
         setAuthPromptMode('closed');
@@ -1675,9 +1687,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
 
       const uid = user.uid;
+      const bootstrappedAdmin = isBootstrappedAdminUser(user);
       hydratedUidRef.current = null;
       setHydratedUid(null);
-      setIsAdmin(false);
+      updateAdminState(bootstrappedAdmin);
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -1725,18 +1738,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       });
       workspaceReadyRef.current = { uid, promise: readyPromise };
 
-      // Check Firestore /admins/{uid} role doc without hardcoding admin emails
-      void getDoc(doc(db, 'admins', uid))
-        .then((adminSnap) => {
-          if (!cancelled && myRun === activeRun) {
-            setIsAdmin(adminSnap.exists());
-          }
-        })
-        .catch(() => {
-          if (!cancelled && myRun === activeRun) {
-            setIsAdmin(false);
-          }
-        });
+      // Recognize bootstrapped owner admin immediately and verify /admins/{uid} allowlist from server
+      if (!bootstrappedAdmin) {
+        const adminDocRef = doc(db, 'admins', uid);
+        void getDocFromServer(adminDocRef)
+          .catch(() => getDoc(adminDocRef))
+          .then((adminSnap) => {
+            if (!cancelled && myRun === activeRun) {
+              updateAdminState(adminSnap.exists());
+            }
+          })
+          .catch(() => {
+            if (!cancelled && myRun === activeRun) {
+              updateAdminState(false);
+            }
+          });
+      }
 
       let currentOp: OperationType = OperationType.GET;
       let currentPath = `users/${uid}`;
@@ -2574,7 +2591,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const fetchRegisteredUsers = useCallback(async (): Promise<RegisteredUserRecord[]> => {
     const user = auth.currentUser;
-    if (!user || !user.emailVerified || !isAdminRef.current) {
+    if (!user || !user.emailVerified || (!isAdminRef.current && !isBootstrappedAdminUser(user))) {
       return [];
     }
     const path = 'userRegistry';
@@ -2612,7 +2629,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const fetchDailyActiveRecords = useCallback(async (): Promise<DailyActiveRecord[]> => {
     const user = auth.currentUser;
-    if (!user || !user.emailVerified || !isAdminRef.current) {
+    if (!user || !user.emailVerified || (!isAdminRef.current && !isBootstrappedAdminUser(user))) {
       return [];
     }
     const path = 'dailyActive';
