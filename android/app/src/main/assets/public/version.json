@@ -1,7 +1,7 @@
 {
-  "versionCode": 4,
-  "versionName": "2.5.4",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.4.apk",
-  "notes": "Fixed Admin Insights access, added Calls category dropdown and corner expandable search (phone, names, tags), compacted Points History & Contact Streaks with Show more, and removed extra sync banner from Calls.",
+  "versionCode": 5,
+  "versionName": "2.5.5",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.5.apk",
+  "notes": "Added native Android AppNotifications plugin (enabling device alerts, scheduled callback alarms, interactive notification buttons) and optimized incremental call-log sync for 50,000+ call logs.",
   "mandatory": false
 }

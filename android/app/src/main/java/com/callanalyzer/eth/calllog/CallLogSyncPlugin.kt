@@ -306,7 +306,7 @@ class CallLogSyncPlugin : Plugin() {
     }
 
     companion object {
-        private const val DEFAULT_SYNC_PAGE_SIZE = 1000
+        private const val DEFAULT_SYNC_PAGE_SIZE = 2000
 
         @Volatile
         private var activeInstance: WeakReference<CallLogSyncPlugin>? = null

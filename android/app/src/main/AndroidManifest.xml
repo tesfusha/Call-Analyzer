@@ -43,6 +43,14 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <activity
+            android:name=".notifications.AppNotificationActionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver
             android:name=".calllog.PhoneStateReceiver"
             android:enabled="true"
@@ -59,6 +67,16 @@
 
         <receiver
             android:name=".calllog.MissedCallActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
+            android:name=".notifications.AppNotificationAlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
+            android:name=".notifications.AppNotificationActionReceiver"
             android:enabled="true"
             android:exported="false" />
 

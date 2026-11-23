@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.UserManager
+import com.callanalyzer.eth.notifications.AppNotificationDisplay
 import java.util.concurrent.Executors
 
 class BootCompletedReceiver : BroadcastReceiver() {
@@ -35,6 +36,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
             try {
                 CallLogSyncEngine.reschedulePendingAlarms(appContext)
                 CallLogSyncEngine.evaluateNewCalls(appContext)
+                AppNotificationDisplay.rescheduleAll(appContext)
             } catch (_: Exception) {
                 // Ignore boot-time transient errors; periodic worker remains active
             } finally {

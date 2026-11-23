@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '2.5.4';
-export const APP_VERSION_CODE = 4;
+export const APP_VERSION_NAME = '2.5.5';
+export const APP_VERSION_CODE = 5;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Admin Fix, Compact Streak Lists & Calls Dropdown Search';
+export const APP_RELEASE_LABEL = 'Native Android Notifications & 50K+ Call Log Sync';
 export const GUIDE_SEEN_KEY = 'callanalyzer.guideSeen.v1';
 export const WHATS_NEW_SEEN_KEY = 'callanalyzer.whatsNewVersion.v1';
 export const UPDATE_VERSION_URL = 'https://youthful-limiter-kjk7s.web.app/version.json';
@@ -14,27 +14,27 @@ export const APP_PRIVACY_NOTE =
 export const LATEST_RELEASE_NOTES = [
   {
     id: 'brand-launcher',
-    title: 'Admin Insights Restored',
+    title: 'Native Android Notifications Plugin',
     detail:
-      'Fixed Admin role recognition and Firestore permissions so Admin Insights and registered user totals load reliably.',
+      'Added native AppNotifications Android plugin with permission prompts, scheduled reminder alarms, interactive Call / +15m / Send Wish / Mute actions, and reboot persistence.',
   },
   {
     id: 'clean-call-logs',
-    title: 'Calls Filter Dropdown & Expandable Search',
+    title: 'High-Volume 50K+ Call Log Sync',
     detail:
-      'Switch between All calls, Follow-ups, VIP, and Tools from the Calls dropdown, and tap the corner search icon to search phone numbers, contact names, and tags.',
+      'Upgraded incremental Android CallLog pagination (2,000 entries per page, up to 2M+ capacity), streaming memory mapping, and live scan progress notices.',
   },
   {
     id: 'streak-counting',
-    title: 'Compact Points History & Contact Streaks',
+    title: 'Calls Filter Dropdown & Corner Search',
     detail:
-      'Points History and Contact Streaks now start with a concise summary list and Show more / Show all controls.',
+      'Switch between All calls, Follow-ups, VIP, and Tools from the Calls dropdown, and search phone numbers, contact names, and tags.',
   },
   {
     id: 'mobile-modals',
-    title: 'Cleaner Calls Screen & Android Sync Notice',
+    title: 'Compact Achievements & Streaks',
     detail:
-      'Removed the extra Android-only auto-sync banner from Calls while keeping it neatly organized inside Settings.',
+      'Points History and Contact Streaks start compact with Show more, Show all, and Show less controls.',
   },
 ] as const;
 

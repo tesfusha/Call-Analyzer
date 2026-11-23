@@ -2033,7 +2033,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (isNativeCapacitor()) {
         if (!hasNativeNotificationsPlugin()) {
           showNotice(
-            'Native notification plugin missing in APK. Add NotificationsPlugin.java to enable phone alerts.',
+            'Native AppNotifications plugin is missing in this APK build. Rebuild and install the latest APK to enable phone alerts.',
             'warning',
           );
           setNotificationPermission('unsupported');
@@ -2898,8 +2898,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           );
           const effectiveFullResync = fullResync || !hasFullHistorySynced;
 
+          let lastProgressNoticeAt = 0;
           const result = await syncNativeCallLogIncremental({
             fullResync: effectiveFullResync,
+            onProgress: (loadedCount, pageNum) => {
+              if (manual && pageNum >= 2 && loadedCount - lastProgressNoticeAt >= 10_000) {
+                lastProgressNoticeAt = loadedCount;
+                showNotice(
+                  `Syncing phone call logs… ${loadedCount.toLocaleString()} scanned so far`,
+                  'tap',
+                );
+              }
+            },
           });
           let counts: ImportCounts = { added: 0, duplicates: 0, merged: 0 };
           if (result.calls.length > 0) {

@@ -30,7 +30,7 @@ object CallLogSyncEngine {
                 return 0
             }
 
-            val newCalls = CallLogReader.queryCallsAfterId(context, afterId = lastEvalId)
+            val newCalls = CallLogReader.queryCallsAfterId(context, afterId = lastEvalId, limit = 500)
             if (newCalls.isEmpty()) return 0
 
             val nowMs = System.currentTimeMillis()
@@ -78,7 +78,7 @@ object CallLogSyncEngine {
 
     fun checkIfMissedCallReturned(context: Context, alarm: PendingMissedAlarm): Boolean {
         if (!CallLogReader.hasReadCallLogPermission(context)) return false
-        val recent = CallLogReader.queryCallsAfterId(context, afterId = alarm.callId)
+        val recent = CallLogReader.queryCallsAfterId(context, afterId = alarm.callId, limit = 500)
         return recent.any { call ->
             call.direction == "outgoing" &&
                 call.normalizedNumber == alarm.normalizedNumber &&

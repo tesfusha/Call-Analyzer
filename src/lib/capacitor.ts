@@ -359,24 +359,34 @@ export async function syncNativeCallLogIncremental(opts?: {
   sinceId?: number;
   fullResync?: boolean;
   pageSize?: number;
+  maxPages?: number;
+  onProgress?: (loadedCount: number, page: number) => void;
 }): Promise<{
   calls: CallRecord[];
   returnedCallIds: string[];
   lastWebSyncedId: number;
   maxCallId: number;
+  reachedPageCap: boolean;
 }> {
   const plugin = getCapacitor()?.Plugins?.CallLogSync;
   if (!plugin || typeof plugin.syncCallLog !== 'function') {
-    return { calls: [], returnedCallIds: [], lastWebSyncedId: 0, maxCallId: 0 };
+    return {
+      calls: [],
+      returnedCallIds: [],
+      lastWebSyncedId: 0,
+      maxCallId: 0,
+      reachedPageCap: false,
+    };
   }
 
-  const pageSize = Math.max(200, Math.min(5000, Math.round(opts?.pageSize ?? 1000)));
-  const maxPages = 500; // Up to 500,000 call logs without hitting WebView IPC limits
-  const allRawEntries: NativeCallLogEntry[] = [];
+  const pageSize = Math.max(200, Math.min(5000, Math.round(opts?.pageSize ?? 2000)));
+  const maxPages = Math.max(50, Math.min(2000, Math.round(opts?.maxPages ?? 1000))); // Up to 2,000,000+ call logs
+  const allCalls: CallRecord[] = [];
   const returnedIdSet = new Set<string>();
   let firstLastWebSyncedId = 0;
   let highestCallId = 0;
   let cursorBeforeId: number | undefined;
+  let reachedPageCap = false;
 
   for (let page = 0; page < maxPages; page += 1) {
     const res = await plugin.syncCallLog({
@@ -395,14 +405,18 @@ export async function syncNativeCallLogIncremental(opts?: {
     }
 
     if (Array.isArray(res?.returnedCallIds)) {
-      res.returnedCallIds.forEach((id) => {
-        const clean = String(id).trim();
+      for (let i = 0; i < res.returnedCallIds.length; i += 1) {
+        const clean = String(res.returnedCallIds[i]).trim();
         if (clean) returnedIdSet.add(clean);
-      });
+      }
     }
 
     if (rawList.length > 0) {
-      allRawEntries.push(...rawList);
+      const mapped = mapNativeCallEntries(rawList);
+      for (let i = 0; i < mapped.length; i += 1) {
+        allCalls.push(mapped[i]);
+      }
+      opts?.onProgress?.(allCalls.length, page + 1);
     }
 
     const hasMore = Boolean(res?.hasMore);
@@ -413,14 +427,18 @@ export async function syncNativeCallLogIncremental(opts?: {
     if (typeof cursorBeforeId === 'number' && minCallId >= cursorBeforeId) {
       break;
     }
+    if (page === maxPages - 1) {
+      reachedPageCap = true;
+    }
     cursorBeforeId = minCallId;
   }
 
   return {
-    calls: mapNativeCallEntries(allRawEntries),
+    calls: allCalls,
     returnedCallIds: Array.from(returnedIdSet),
     lastWebSyncedId: firstLastWebSyncedId,
     maxCallId: highestCallId,
+    reachedPageCap,
   };
 }
 
