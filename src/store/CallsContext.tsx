@@ -28,6 +28,7 @@ import {
   Timestamp,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -90,7 +91,16 @@ import {
 } from '@/src/lib/firebase';
 import { buildSampleCalls, makeCallId } from '@/src/lib/import';
 import { isWithinQuietHours, quietContacts, quietMessage } from '@/src/lib/reminders';
-import { hashPin, verifyPin } from '@/src/lib/security';
+import {
+  clearPinLockoutState,
+  formatDisplayNameOrPhone,
+  getPinLockoutDelayMs,
+  hashPin,
+  maskPhoneNumber,
+  readPinLockoutState,
+  verifyPin,
+  writePinLockoutState,
+} from '@/src/lib/security';
 import { triggerHaptic, type HapticKind } from '@/src/lib/haptics';
 import type {
   AuthProviderType,
@@ -114,7 +124,6 @@ const LEGACY_THEME_KEY = 'callanalyzer.theme.v2';
 const LEGACY_PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
 const FONT_SCALE_KEY = 'callanalyzer.fontSize.v1';
 const CUSTOM_TAGS_KEY = 'callanalyzer.customTags.v1';
-const ADMIN_EMAIL = 'tesfutilahun33@gmail.com';
 
 const LEGACY_UNSCOPED_KEYS = [
   'callanalyzer.calls.v1',
@@ -151,6 +160,7 @@ const SCOPED_SUFFIXES = [
   'notifications',
   'privacyMode',
   'pinHash',
+  'pinLockout',
   'welcomeDismissed',
   'pendingRegistration',
 ] as const;
@@ -171,7 +181,6 @@ export type CreateAccountInput = {
   phone: string;
   password: string;
   confirmPassword: string;
-  passwordHint: string;
   agreedToTerms: boolean;
 };
 
@@ -182,7 +191,6 @@ export type AuthActionResult = {
 
 type PendingRegistration = {
   phone: string;
-  passwordHint: string;
   termsAccepted: boolean;
   termsAcceptedAt: number;
 };
@@ -257,7 +265,6 @@ export type ChangePasswordInput = {
   currentPassword: string;
   newPassword: string;
   confirmPassword: string;
-  passwordHint?: string;
 };
 
 export type NotificationActionTarget = {
@@ -294,13 +301,13 @@ type CallsContextValue = {
   privacyMode: boolean;
   pinEnabled: boolean;
   isLocked: boolean;
+  pinLockoutUntil: number;
   authUser: User | null;
   authLoading: boolean;
   isGuest: boolean;
   needsEmailVerification: boolean;
   authProvider: AuthProviderType | null;
   userPhone: string | null;
-  passwordHint: string | null;
   notificationActionTarget: NotificationActionTarget | null;
   clearNotificationActionTarget: () => void;
   authPromptMode: AuthPromptMode;
@@ -760,6 +767,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [privacyMode, setPrivacyModeState] = useState<boolean>(false);
   const [pinHash, setPinHash] = useState<string>('');
   const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [pinLockoutUntil, setPinLockoutUntil] = useState<number>(0);
   const [notificationActionTarget, setNotificationActionTarget] =
     useState<NotificationActionTarget | null>(null);
   const clearNotificationActionTarget = useCallback(() => {
@@ -770,19 +778,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isGuest, setIsGuest] = useState<boolean>(false);
   const isGuestRef = useRef<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const isAdminRef = useRef<boolean>(false);
   const [verifyRefreshKey, setVerifyRefreshKey] = useState<number>(0);
   const [userPhone, setUserPhone] = useState<string | null>(null);
-  const [passwordHint, setPasswordHint] = useState<string | null>(null);
   const accountMetaRef = useRef<{
     phone: string | null;
     photoURL: string | null;
-    passwordHint: string | null;
     termsAccepted: boolean | null;
     termsAcceptedAt: number | null;
   }>({
     phone: null,
     photoURL: null,
-    passwordHint: null,
     termsAccepted: null,
     termsAcceptedAt: null,
   });
@@ -799,6 +806,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     isGuestRef.current = isGuest;
   }, [isGuest]);
+
+  useEffect(() => {
+    isAdminRef.current = isAdmin;
+  }, [isAdmin]);
 
   // Refs to read latest local state inside auth bootstrap & action writers
   const stateRef = useRef({
@@ -1086,7 +1097,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         profileName: string;
         phone: string | null;
         photoURL: string | null;
-        passwordHint: string | null;
         termsAccepted: boolean;
         termsAcceptedAt: number | null;
         notificationsEnabled: boolean;
@@ -1108,8 +1118,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         overrides?.photoURL !== undefined
           ? overrides.photoURL
           : meta.photoURL ?? s.userPhotoUrl ?? user.photoURL ?? null;
-      const nextHint =
-        overrides?.passwordHint !== undefined ? overrides.passwordHint : meta.passwordHint;
       const nextTermsAccepted =
         overrides?.termsAccepted !== undefined ? overrides.termsAccepted : meta.termsAccepted;
       const nextTermsAcceptedAt =
@@ -1129,7 +1137,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           email: clampStr(user.email || '', 254),
           ...(nextPhone !== null ? { phone: clampStr(nextPhone, 40) } : {}),
           ...(nextPhotoURL !== null ? { photoURL: clampStr(nextPhotoURL, 500) } : {}),
-          ...(nextHint !== null ? { passwordHint: clampStr(nextHint, 120) } : {}),
           ...(typeof nextTermsAccepted === 'boolean' ? { termsAccepted: nextTermsAccepted } : {}),
           ...(typeof nextTermsAcceptedAt === 'number'
             ? { termsAcceptedAt: Math.max(0, Math.round(nextTermsAcceptedAt)) }
@@ -1201,15 +1208,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     hydratedUidRef.current = null;
     setHydratedUid(null);
     workspaceReadyRef.current = null;
+    setIsAdmin(false);
+    setPinLockoutUntil(0);
     accountMetaRef.current = {
       phone: null,
       photoURL: null,
-      passwordHint: null,
       termsAccepted: null,
       termsAcceptedAt: null,
     };
     setUserPhone(null);
-    setPasswordHint(null);
 
     const sampleCalls = buildSampleCalls();
     const sampleProfiles = buildSampleContactProfiles();
@@ -1315,15 +1322,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         hydratedUidRef.current = null;
         setHydratedUid(null);
         workspaceReadyRef.current = null;
+        setIsAdmin(false);
+        setPinLockoutUntil(0);
         accountMetaRef.current = {
           phone: null,
           photoURL: null,
-          passwordHint: null,
           termsAccepted: null,
           termsAcceptedAt: null,
         };
         setUserPhone(null);
-        setPasswordHint(null);
         setUserPhotoUrlState(null);
         if (!isGuestRef.current) {
           applySnapshotToState(createEmptySnapshot());
@@ -1340,6 +1347,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         hydratedUidRef.current = null;
         setHydratedUid(null);
         workspaceReadyRef.current = null;
+        setIsAdmin(false);
+        setPinLockoutUntil(0);
         setIsGuest(false);
         setAuthPromptMode('closed');
         setAuthPromptReason(null);
@@ -1353,6 +1362,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const uid = user.uid;
       hydratedUidRef.current = null;
       setHydratedUid(null);
+      setIsAdmin(false);
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -1362,6 +1372,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       applySnapshotToState(createEmptySnapshot());
       const scoped = readScopedUserState(uid);
       applySnapshotToState(scoped);
+      const storedLockout = readPinLockoutState(userStorageKey(uid, 'pinLockout'));
+      setPinLockoutUntil(storedLockout.lockUntil > Date.now() ? storedLockout.lockUntil : 0);
       const pendingReg = readJson<PendingRegistration | null>(
         userStorageKey(uid, 'pendingRegistration'),
         null,
@@ -1369,12 +1381,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       accountMetaRef.current = {
         phone: pendingReg?.phone ?? null,
         photoURL: user.photoURL ?? scoped.userPhotoUrl ?? null,
-        passwordHint: pendingReg?.passwordHint ?? null,
         termsAccepted: pendingReg ? pendingReg.termsAccepted : null,
         termsAcceptedAt: pendingReg ? pendingReg.termsAcceptedAt : null,
       };
       setUserPhone(pendingReg?.phone ?? null);
-      setPasswordHint(pendingReg?.passwordHint ?? null);
       setUserPhotoUrlState(user.photoURL ?? scoped.userPhotoUrl ?? null);
 
       hydratedUidRef.current = uid;
@@ -1388,6 +1398,19 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         resolveWorkspaceReady = resolve;
       });
       workspaceReadyRef.current = { uid, promise: readyPromise };
+
+      // Check Firestore /admins/{uid} role doc without hardcoding admin emails
+      void getDoc(doc(db, 'admins', uid))
+        .then((adminSnap) => {
+          if (!cancelled && myRun === activeRun) {
+            setIsAdmin(adminSnap.exists());
+          }
+        })
+        .catch(() => {
+          if (!cancelled && myRun === activeRun) {
+            setIsAdmin(false);
+          }
+        });
 
       let currentOp: OperationType = OperationType.GET;
       let currentPath = `users/${uid}`;
@@ -1410,7 +1433,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             ...(pendingReg
               ? {
                   phone: pendingReg.phone,
-                  passwordHint: pendingReg.passwordHint,
                   termsAccepted: pendingReg.termsAccepted,
                   termsAcceptedAt: pendingReg.termsAcceptedAt,
                 }
@@ -1495,27 +1517,21 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             typeof data.photoURL === 'string' && data.photoURL.trim()
               ? data.photoURL.trim()
               : user.photoURL ?? local.userPhotoUrl ?? null;
-          const resolvedHint =
-            pendingReg?.passwordHint ??
-            (typeof data.passwordHint === 'string' && data.passwordHint.trim()
-              ? data.passwordHint
-              : null);
           const resolvedTerms =
             pendingReg?.termsAccepted ??
             (typeof data.termsAccepted === 'boolean' ? data.termsAccepted : null);
           const resolvedTermsAt =
             pendingReg?.termsAcceptedAt ??
             (typeof data.termsAcceptedAt === 'number' ? data.termsAcceptedAt : null);
+          const hasLegacyHintField = Object.prototype.hasOwnProperty.call(data, 'passwordHint');
 
           accountMetaRef.current = {
             phone: resolvedPhone,
             photoURL: resolvedPhotoURL,
-            passwordHint: resolvedHint,
             termsAccepted: resolvedTerms,
             termsAcceptedAt: resolvedTermsAt,
           };
           setUserPhone(resolvedPhone);
-          setPasswordHint(resolvedHint);
           setUserPhotoUrlState(resolvedPhotoURL);
 
           if (themePreferenceRef.current !== 'system') {
@@ -1535,6 +1551,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
           if (
             Boolean(pendingReg) ||
+            hasLegacyHintField ||
             mergedFavs.length !== ((data.favorites as string[] | undefined)?.length ?? 0) ||
             mergedDismissed.length !==
               ((data.dismissedMissedIds as string[] | undefined)?.length ?? 0) ||
@@ -1542,12 +1559,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           ) {
             currentOp = OperationType.UPDATE;
             currentPath = `users/${uid}`;
+            if (hasLegacyHintField) {
+              await updateDoc(userDocRef, {
+                passwordHint: deleteField(),
+                syncedAt: serverTimestamp(),
+              }).catch(() => {});
+            }
             await persistWorkspaceToCloud(user, {
               theme: nextTheme,
               profileName: nextName,
               phone: resolvedPhone,
               photoURL: resolvedPhotoURL,
-              passwordHint: resolvedHint,
               ...(typeof resolvedTerms === 'boolean' ? { termsAccepted: resolvedTerms } : {}),
               termsAcceptedAt: resolvedTermsAt,
               notificationsEnabled: nextNotifs,
@@ -1666,10 +1688,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             if (typeof data.photoURL === 'string') {
               accountMetaRef.current.photoURL = data.photoURL;
               setUserPhotoUrlState(data.photoURL);
-            }
-            if (typeof data.passwordHint === 'string') {
-              accountMetaRef.current.passwordHint = data.passwordHint;
-              setPasswordHint(data.passwordHint);
             }
             if (typeof data.termsAccepted === 'boolean') {
               accountMetaRef.current.termsAccepted = data.termsAccepted;
@@ -2030,14 +2048,16 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       );
       if (!first) return;
 
-      const label = first.name?.trim() || first.number;
+      const privacy = stateRef.current.privacyMode;
+      const label = formatDisplayNameOrPhone(first.name, first.number, privacy);
+      const maskedNumber = maskPhoneNumber(first.number, privacy);
       showNotice(`Scheduled call reminder: ${label}`);
 
       if (notificationsEnabled && !isWithinQuietHours(reminderPrefs)) {
         void deliverSystemNotification(
           first.id,
           `Call reminder: ${label}`,
-          first.note?.trim() || `Scheduled call to ${first.number}`,
+          first.note?.trim() || `Scheduled call to ${maskedNumber}`,
           {
             category: 'schedule',
             number: first.number,
@@ -2130,10 +2150,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const idKey = `daily-quiet-${cKey}-${todayIso}`;
       if (!alreadySent.has(idKey)) {
         newlySent.push(idKey);
+        const privacy = stateRef.current.privacyMode;
+        const quietLabel = formatDisplayNameOrPhone(topQuiet.name, topQuiet.number, privacy);
         void deliverSystemNotification(
           idKey,
-          `Check in with ${topQuiet.name}`,
-          quietMessage(topQuiet),
+          `Check in with ${quietLabel}`,
+          quietMessage(topQuiet, privacy),
           {
             category: 'other',
             number: topQuiet.number,
@@ -2279,7 +2301,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     async (input: CreateAccountInput): Promise<AuthActionResult> => {
       const cleanEmail = input.email.trim();
       const cleanPhone = input.phone.trim();
-      const cleanHint = input.passwordHint.trim();
 
       if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
         return { ok: false, error: 'Enter a valid email address.' };
@@ -2293,12 +2314,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (input.password !== input.confirmPassword) {
         return { ok: false, error: 'Password and confirm password do not match.' };
       }
-      if (cleanHint.length < 2) {
-        return { ok: false, error: 'Enter a short password hint to help you remember.' };
-      }
-      if (cleanHint.toLowerCase() === input.password.toLowerCase()) {
-        return { ok: false, error: 'Password hint must not match your password.' };
-      }
       if (!input.agreedToTerms) {
         return {
           ok: false,
@@ -2310,7 +2325,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         const cred = await createUserWithEmailAndPassword(auth, cleanEmail, input.password);
         const pending: PendingRegistration = {
           phone: clampStr(cleanPhone, 40),
-          passwordHint: clampStr(cleanHint, 120),
           termsAccepted: true,
           termsAcceptedAt: Date.now(),
         };
@@ -2391,15 +2405,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       hydratedUidRef.current = null;
       setHydratedUid(null);
       workspaceReadyRef.current = null;
+      setIsAdmin(false);
+      setPinLockoutUntil(0);
       accountMetaRef.current = {
         phone: null,
         photoURL: null,
-        passwordHint: null,
         termsAccepted: null,
         termsAcceptedAt: null,
       };
       setUserPhone(null);
-      setPasswordHint(null);
       setUserPhotoUrlState(null);
       setIsGuest(false);
       setAuthPromptMode('closed');
@@ -2463,7 +2477,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const fetchRegisteredUsers = useCallback(async (): Promise<RegisteredUserRecord[]> => {
     const user = auth.currentUser;
-    if (!user || !user.emailVerified || user.email?.toLowerCase() !== ADMIN_EMAIL) {
+    if (!user || !user.emailVerified || !isAdminRef.current) {
       return [];
     }
     const path = 'userRegistry';
@@ -2508,11 +2522,21 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         showNotice('PIN must be exactly 4 digits.');
         return;
       }
-      const hashed = await hashPin(clean);
-      setPinHash(hashed);
-      writeJson(userStorageKey(user.uid, 'pinHash'), hashed);
-      setIsLocked(false);
-      showNotice('4-digit App Lock PIN saved.', 'success');
+      try {
+        const hashed = await hashPin(clean);
+        setPinHash(hashed);
+        writeJson(userStorageKey(user.uid, 'pinHash'), hashed);
+        clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
+        setPinLockoutUntil(0);
+        setIsLocked(false);
+        showNotice('4-digit screen lock PIN saved.', 'success');
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Web Crypto is unavailable here. Screen lock PIN cannot be enabled.';
+        showNotice(msg, 'warning');
+      }
     },
     [requireSignedInUser, showNotice],
   );
@@ -2520,34 +2544,55 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const clearAppPin = useCallback(() => {
     const user = auth.currentUser;
     setPinHash('');
+    setPinLockoutUntil(0);
     if (user) {
       writeJson(userStorageKey(user.uid, 'pinHash'), '');
+      clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
+    } else {
+      clearPinLockoutState('callanalyzer.guest.pinLockout');
     }
     setIsLocked(false);
-    showNotice('App Lock PIN removed.', 'warning');
+    showNotice('Screen lock PIN removed.', 'warning');
   }, [showNotice]);
 
   const unlockWithPin = useCallback(
     async (pin: string): Promise<boolean> => {
-      if (!pinHash) {
-        setIsLocked(false);
-        return true;
+      const user = auth.currentUser;
+      const lockoutKey = user
+        ? userStorageKey(user.uid, 'pinLockout')
+        : 'callanalyzer.guest.pinLockout';
+      const lockout = readPinLockoutState(lockoutKey);
+      const now = Date.now();
+      if (lockout.lockUntil > now) {
+        setPinLockoutUntil(lockout.lockUntil);
+        triggerHaptic('warning');
+        return false;
       }
       const ok = await verifyPin(pin, pinHash);
       if (ok) {
+        clearPinLockoutState(lockoutKey);
+        setPinLockoutUntil(0);
         triggerHaptic('success');
         setIsLocked(false);
-      } else {
-        triggerHaptic('warning');
+        return true;
       }
-      return ok;
+      const nextAttempts = lockout.failedAttempts + 1;
+      const delay = getPinLockoutDelayMs(nextAttempts);
+      const nextLockUntil = delay > 0 ? Date.now() + delay : 0;
+      writePinLockoutState(lockoutKey, {
+        failedAttempts: nextAttempts,
+        lockUntil: nextLockUntil,
+      });
+      setPinLockoutUntil(nextLockUntil);
+      triggerHaptic('warning');
+      return false;
     },
     [pinHash],
   );
 
   const lockApp = useCallback(() => {
     if (!pinHash) {
-      showNotice('Set a 4-digit PIN first.');
+      showNotice('Set a 4-digit screen lock PIN first.');
       return;
     }
     triggerHaptic('tap');
@@ -2558,14 +2603,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     (enabled: boolean) => {
       if (isGuestRef.current && !auth.currentUser) {
         setPrivacyModeState(enabled);
-        showNotice(enabled ? 'Privacy mode on — private notes hidden.' : 'Privacy mode off.');
+        showNotice(
+          enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off.',
+        );
         return;
       }
       const user = requireSignedInUser();
       if (!user) return;
       setPrivacyModeState(enabled);
       void persistWorkspaceToCloud(user, { privacyMode: enabled });
-      showNotice(enabled ? 'Privacy mode on — private notes hidden.' : 'Privacy mode off.');
+      showNotice(
+        enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off.',
+      );
     },
     [persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
@@ -3251,6 +3300,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         void persistWorkspaceToCloud(user, { dismissedMissedArray: nextDismissed });
       }
 
+      const privacy = stateRef.current.privacyMode;
+      const notifyLabel = formatDisplayNameOrPhone(resolvedName, number, privacy);
+      const notifyNum = maskPhoneNumber(number, privacy);
+
       if (
         notificationsEnabled &&
         !isWithinQuietHours(reminderPrefs) &&
@@ -3259,8 +3312,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       ) {
         void scheduleNativeNotification(
           item.id,
-          `Call reminder: ${resolvedName || number}`,
-          item.note || `Scheduled call to ${number}`,
+          `Call reminder: ${notifyLabel}`,
+          item.note || `Scheduled call to ${notifyNum}`,
           item.scheduledFor,
           {
             category: 'schedule',
@@ -3272,7 +3325,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      showNotice(`Scheduled call with ${resolvedName || number}.`, 'success');
+      showNotice(`Scheduled call with ${notifyLabel}.`, 'success');
       return item;
     },
     [
@@ -3361,10 +3414,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         isNativeCapacitor() &&
         hasNativeNotificationsPlugin()
       ) {
+        const privacy = stateRef.current.privacyMode;
+        const snoozeLabel = formatDisplayNameOrPhone(updatedItem.name, updatedItem.number, privacy);
+        const snoozeNum = maskPhoneNumber(updatedItem.number, privacy);
         void scheduleNativeNotification(
           id,
-          `Call reminder: ${updatedItem.name?.trim() || updatedItem.number}`,
-          updatedItem.note || `Scheduled call to ${updatedItem.number}`,
+          `Call reminder: ${snoozeLabel}`,
+          updatedItem.note || `Scheduled call to ${snoozeNum}`,
           nextTime,
           {
             category: 'schedule',
@@ -3544,15 +3600,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         const cred = EmailAuthProvider.credential(user.email, input.currentPassword);
         await reauthenticateWithCredential(user, cred);
         await updatePassword(user, input.newPassword);
-
-        const nextHint = input.passwordHint?.trim()
-          ? clampStr(input.passwordHint.trim(), 120)
-          : accountMetaRef.current.passwordHint;
-        if (nextHint) {
-          accountMetaRef.current.passwordHint = nextHint;
-          setPasswordHint(nextHint);
-          await persistWorkspaceToCloud(user, { passwordHint: nextHint });
-        }
         showNotice('Password updated successfully.', 'success');
         return { ok: true };
       } catch (error) {
@@ -3572,7 +3619,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   // Listen to native notification action button taps (Call, +15m, Snooze, Wish, Remind later, View, Clear, Mute)
@@ -3829,9 +3876,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     () => (authUser ? detectAuthProvider(authUser) : null),
     [authUser],
   );
-  const isAdmin = Boolean(
-    authUser?.emailVerified && authUser.email?.toLowerCase() === ADMIN_EMAIL,
-  );
 
   const value = useMemo<CallsContextValue>(
     () => ({
@@ -3862,13 +3906,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       privacyMode,
       pinEnabled,
       isLocked,
+      pinLockoutUntil,
       authUser,
       authLoading,
       isGuest,
       needsEmailVerification,
       authProvider,
       userPhone,
-      passwordHint,
       notificationActionTarget,
       clearNotificationActionTarget,
       authPromptMode,
@@ -3958,13 +4002,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       privacyMode,
       pinEnabled,
       isLocked,
+      pinLockoutUntil,
       authUser,
       authLoading,
       isGuest,
       needsEmailVerification,
       authProvider,
       userPhone,
-      passwordHint,
       notificationActionTarget,
       clearNotificationActionTarget,
       authPromptMode,

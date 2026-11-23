@@ -22,7 +22,7 @@ import {
 } from '@/src/lib/ethiopianCalendar';
 import { dayKey, formatDuration, formatTime } from '@/src/lib/format';
 import { formatScheduledCountdown } from '@/src/lib/schedule';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
 import type { CallRecord, ScheduledCall } from '@/src/types/call';
 
@@ -515,7 +515,7 @@ export function EthiopianCalendarView({
                         <div className="flex items-center gap-2 min-w-0">
                           <Clock size={14} className="text-[#10B981] shrink-0" />
                           <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                            {item.name?.trim() || maskPhoneNumber(item.number, privacyMode)}
+                            {formatDisplayNameOrPhone(item.name, item.number, privacyMode)}
                           </span>
                         </div>
                         <span className="text-[11px] font-mono text-[#FF6A00] tabular-nums shrink-0">
@@ -547,7 +547,7 @@ export function EthiopianCalendarView({
                       >
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                            {c.name?.trim() || maskPhoneNumber(c.number, privacyMode)}
+                            {formatDisplayNameOrPhone(c.name, c.number, privacyMode)}
                           </p>
                           <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] capitalize tabular-nums">
                             {c.direction} · {formatTime(c.timestamp)}

@@ -1,5 +1,6 @@
 import { estimateCallCostEtb, formatEtb, normaliseEthPhone, type TariffConfig } from '@/src/lib/ethiopia';
 import { formatDuration } from '@/src/lib/format';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { computeTotals, filterByRange, topByDuration } from '@/src/lib/stats';
 import type { CallRecord } from '@/src/types/call';
 
@@ -111,10 +112,11 @@ export function isWithinQuietHours(
   return hour >= prefs.quietStartHour || hour < prefs.quietEndHour;
 }
 
-export function quietMessage(contact: QuietContact): string {
+export function quietMessage(contact: QuietContact, privacyMode = false): string {
   const days = contact.daysSinceLast;
   const usually = contact.typicalIntervalDays;
-  return `It's been ${days} day${days === 1 ? '' : 's'} since you called ${contact.name} — you usually call every ${usually} day${usually === 1 ? '' : 's'}.`;
+  const displayName = formatDisplayNameOrPhone(contact.name, contact.number, privacyMode);
+  return `It's been ${days} day${days === 1 ? '' : 's'} since you called ${displayName} — you usually call every ${usually} day${usually === 1 ? '' : 's'}.`;
 }
 
 /**
@@ -176,6 +178,7 @@ export function buildPeriodReport(
   period: 'weekly' | 'monthly',
   tariffs?: TariffConfig,
   now: Date = new Date(),
+  privacyMode = false,
 ): PeriodReport {
   const slice = filterByRange(calls, period === 'weekly' ? '7d' : '30d', now);
   const totals = computeTotals(slice);
@@ -197,7 +200,7 @@ export function buildPeriodReport(
     totalDuration: totals.totalDuration,
     missedCount: totals.missedCount,
     spendEtb,
-    topContactName: top ? top.name : null,
+    topContactName: top ? formatDisplayNameOrPhone(top.name, top.number, privacyMode) : null,
   };
 }
 

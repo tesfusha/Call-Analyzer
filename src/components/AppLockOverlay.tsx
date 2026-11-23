@@ -2,18 +2,48 @@ import { useEffect, useState } from 'react';
 import { Delete, Lock } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
 
+function formatCountdown(totalSeconds: number): string {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  if (mins > 0) {
+    return `${mins}m ${String(secs).padStart(2, '0')}s`;
+  }
+  return `${secs}s`;
+}
+
 export function AppLockOverlay({
   onVerifyPin,
   onResetPin,
+  lockUntil = 0,
 }: {
   onVerifyPin: (pin: string) => Promise<boolean>;
   onResetPin: () => void;
+  lockUntil?: number;
 }) {
   const [digits, setDigits] = useState('');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const remainingSeconds =
+    lockUntil > nowMs ? Math.max(1, Math.ceil((lockUntil - nowMs) / 1000)) : 0;
+  const isLockedOut = remainingSeconds > 0;
+
+  useEffect(() => {
+    if (lockUntil <= Date.now()) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => {
+      const current = Date.now();
+      setNowMs(current);
+      if (current >= lockUntil) {
+        window.clearInterval(id);
+      }
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [lockUntil]);
 
   const submitPin = async (code: string) => {
+    if (isLockedOut) return;
     setChecking(true);
     setError('');
     try {
@@ -28,19 +58,19 @@ export function AppLockOverlay({
   };
 
   useEffect(() => {
-    if (digits.length === 4 && !checking) {
+    if (digits.length === 4 && !checking && !isLockedOut) {
       void submitPin(digits);
     }
-  }, [digits]);
+  }, [digits, isLockedOut]);
 
   const handleDigit = (d: string) => {
-    if (checking || digits.length >= 4) return;
+    if (checking || isLockedOut || digits.length >= 4) return;
     setError('');
     setDigits((prev) => `${prev}${d}`);
   };
 
   const handleBackspace = () => {
-    if (checking) return;
+    if (checking || isLockedOut) return;
     setError('');
     setDigits((prev) => prev.slice(0, -1));
   };
@@ -49,7 +79,7 @@ export function AppLockOverlay({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="App Lock PIN screen"
+      aria-label="Screen lock PIN prompt"
       className="fixed inset-0 z-50 bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] flex items-center justify-center p-4"
     >
       <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-6 space-y-6 text-center shadow-2xl">
@@ -59,13 +89,13 @@ export function AppLockOverlay({
           </div>
           <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#FF6A00]">
             <Lock size={14} />
-            <span>App Locked</span>
+            <span>Screen Locked</span>
           </div>
           <h1 className="text-lg font-bold text-[#08246B] dark:text-white">
             Enter 4-digit PIN
           </h1>
           <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-            Unlock Call Analyzer - ETH to view your call logs and contacts
+            Casual screen lock on this device to hide calls and contacts from view
           </p>
         </div>
 
@@ -85,8 +115,14 @@ export function AppLockOverlay({
           })}
         </div>
 
-        {error && (
-          <p className="text-xs font-medium text-[#DC2626] dark:text-[#F28B82]">{error}</p>
+        {isLockedOut ? (
+          <p className="text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] font-mono tabular-nums">
+            Too many wrong attempts. Try again in {formatCountdown(remainingSeconds)}.
+          </p>
+        ) : (
+          error && (
+            <p className="text-xs font-medium text-[#DC2626] dark:text-[#F28B82]">{error}</p>
+          )
         )}
 
         <div className="grid grid-cols-3 gap-3 max-w-[260px] mx-auto">
@@ -94,16 +130,16 @@ export function AppLockOverlay({
             <button
               key={num}
               type="button"
-              disabled={checking}
+              disabled={checking || isLockedOut}
               onClick={() => handleDigit(num)}
-              className="h-14 rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#DDE4EA] dark:hover:bg-[var(--dark-elevated)] text-lg font-bold font-mono tabular-nums text-[#08246B] dark:text-white transition-colors active:scale-95"
+              className="h-14 rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#DDE4EA] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 text-lg font-bold font-mono tabular-nums text-[#08246B] dark:text-white transition-colors active:scale-95"
             >
               {num}
             </button>
           ))}
           <button
             type="button"
-            disabled={checking || digits.length === 0}
+            disabled={checking || isLockedOut || digits.length === 0}
             onClick={() => {
               setDigits('');
               setError('');
@@ -114,15 +150,15 @@ export function AppLockOverlay({
           </button>
           <button
             type="button"
-            disabled={checking}
+            disabled={checking || isLockedOut}
             onClick={() => handleDigit('0')}
-            className="h-14 rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#DDE4EA] dark:hover:bg-[var(--dark-elevated)] text-lg font-bold font-mono tabular-nums text-[#08246B] dark:text-white transition-colors active:scale-95"
+            className="h-14 rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#DDE4EA] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 text-lg font-bold font-mono tabular-nums text-[#08246B] dark:text-white transition-colors active:scale-95"
           >
             0
           </button>
           <button
             type="button"
-            disabled={checking || digits.length === 0}
+            disabled={checking || isLockedOut || digits.length === 0}
             onClick={handleBackspace}
             aria-label="Backspace"
             className="h-14 rounded-2xl flex items-center justify-center text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 transition-colors"
@@ -136,7 +172,7 @@ export function AppLockOverlay({
           onClick={onResetPin}
           className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00] transition-colors"
         >
-          Forgot PIN? Remove PIN lock on this device
+          Forgot PIN? Remove screen lock on this device
         </button>
       </div>
     </div>

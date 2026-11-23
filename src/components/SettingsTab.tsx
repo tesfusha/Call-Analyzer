@@ -61,6 +61,7 @@ import { formatTime } from '@/src/lib/format';
 import { isHapticsEnabled, setHapticsEnabledStorage, triggerHaptic } from '@/src/lib/haptics';
 import { parseCallImport } from '@/src/lib/import';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
+import { maskPhoneNumber } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
 
 const CALLBACK_DELAY_OPTIONS = [15, 30, 60, 120];
@@ -87,8 +88,8 @@ const SETTINGS_CATEGORIES: Array<{
   {
     key: 'security',
     label: 'Security',
-    heading: 'App Lock PIN & Privacy Mode',
-    description: '4-digit app lock PIN and private note masking',
+    heading: 'Screen Lock PIN & Privacy Mode',
+    description: '4-digit screen lock PIN, phone number and note masking',
     icon: ShieldCheck,
   },
   {
@@ -159,7 +160,6 @@ export function SettingsTab({
     profileName,
     userPhotoUrl,
     userPhone,
-    passwordHint,
     openAuthPrompt,
     exitGuestMode,
     syncStatus,
@@ -417,7 +417,7 @@ export function SettingsTab({
                 {authUser ? (
                   <>
                     {authUser.email}
-                    {userPhone ? ` · ${userPhone}` : ''}
+                    {userPhone ? ` · ${maskPhoneNumber(userPhone, privacyMode)}` : ''}
                     {authProvider ? ` · ${authProvider === 'google' ? 'Google' : 'Email'}` : ''}
                     {' · '}
                     {syncStatus === 'syncing'
@@ -435,11 +435,6 @@ export function SettingsTab({
                   'Sign in or create an account to access your private calls, contacts, schedules, and settings.'
                 )}
               </p>
-              {authUser && passwordHint && (
-                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] mt-1">
-                  Password hint: <span className="font-medium text-[#08246B] dark:text-white">{passwordHint}</span>
-                </p>
-              )}
             </div>
           </div>
 
@@ -798,10 +793,10 @@ export function SettingsTab({
             </div>
             <div>
               <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
-                App Lock PIN & Privacy Mode
+                Screen Lock PIN &amp; Privacy Mode
               </h2>
               <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Hide private call and contact notes on shared screens or lock the app with a 4-digit PIN
+                Mask phone numbers and private notes on shared screens or lock the screen with a 4-digit PIN
               </p>
             </div>
           </div>
@@ -824,10 +819,10 @@ export function SettingsTab({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-semibold text-[#08246B] dark:text-white">
-                4-Digit App Lock PIN · {pinEnabled ? 'Active on this device' : 'Not set'}
+                4-Digit Screen Lock PIN · {pinEnabled ? 'Active on this device' : 'Not set'}
               </p>
               <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Requires PIN when opening the app on this device
+                Quick screen lock for casual privacy on this device (does not encrypt local files)
               </p>
             </div>
             {pinEnabled && (
@@ -838,14 +833,14 @@ export function SettingsTab({
                   className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                 >
                   <Lock size={13} />
-                  Lock now
+                  Lock screen
                 </button>
                 <button
                   type="button"
                   onClick={clearAppPin}
                   className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 whitespace-nowrap shrink-0 transition-colors"
                 >
-                  Remove PIN
+                  Remove lock
                 </button>
               </div>
             )}
@@ -859,7 +854,7 @@ export function SettingsTab({
               value={newPin}
               onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder={pinEnabled ? 'New 4-digit PIN' : 'Enter 4-digit PIN'}
-              aria-label="New 4-digit PIN"
+              aria-label="New 4-digit screen lock PIN"
               className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm font-mono tracking-widest text-[#08246B] dark:text-white placeholder:text-[#8A93A0] placeholder:tracking-normal focus:outline-none focus:border-[#FF6A00]"
             />
             <input
@@ -869,7 +864,7 @@ export function SettingsTab({
               value={confirmPin}
               onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder="Confirm PIN"
-              aria-label="Confirm 4-digit PIN"
+              aria-label="Confirm 4-digit screen lock PIN"
               className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-sm font-mono tracking-widest text-[#08246B] dark:text-white placeholder:text-[#8A93A0] placeholder:tracking-normal focus:outline-none focus:border-[#FF6A00]"
             />
             <button
@@ -877,7 +872,7 @@ export function SettingsTab({
               onClick={() => void handleSavePin()}
               className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap shrink-0 transition-colors"
             >
-              {pinEnabled ? 'Update PIN' : 'Enable PIN'}
+              {pinEnabled ? 'Update PIN' : 'Enable screen lock'}
             </button>
           </div>
         </div>
@@ -1409,7 +1404,7 @@ export function SettingsTab({
               try {
                 const delivery = await downloadTextFile(
                   'call-log-export.csv',
-                  callsToCsv(calls),
+                  callsToCsv(calls, privacyMode),
                   'text/csv;charset=utf-8',
                   'Call Log Export (CSV)',
                 );
@@ -1435,7 +1430,7 @@ export function SettingsTab({
               try {
                 const delivery = await downloadTextFile(
                   'call-log-export.json',
-                  callsToJson(calls),
+                  callsToJson(calls, privacyMode),
                   'application/json;charset=utf-8',
                   'Call Log Export (JSON)',
                 );
@@ -1490,7 +1485,7 @@ export function SettingsTab({
               try {
                 const delivery = await downloadTextFile(
                   'call-statement.html',
-                  callsToHtmlReport(calls, tariffs, simLabels),
+                  callsToHtmlReport(calls, tariffs, simLabels, undefined, privacyMode),
                   'text/html;charset=utf-8',
                   'Call Statement Report',
                 );

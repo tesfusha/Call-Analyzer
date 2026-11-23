@@ -60,7 +60,7 @@ import { triggerHaptic } from '@/src/lib/haptics';
 import { parseCallImport } from '@/src/lib/import';
 import { unreturnedMissedCalls } from '@/src/lib/reminders';
 import { formatScheduledCountdown, formatScheduledLabel } from '@/src/lib/schedule';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
 import { filterByRange, totalSpendEtb } from '@/src/lib/stats';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
@@ -891,10 +891,11 @@ export const CallsTab = memo(function CallsTab({
                         const isGrouped = cluster.calls.length > 1;
                         const isExpanded = Boolean(expandedClusters[cluster.id]);
                         const contactProfile = contacts[getContactKey(call.number)];
-                        const displayName =
-                          call.name?.trim() ||
-                          contactProfile?.name?.trim() ||
-                          maskPhoneNumber(call.number, privacyMode);
+                        const displayName = formatDisplayNameOrPhone(
+                          call.name?.trim() || contactProfile?.name?.trim(),
+                          call.number,
+                          privacyMode,
+                        );
                         const resolvedTag = resolveCallTag(call);
                         const shortTag = resolvedTag ? formatShortTag(resolvedTag) : '';
                         const compactSim = call.sim ? formatSimCompact(call.sim, simLabels) : '';
@@ -1322,8 +1323,11 @@ export const CallsTab = memo(function CallsTab({
                     const isVip =
                       favorites.has(missed.number) ||
                       favorites.has(getContactKey(missed.number));
-                    const label =
-                      missed.name?.trim() || maskPhoneNumber(missed.number, privacyMode);
+                    const label = formatDisplayNameOrPhone(
+                      missed.name,
+                      missed.number,
+                      privacyMode,
+                    );
                     return (
                       <div
                         key={missed.id}
@@ -1432,7 +1436,7 @@ export const CallsTab = memo(function CallsTab({
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                            {item.name?.trim() || maskPhoneNumber(item.number, privacyMode)}
+                            {formatDisplayNameOrPhone(item.name, item.number, privacyMode)}
                           </p>
                           <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                             <span className="font-semibold text-[#FF6A00]">
@@ -1524,8 +1528,11 @@ export const CallsTab = memo(function CallsTab({
             ) : (
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden">
                 {vipContactsList.map((vip) => {
-                  const displayName =
-                    vip.name || maskPhoneNumber(vip.number, privacyMode);
+                  const displayName = formatDisplayNameOrPhone(
+                    vip.name,
+                    vip.number,
+                    privacyMode,
+                  );
                   const shortVipTag = vip.tag ? formatShortTag(vip.tag) : '';
                   return (
                     <div

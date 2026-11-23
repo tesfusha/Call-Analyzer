@@ -47,7 +47,6 @@ export function AuthForm({
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordHint, setPasswordHint] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -115,7 +114,6 @@ export function AuthForm({
           phone,
           password,
           confirmPassword,
-          passwordHint,
           agreedToTerms,
         });
         if (!res.ok && res.error) setFormError(res.error);
@@ -390,27 +388,6 @@ export function AuthForm({
                 >
                   {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
-              </div>
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Password hint
-              </span>
-              <div className="relative">
-                <HelpCircle
-                  size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A93A0] pointer-events-none"
-                />
-                <input
-                  type="text"
-                  required
-                  maxLength={120}
-                  value={passwordHint}
-                  onChange={(e) => setPasswordHint(e.target.value)}
-                  placeholder="Short clue only (never your real password)"
-                  className="w-full min-h-[44px] pl-9 pr-3 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-sm text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-                />
               </div>
             </label>
 

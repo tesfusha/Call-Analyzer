@@ -37,7 +37,6 @@ export function ProfileEditModal({
     profileName,
     userPhone,
     userPhotoUrl,
-    passwordHint,
     updateUserProfile,
     changeUserPassword,
     showNotice,
@@ -62,7 +61,6 @@ export function ProfileEditModal({
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [newHint, setNewHint] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
@@ -76,9 +74,8 @@ export function ProfileEditModal({
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
-    setNewHint(passwordHint ?? '');
     setPasswordError(null);
-  }, [open, resolvedCurrentName, userPhone, resolvedCurrentPhoto, passwordHint]);
+  }, [open, resolvedCurrentName, userPhone, resolvedCurrentPhoto]);
 
   useEffect(() => {
     if (!open) return;
@@ -132,7 +129,6 @@ export function ProfileEditModal({
         currentPassword,
         newPassword,
         confirmPassword,
-        passwordHint: newHint,
       });
       if (!res.ok) {
         setPasswordError(res.error || 'Could not change password.');
@@ -460,20 +456,6 @@ export function ProfileEditModal({
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             placeholder="Re-enter new password"
-                            className="w-full min-h-[44px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-                          />
-                        </label>
-
-                        <label className="block space-y-1">
-                          <span className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                            Password hint (optional)
-                          </span>
-                          <input
-                            type="text"
-                            value={newHint}
-                            onChange={(e) => setNewHint(e.target.value)}
-                            maxLength={120}
-                            placeholder="Short reminder for yourself"
                             className="w-full min-h-[44px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
                           />
                         </label>

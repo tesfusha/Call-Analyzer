@@ -29,7 +29,7 @@ import {
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
 import { contactStats, filterByRange, simStats, totalSpendEtb } from '@/src/lib/stats';
 import { useCalls } from '@/src/store/CallsContext';
 import type { CallDirection, CallRecord, DateRangeFilter, TimeRange } from '@/src/types/call';
@@ -341,10 +341,11 @@ export function UsageTab({
                         );
 
                         const contactTag = contactProfiles[getContactKey(contact.number)]?.tag;
-                        const displayContactLabel =
-                          contact.name === contact.number
-                            ? maskPhoneNumber(contact.number, privacyMode)
-                            : contact.name;
+                        const displayContactLabel = formatDisplayNameOrPhone(
+                          contact.name,
+                          contact.number,
+                          privacyMode,
+                        );
 
                         return (
                           <div
@@ -805,8 +806,8 @@ export function UsageTab({
                       searchPlaceholder="Search caller..."
                       options={allCallContacts.map((c) => ({
                         value: c.number,
-                        label: `From: ${c.name}`,
-                        sublabel: c.number,
+                        label: `From: ${formatDisplayNameOrPhone(c.name, c.number, privacyMode)}`,
+                        sublabel: maskPhoneNumber(c.number, privacyMode),
                       }))}
                       onChange={setMergeSource}
                     />
@@ -819,8 +820,8 @@ export function UsageTab({
                       searchPlaceholder="Search target..."
                       options={allCallContacts.map((c) => ({
                         value: c.number,
-                        label: `Into: ${c.name}`,
-                        sublabel: c.number,
+                        label: `Into: ${formatDisplayNameOrPhone(c.name, c.number, privacyMode)}`,
+                        sublabel: maskPhoneNumber(c.number, privacyMode),
                       }))}
                       onChange={(val) => {
                         setMergeTarget(val);

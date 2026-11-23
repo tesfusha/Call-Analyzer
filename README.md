@@ -21,7 +21,7 @@ An Android-first (Capacitor) and web companion for analyzing call history, dual-
   - Quiet-contact reminders, unreturned missed call alerts, scheduled callback reminders, and quick wish message templates.
 - **Themes & Privacy**
   - Follows your device/OS dark mode preference (`prefers-color-scheme`) with **System**, **Bright**, and **Dark Gray** theme options.
-  - Optional 4-digit App Lock PIN, privacy mode, and haptic feedback toggle.
+  - Optional 4-digit screen lock PIN, privacy mode (number & note masking), and haptic feedback toggle.
 
 ## Tech Stack
 
@@ -72,6 +72,15 @@ npm run preview
 ### Environment Variables
 
 See `.env.example` for optional environment variables (`APP_URL`). Do not commit real secrets or `.env` files.
+
+### Admin Setup (Firestore Console)
+
+Admin access is controlled through the Firestore `/admins/{uid}` collection and is never writable from client code:
+
+1. Open your project's Firestore database in the Firebase Console (`ai-studio-callanalyzereth-8a53901f-21ac-4a27-a39b-67c161032787`).
+2. Create a top-level collection named `admins` (if it does not exist yet).
+3. Add a document whose **Document ID** is the verified user's Firebase Authentication `uid` (for example, `{ "role": "admin" }`).
+4. Sign in with that verified account to unlock the **Admin** tab (`userRegistry` statistics only; customer call logs and contacts remain strictly private to each owner).
 
 ## Project Structure
 

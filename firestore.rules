@@ -16,7 +16,8 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'tesfutilahun33@gmail.com';
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
     function isValidId(id) {
@@ -144,7 +145,6 @@ service cloud.firestore {
           'email',
           'phone',
           'photoURL',
-          'passwordHint',
           'termsAccepted',
           'termsAcceptedAt',
           'theme',
@@ -167,7 +167,6 @@ service cloud.firestore {
         && (!('email' in request.auth.token) || !(request.auth.token.email is string) || data.email == request.auth.token.email)
         && (!('phone' in data) || isNullableString(data.phone, 40))
         && (!('photoURL' in data) || isNullableString(data.photoURL, 500))
-        && (!('passwordHint' in data) || isNullableString(data.passwordHint, 120))
         && (!('termsAccepted' in data) || data.termsAccepted is bool)
         && (!('termsAcceptedAt' in data) || data.termsAcceptedAt == null || (data.termsAcceptedAt is int && data.termsAcceptedAt >= 0))
         && data.theme in ['dark', 'dark-gray', 'light']
@@ -362,6 +361,12 @@ service cloud.firestore {
         || existsAfter(/databases/$(database)/documents/users/$(userId));
     }
 
+    // Console-managed admin allowlist (clients can only read their own UID document).
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && isVerifiedUser() && request.auth.uid == adminUid;
+      allow list, create, update, delete: if false;
+    }
+
     // Basic registered user directory for admin stats only (no customer/call-log PII).
     match /userRegistry/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -406,6 +411,8 @@ service cloud.firestore {
           'email',
           'phone',
           'photoURL',
+          // Allowed in diff only so clients can delete legacy passwordHint via deleteField();
+          // isValidUserWorkspace rejects passwordHint in incoming().
           'passwordHint',
           'termsAccepted',
           'termsAcceptedAt',

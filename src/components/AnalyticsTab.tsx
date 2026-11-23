@@ -15,7 +15,7 @@ import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { callsToHtmlReport, downloadTextFile } from '@/src/lib/export';
 import { formatDuration } from '@/src/lib/format';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import {
   busiestDay,
   carrierStats,
@@ -217,6 +217,7 @@ export function AnalyticsTab({
                     tariffs,
                     simLabels,
                     `Call Analyzer - ETH Statement (${range})`,
+                    privacyMode,
                   );
                   const delivery = await downloadTextFile(
                     'call-statement.html',
@@ -387,7 +388,9 @@ export function AnalyticsTab({
                 },
                 {
                   label: 'Top talker',
-                  value: topTalker ? `${topTalker.name} (${formatDuration(topTalker.duration)})` : '–',
+                  value: topTalker
+                    ? `${formatDisplayNameOrPhone(topTalker.name, topTalker.number, privacyMode)} (${formatDuration(topTalker.duration)})`
+                    : '–',
                 },
               ].map((row) => (
                 <div key={row.label} className="py-2.5 flex items-center justify-between gap-3">
@@ -412,7 +415,7 @@ export function AnalyticsTab({
                 {
                   label: 'Longest single call',
                   value: trends.longest
-                    ? `${trends.longest.name} (${formatDuration(trends.longest.duration)})`
+                    ? `${formatDisplayNameOrPhone(trends.longest.name, trends.longest.number, privacyMode)} (${formatDuration(trends.longest.duration)})`
                     : '–',
                 },
               ].map((row) => (
@@ -449,11 +452,7 @@ export function AnalyticsTab({
                     className="w-full text-left rounded-xl p-2 -mx-2 hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated-70)] transition-colors"
                   >
                     <HorizontalUsageBar
-                      label={
-                        contact.name === contact.number
-                          ? maskPhoneNumber(contact.number, privacyMode)
-                          : contact.name
-                      }
+                      label={formatDisplayNameOrPhone(contact.name, contact.number, privacyMode)}
                       valueLabel={`${contact.count} calls`}
                       subLabel={`${formatDuration(contact.duration)} total`}
                       percent={(contact.count / max) * 100}
@@ -483,11 +482,7 @@ export function AnalyticsTab({
                     className="w-full text-left rounded-xl p-2 -mx-2 hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated-70)] transition-colors"
                   >
                     <HorizontalUsageBar
-                      label={
-                        contact.name === contact.number
-                          ? maskPhoneNumber(contact.number, privacyMode)
-                          : contact.name
-                      }
+                      label={formatDisplayNameOrPhone(contact.name, contact.number, privacyMode)}
                       valueLabel={formatDuration(contact.duration)}
                       subLabel={`${contact.count} calls`}
                       percent={(contact.duration / max) * 100}

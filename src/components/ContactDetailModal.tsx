@@ -45,7 +45,7 @@ import {
   toDateTimeLocalValue,
   tomorrowAtHour,
 } from '@/src/lib/schedule';
-import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type {
@@ -244,7 +244,7 @@ export function ContactDetailModal({
   );
 
   const safeNumber = contactNumber ?? '';
-  const displayName = name.trim() || safeNumber;
+  const displayName = formatDisplayNameOrPhone(name, safeNumber, privacyMode);
   const isFav =
     Boolean(contactNumber) &&
     (favorites.has(safeNumber) || favorites.has(contactKey));

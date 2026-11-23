@@ -6,6 +6,7 @@ import {
 import { estimateCallCostEtb, formatEtb, formatSimDisplay, type TariffConfig } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
+import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import { carrierStats, computeTotals, contactStats, totalSpendEtb } from '@/src/lib/stats';
 import type { CallRecord, SimLabels } from '@/src/types/call';
 
@@ -25,21 +26,23 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-export function callsToCsv(calls: CallRecord[]): string {
+export function callsToCsv(calls: CallRecord[], privacyMode = false): string {
   const header = ['number', 'name', 'direction', 'sim', 'timestamp', 'duration', 'note', 'tag'];
   const lines = [header.join(',')];
   const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
   sorted.forEach((call) => {
+    const maskedNumber = maskPhoneNumber(call.number, privacyMode);
+    const displayName = call.name ? formatDisplayNameOrPhone(call.name, call.number, privacyMode) : '';
     lines.push(
       [
-        call.number,
-        call.name ?? '',
+        maskedNumber,
+        displayName,
         call.direction,
         call.sim ?? '',
         new Date(call.timestamp).toISOString(),
         String(call.duration),
-        call.note ?? '',
-        call.tag ?? '',
+        call.note ? maskPrivateText(call.note, privacyMode) : '',
+        call.tag ? maskPrivateText(call.tag, privacyMode) : '',
       ]
         .map(escapeCsvCell)
         .join(','),
@@ -48,8 +51,20 @@ export function callsToCsv(calls: CallRecord[]): string {
   return `\uFEFF${lines.join('\n')}`;
 }
 
-export function callsToJson(calls: CallRecord[]): string {
-  const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
+export function callsToJson(calls: CallRecord[], privacyMode = false): string {
+  const sorted = [...calls]
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .map((call) =>
+      privacyMode
+        ? {
+            ...call,
+            number: maskPhoneNumber(call.number, true),
+            name: call.name ? formatDisplayNameOrPhone(call.name, call.number, true) : null,
+            note: call.note ? maskPrivateText(call.note, true) : null,
+            tag: call.tag ? maskPrivateText(call.tag, true) : null,
+          }
+        : call,
+    );
   return JSON.stringify({ exportedAt: new Date().toISOString(), calls: sorted }, null, 2);
 }
 
@@ -58,6 +73,7 @@ export function callsToHtmlReport(
   tariffs: TariffConfig,
   simLabels: SimLabels,
   title = 'Call Analyzer - ETH Statement',
+  privacyMode = false,
 ): string {
   const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
   const totals = computeTotals(sorted);
@@ -77,7 +93,7 @@ export function callsToHtmlReport(
   const topRows = topContacts
     .map(
       (c) =>
-        `<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.number)}</td><td>${c.count}</td><td>${escapeHtml(formatDuration(c.duration))}</td></tr>`,
+        `<tr><td>${escapeHtml(formatDisplayNameOrPhone(c.name, c.number, privacyMode))}</td><td>${escapeHtml(maskPhoneNumber(c.number, privacyMode))}</td><td>${c.count}</td><td>${escapeHtml(formatDuration(c.duration))}</td></tr>`,
     )
     .join('');
 
@@ -85,7 +101,7 @@ export function callsToHtmlReport(
     .slice(0, 250)
     .map(
       (c) =>
-        `<tr><td>${escapeHtml(c.name?.trim() || c.number)}</td><td>${escapeHtml(c.number)}</td><td>${escapeHtml(c.direction)}</td><td>${escapeHtml(c.sim ? formatSimDisplay(c.sim, simLabels) : '—')}</td><td>${escapeHtml(formatDateTime(c.timestamp))} (${escapeHtml(formatEthiopianShort(c.timestamp))} EC)</td><td>${escapeHtml(formatDuration(c.duration))}</td><td>${escapeHtml(c.direction === 'outgoing' && c.duration > 0 ? formatEtb(estimateCallCostEtb(c, tariffs)) : '—')}</td><td>${escapeHtml(c.tag ?? '')}</td></tr>`,
+        `<tr><td>${escapeHtml(formatDisplayNameOrPhone(c.name, c.number, privacyMode))}</td><td>${escapeHtml(maskPhoneNumber(c.number, privacyMode))}</td><td>${escapeHtml(c.direction)}</td><td>${escapeHtml(c.sim ? formatSimDisplay(c.sim, simLabels) : '—')}</td><td>${escapeHtml(formatDateTime(c.timestamp))} (${escapeHtml(formatEthiopianShort(c.timestamp))} EC)</td><td>${escapeHtml(formatDuration(c.duration))}</td><td>${escapeHtml(c.direction === 'outgoing' && c.duration > 0 ? formatEtb(estimateCallCostEtb(c, tariffs)) : '—')}</td><td>${escapeHtml(c.tag ? maskPrivateText(c.tag, privacyMode) : '')}</td></tr>`,
     )
     .join('');
 

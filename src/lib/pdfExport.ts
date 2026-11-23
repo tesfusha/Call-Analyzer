@@ -9,7 +9,7 @@ import {
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { type ExportDeliveryResult, saveAndShareBytes } from '@/src/lib/export';
-import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import {
   carrierStats,
   computeTotals,
@@ -662,10 +662,9 @@ export async function exportCallHistoryPdfReport({
   doc.setTextColor(8, 36, 107);
   doc.text('Top Contacts by Talk Time', marginX, cursorY);
 
-  const topRawNames = topContacts.map((c) => {
-    const masked = maskPhoneNumber(c.number, privacyMode);
-    return c.name === c.number ? masked : c.name;
-  });
+  const topRawNames = topContacts.map((c) =>
+    formatDisplayNameOrPhone(c.name, c.number, privacyMode),
+  );
 
   autoTable(doc, {
     startY: cursorY + 2.5,
@@ -758,10 +757,9 @@ export async function exportCallHistoryPdfReport({
     cursorY,
   );
 
-  const logRawNames = logSlice.map((c) => {
-    const raw = c.name?.trim() || maskPhoneNumber(c.number, privacyMode);
-    return privacyMode && c.name?.trim() ? c.name.trim() : raw;
-  });
+  const logRawNames = logSlice.map((c) =>
+    formatDisplayNameOrPhone(c.name, c.number, privacyMode),
+  );
   const logRawTags = logSlice.map((c) => (c.tag ? maskPrivateText(c.tag, privacyMode) : '—'));
 
   autoTable(doc, {

@@ -76,7 +76,7 @@ const GUIDE_STEPS: GuideStep[] = [
     highlights: [
       'Dual Ethiopian (Geez / English) & Gregorian calendar',
       'Smart quiet-contact nudges & birthday greeting drafts',
-      'Optional 4-digit PIN lock & zero 3rd-party data sharing',
+      'Optional 4-digit screen lock & zero 3rd-party data sharing',
     ],
     icon: Calendar,
   },

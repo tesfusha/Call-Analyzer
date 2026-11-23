@@ -234,7 +234,7 @@ export type DurationTrends = {
   avgAll: number;
   avg7d: number;
   avg30d: number;
-  longest: { name: string; duration: number; timestamp: number } | null;
+  longest: { name: string; number: string; duration: number; timestamp: number } | null;
 };
 
 export function durationTrends(calls: CallRecord[], now: Date = new Date()): DurationTrends {
@@ -260,6 +260,7 @@ export function durationTrends(calls: CallRecord[], now: Date = new Date()): Dur
     longest: longest
       ? {
           name: longest.name?.trim() || longest.number,
+          number: longest.number,
           duration: longest.duration,
           timestamp: longest.timestamp,
         }

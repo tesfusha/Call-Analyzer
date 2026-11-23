@@ -52,7 +52,7 @@ import {
   toDateTimeLocalValue,
   tomorrowAtHour,
 } from '@/src/lib/schedule';
-import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPrivateText } from '@/src/lib/security';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 
@@ -198,8 +198,14 @@ export function RemindersModal({
       ),
     [calls, dismissedMissedIds, mutedAlertSet],
   );
-  const weekly = useMemo(() => buildPeriodReport(calls, 'weekly', tariffs), [calls, tariffs]);
-  const monthly = useMemo(() => buildPeriodReport(calls, 'monthly', tariffs), [calls, tariffs]);
+  const weekly = useMemo(
+    () => buildPeriodReport(calls, 'weekly', tariffs, new Date(), privacyMode),
+    [calls, tariffs, privacyMode],
+  );
+  const monthly = useMemo(
+    () => buildPeriodReport(calls, 'monthly', tariffs, new Date(), privacyMode),
+    [calls, tariffs, privacyMode],
+  );
 
   const unifiedContacts = useMemo(() => {
     const byKey = new Map<
@@ -825,8 +831,11 @@ export function RemindersModal({
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 {pendingScheduled.map((item) => {
-                  const displayName =
-                    item.name?.trim() || maskPhoneNumber(item.number, privacyMode);
+                  const displayName = formatDisplayNameOrPhone(
+                    item.name,
+                    item.number,
+                    privacyMode,
+                  );
                   return (
                     <div key={item.id} className="py-3 flex flex-wrap items-center justify-between gap-2.5">
                       <button
@@ -927,7 +936,7 @@ export function RemindersModal({
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 {unreturned.map((missed) => {
-                  const name = missed.name?.trim() || missed.number;
+                  const name = formatDisplayNameOrPhone(missed.name, missed.number, privacyMode);
                   return (
                     <div key={missed.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
                       <button
@@ -1029,10 +1038,10 @@ export function RemindersModal({
                         className="min-w-0 text-left flex-1"
                       >
                         <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                          {item.name}
+                          {formatDisplayNameOrPhone(item.name, item.number, privacyMode)}
                         </p>
                         <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                          {quietMessage(item)}
+                          {quietMessage(item, privacyMode)}
                         </p>
                       </button>
                       <div className="flex items-center gap-1.5 shrink-0">

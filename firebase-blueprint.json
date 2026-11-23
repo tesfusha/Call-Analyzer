@@ -26,10 +26,6 @@
           "type": "string",
           "maxLength": 500
         },
-        "passwordHint": {
-          "type": "string",
-          "maxLength": 120
-        },
         "termsAccepted": {
           "type": "boolean"
         },
@@ -314,6 +310,21 @@
         "registeredAt",
         "lastActiveAt"
       ]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Console-managed admin allowlist document keyed by verified user UID.",
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
     }
   },
   "firestore": {
@@ -346,6 +357,12 @@
         "$ref": "#/entities/RegisteredUser"
       },
       "description": "Basic registered user account summaries for admin daily/weekly/monthly stats; excludes all customer contacts and call data."
+    },
+    "/admins/{adminUid}": {
+      "schema": {
+        "$ref": "#/entities/AdminRole"
+      },
+      "description": "Console-managed admin role allowlist. Readable only by the matching verified UID; never writable by clients."
     }
   }
 }

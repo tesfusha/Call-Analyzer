@@ -8,7 +8,7 @@ import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from 
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
 import { toDateTimeLocalValue, tomorrowAtHour } from '@/src/lib/schedule';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { CallPatch, CallRecord } from '@/src/types/call';
@@ -104,7 +104,9 @@ export function CallDetailModal({
   const activeHeading =
     activeCategory === 'details' ? 'Edit Contact Tag & Call Note' : 'Schedule Follow-up Callback';
 
-  const displayName = call ? call.name?.trim() || maskPhoneNumber(call.number, privacyMode) : '';
+  const displayName = call
+    ? formatDisplayNameOrPhone(call.name, call.number, privacyMode)
+    : '';
 
   return (
     <AnimatePresence>

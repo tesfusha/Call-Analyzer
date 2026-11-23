@@ -73,6 +73,7 @@ function AppShell() {
     togglePrivacyMode,
     pinEnabled,
     isLocked,
+    pinLockoutUntil,
     unlockWithPin,
     clearAppPin,
     lockApp,
@@ -596,6 +597,7 @@ function AppShell() {
       <AppLockOverlay
         onVerifyPin={unlockWithPin}
         onResetPin={clearAppPin}
+        lockUntil={pinLockoutUntil}
       />
     );
   }
@@ -659,7 +661,7 @@ function AppShell() {
             <button
               type="button"
               onClick={togglePrivacyMode}
-              title={privacyMode ? 'Show private notes' : 'Hide private notes'}
+              title={privacyMode ? 'Show phone numbers and notes' : 'Mask phone numbers and private notes'}
               className={`flex-1 min-h-[40px] px-2.5 py-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors ${
                 privacyMode
                   ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
@@ -667,14 +669,14 @@ function AppShell() {
               }`}
             >
               {privacyMode ? <EyeOff size={14} /> : <Eye size={14} />}
-              {privacyMode ? 'Notes hidden' : 'Privacy'}
+              {privacyMode ? 'Privacy on' : 'Privacy'}
             </button>
             {pinEnabled && (
               <button
                 type="button"
                 onClick={lockApp}
-                aria-label="Lock app"
-                title="Lock app with PIN"
+                aria-label="Lock screen"
+                title="Lock screen with PIN"
                 className="min-h-[40px] min-w-[40px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center transition-colors"
               >
                 <Lock size={14} className="text-[#FF6A00]" />
@@ -788,7 +790,7 @@ function AppShell() {
             <button
               type="button"
               onClick={lockApp}
-              aria-label="Lock app"
+              aria-label="Lock screen"
               className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
             >
               <Lock size={16} />
