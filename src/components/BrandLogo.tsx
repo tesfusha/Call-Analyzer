@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Phone } from 'lucide-react';
 
-export const BRAND_LOGO_SRC =
-  '/assets/aistudio/20261118_124315_0000_1323e07e.png';
+export const BRAND_LOGO_SRC = '/logo.png';
 
 export function BrandLogo({
   size = 36,

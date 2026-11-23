@@ -1,13 +1,12 @@
 # Call Analyzer - ETH
 
-A mobile-first Progressive Web App (PWA) for analyzing call history, dual-SIM airtime usage, ETB spend, and contact follow-ups with built-in Ethiopian calendar support.
+An Android-first (Capacitor) and web companion for analyzing call history, dual-SIM airtime usage, ETB spend, and contact follow-ups with built-in Ethiopian calendar support.
 
 ## Features
 
-- **Call Log & Quick Logging**
-  - View call history grouped by day with search, direction filters (`Incoming`, `Outgoing`, `Missed`, `Unreturned`), SIM filters, tag filters, date range filtering, and sorting.
-  - Log calls manually or with a live call timer, with searchable saved-contact selection.
-  - Import call records from `.csv`, `.json`, or `.txt` files and manage per-call notes and tags.
+- **Automatic Android Call Sync & File Import**
+  - Reads Android call history via the native Capacitor `CallLog` bridge (or imports `.csv`, `.json`, and `.txt` records) grouped by day with search, direction filters (`Incoming`, `Outgoing`, `Missed`, `Unreturned`), SIM filters, tag filters, date range filtering, and sorting.
+  - Manage per-call notes, relationship tags, and scheduled follow-up reminders.
 - **Dual-SIM Usage & Carrier Tools**
   - Track call minutes, call counts, and estimated ETB spend across **SIM 1 (Ethio Telecom)** and **SIM 2 (Safaricom)** with per-second or per-minute billing presets and monthly budget tracking.
   - Manage active voice minute bundles with expiry tracking and launch Ethiopian carrier USSD codes.
@@ -20,17 +19,17 @@ A mobile-first Progressive Web App (PWA) for analyzing call history, dual-SIM ai
 - **Ethiopian Calendar, Wishes & Follow-Up Alerts**
   - Dual Ethiopian & Gregorian calendar views (powered by `kenat`) with optional Ge'ez numerals and Ethiopian holiday tracking.
   - Quiet-contact reminders, unreturned missed call alerts, scheduled callback reminders, and quick wish message templates.
-- **Themes, Privacy & Offline PWA**
-  - Automatically follows your device/OS dark mode preference (`prefers-color-scheme`) with live updates, plus a quick light/dark toggle and **Auto**, **Bright**, **Dark Gray**, and **Dark Navy** theme options.
-  - Optional 4-digit App Lock PIN, privacy mode to mask phone numbers and hide private notes, haptic feedback toggle, and offline PWA caching.
+- **Themes & Privacy**
+  - Follows your device/OS dark mode preference (`prefers-color-scheme`) with **System**, **Bright**, and **Dark Gray** theme options.
+  - Optional 4-digit App Lock PIN, privacy mode, and haptic feedback toggle.
 
 ## Tech Stack
 
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4
+- **Mobile Runtime:** Capacitor Android (`com.callanalyzer.eth`)
 - **Charts & Animation:** Recharts, Motion (`motion/react`), Lucide Icons
 - **Calendar & Exports:** `kenat` (Ethiopian calendar), `jspdf` & `jspdf-autotable`
-- **Backend / Sync:** Firebase Authentication & Cloud Firestore
-- **PWA:** `vite-plugin-pwa` (Workbox service worker & Web App Manifest)
+- **Auth & Storage:** Firebase Authentication & Cloud Firestore (migrating local call/contact storage to IndexedDB)
 
 ## Getting Started
 
@@ -38,7 +37,7 @@ A mobile-first Progressive Web App (PWA) for analyzing call history, dual-SIM ai
 
 - Node.js 20+
 - npm (or compatible package manager)
-- Firebase project configured in `firebase-applet-config.json` (Authentication + Firestore)
+- Firebase project configured in `firebase-applet-config.json`
 
 ### Installation
 
@@ -54,13 +53,16 @@ Starts the Vite development server on port `3000`:
 npm run dev
 ```
 
-### Type Check & Build
+### Type Check, Rules Lint & Build
 
 ```bash
 # Run TypeScript type checking
 npm run lint
 
-# Build production bundle & service worker
+# Lint Firestore security rules
+npm run lint:rules
+
+# Build production bundle
 npm run build
 
 # Preview production build
@@ -69,20 +71,21 @@ npm run preview
 
 ### Environment Variables
 
-See `.env.example` for optional runtime environment variables (`GEMINI_API_KEY`, `APP_URL`). Do not commit real secrets or `.env` files.
+See `.env.example` for optional environment variables (`APP_URL`). Do not commit real secrets or `.env` files.
 
 ## Project Structure
 
 ```text
-├── index.html                 # HTML entry, PWA meta tags, and pre-paint theme script
-├── vite.config.ts             # Vite & VitePWA manifest/service-worker configuration
+├── index.html                 # HTML entry and pre-paint theme/font-scale script
+├── vite.config.ts             # Vite build configuration
 ├── firestore.rules            # Firestore security rules
 ├── firebase-blueprint.json    # Firestore data schema blueprint
-├── public/                    # PWA icons and static assets
+├── eslint.config.js           # ESLint configuration for Firestore security rules
+├── public/                    # Static assets (logo)
 └── src/
     ├── App.tsx                # App shell, navigation, auth gate, and modals
-    ├── index.css              # Tailwind CSS v4 imports and dark theme CSS variables
-    ├── store/CallsContext.tsx # App state, Firebase sync, and system/manual theme state
+    ├── index.css              # Tailwind CSS v4 imports and theme CSS variables
+    ├── store/CallsContext.tsx # App state, Firebase sync, and theme state
     ├── components/            # Feature tabs, charts, modals, and UI controls
     ├── lib/                   # Ethiopian calendar, tariffs, import/export, haptics, Firebase
     └── types/                 # TypeScript data models
