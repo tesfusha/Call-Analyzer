@@ -129,13 +129,18 @@ export function ContactMilestoneModal({
         nickname,
         relationshipTag,
       });
-      await downloadMilestoneCardPng(
+      const delivery = await downloadMilestoneCardPng(
         canvasRef.current,
         `call-analyzer-${milestone.days}d-milestone.png`,
       );
-      showNotice('Milestone card image saved.', 'success');
+      showNotice(
+        delivery === 'native'
+          ? 'PNG saved to Pictures/Call Analyzer - ETH.'
+          : 'Milestone card image saved.',
+        'success',
+      );
     } catch {
-      showNotice('Could not save milestone card image.');
+      showNotice('Could not save milestone card image.', 'warning');
     } finally {
       setSaving(false);
     }

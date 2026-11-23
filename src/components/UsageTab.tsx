@@ -751,7 +751,7 @@ export function UsageTab({
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => openUssd('emergency')}

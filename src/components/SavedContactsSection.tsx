@@ -464,7 +464,7 @@ export function SavedContactsSection({
                     </div>
                   </button>
 
-                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 sm:pl-2">
+                  <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-1.5 sm:pl-2">
                     <button
                       type="button"
                       onClick={() => setScheduleTarget(profile)}

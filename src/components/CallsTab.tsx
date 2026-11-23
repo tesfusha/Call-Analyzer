@@ -1367,14 +1367,14 @@ export const CallsTab = memo(function CallsTab({
                           />
                         ))}
                       </span>
-                      <span className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                      <span className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                         {totalClusterCount > CALLS_PAGE_SIZE
-                          ? `Showing ${renderedClusterCount} of ${totalClusterCount} groups`
-                          : `End of call log · ${totalClusterCount} group${totalClusterCount === 1 ? '' : 's'}`}
+                          ? `Showing ${renderedClusterCount} of ${totalClusterCount} groups · ${visible.length.toLocaleString()} calls`
+                          : `End of call log · ${totalClusterCount} group${totalClusterCount === 1 ? '' : 's'} · ${visible.length.toLocaleString()} calls`}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
                       {visibleClusterLimit > CALLS_PAGE_SIZE && (
                         <button
                           type="button"
@@ -1574,7 +1574,7 @@ export const CallsTab = memo(function CallsTab({
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() =>
@@ -1667,7 +1667,7 @@ export const CallsTab = memo(function CallsTab({
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => snoozeScheduledCall(item.id, 15)}

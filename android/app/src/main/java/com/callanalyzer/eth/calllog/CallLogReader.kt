@@ -52,6 +52,13 @@ object CallLogReader {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    data class CallLogPageResult(
+        val entries: List<NativeCallEntry>,
+        val minScannedRawId: Long,
+        val maxScannedRawId: Long,
+        val hasMore: Boolean
+    )
+
     fun getMaxCallId(context: Context): Long {
         if (!hasReadCallLogPermission(context)) return 0L
         return try {
@@ -60,7 +67,7 @@ object CallLogReader {
                 arrayOf(CallLog.Calls._ID),
                 null,
                 null,
-                "${CallLog.Calls._ID} DESC LIMIT 1"
+                "${CallLog.Calls._ID} DESC"
             )?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getLong(0) else 0L
             } ?: 0L
@@ -75,10 +82,32 @@ object CallLogReader {
         limit: Int? = null,
         beforeId: Long? = null
     ): List<NativeCallEntry> {
-        if (!hasReadCallLogPermission(context)) return emptyList()
+        return try {
+            val page = queryCallsPage(
+                context = context,
+                afterId = afterId,
+                limit = limit,
+                beforeId = beforeId
+            )
+            // Return chronological ascending order (oldest -> newest) so callers can evaluate missed -> outgoing cleanly
+            page.entries.sortedBy { it.rawId }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun queryCallsPage(
+        context: Context,
+        afterId: Long,
+        limit: Int? = null,
+        beforeId: Long? = null
+    ): CallLogPageResult {
+        if (!hasReadCallLogPermission(context)) {
+            return CallLogPageResult(emptyList(), 0L, 0L, false)
+        }
 
         val simLookup = buildSimLookup(context)
-        val projection = arrayOf(
+        val fullProjection = arrayOf(
             CallLog.Calls._ID,
             CallLog.Calls.NUMBER,
             CallLog.Calls.CACHED_NAME,
@@ -86,6 +115,14 @@ object CallLogReader {
             CallLog.Calls.DATE,
             CallLog.Calls.DURATION,
             CallLog.Calls.PHONE_ACCOUNT_ID
+        )
+        val baseProjection = arrayOf(
+            CallLog.Calls._ID,
+            CallLog.Calls.NUMBER,
+            CallLog.Calls.CACHED_NAME,
+            CallLog.Calls.TYPE,
+            CallLog.Calls.DATE,
+            CallLog.Calls.DURATION
         )
 
         val selectionParts = mutableListOf<String>()
@@ -100,23 +137,37 @@ object CallLogReader {
         }
         val selection = if (selectionParts.isNotEmpty()) selectionParts.joinToString(" AND ") else null
         val selectionArgs = if (selectionArgList.isNotEmpty()) selectionArgList.toTypedArray() else null
-        val sortOrder = if (limit != null && limit > 0) {
-            "${CallLog.Calls._ID} DESC LIMIT $limit"
-        } else {
-            "${CallLog.Calls._ID} DESC"
-        }
+        // Never append "LIMIT ..." to sortOrder: Android 11+ CallLogProvider rejects SQL tokens in sortOrder.
+        val sortOrder = "${CallLog.Calls._ID} DESC"
 
         val results = mutableListOf<NativeCallEntry>()
         var cursor: Cursor? = null
+        var scannedCount = 0
+        var minScannedRawId = Long.MAX_VALUE
+        var maxScannedRawId = 0L
+        var hasMore = false
+
         try {
-            cursor = context.contentResolver.query(
-                CallLog.Calls.CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                sortOrder
-            )
-            if (cursor == null) return emptyList()
+            cursor = try {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    fullProjection,
+                    selection,
+                    selectionArgs,
+                    sortOrder
+                )
+            } catch (_: IllegalArgumentException) {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    baseProjection,
+                    selection,
+                    selectionArgs,
+                    sortOrder
+                )
+            }
+            if (cursor == null) {
+                return CallLogPageResult(emptyList(), 0L, 0L, false)
+            }
 
             val idIdx = cursor.getColumnIndex(CallLog.Calls._ID)
             val numIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
@@ -128,6 +179,14 @@ object CallLogReader {
 
             while (cursor.moveToNext()) {
                 val rawId = if (idIdx >= 0) cursor.getLong(idIdx) else continue
+                if (limit != null && limit > 0 && scannedCount >= limit) {
+                    hasMore = true
+                    break
+                }
+                scannedCount += 1
+                if (rawId < minScannedRawId) minScannedRawId = rawId
+                if (rawId > maxScannedRawId) maxScannedRawId = rawId
+
                 val number = (if (numIdx >= 0) cursor.getString(numIdx) else null)?.trim()
                 if (number.isNullOrEmpty()) continue
 
@@ -156,15 +215,18 @@ object CallLogReader {
                 )
             }
         } catch (_: SecurityException) {
-            return emptyList()
-        } catch (_: Exception) {
-            return emptyList()
+            return CallLogPageResult(emptyList(), 0L, 0L, false)
         } finally {
             cursor?.close()
         }
 
-        // Return chronological ascending order (oldest -> newest) so callers can evaluate missed -> outgoing cleanly
-        return results.sortedBy { it.rawId }
+        val resolvedMin = if (minScannedRawId == Long.MAX_VALUE) 0L else minScannedRawId
+        return CallLogPageResult(
+            entries = results.sortedByDescending { it.rawId },
+            minScannedRawId = resolvedMin,
+            maxScannedRawId = maxScannedRawId,
+            hasMore = hasMore
+        )
     }
 
     private fun mapCallType(type: Int): String {

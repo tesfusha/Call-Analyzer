@@ -175,6 +175,7 @@ type NativeFileExportPlugin = {
     mimeType: string;
     base64Data: string;
     shareTitle?: string;
+    openShare?: boolean;
   }) => Promise<{ saved?: boolean; shared?: boolean; path?: string }>;
 };
 
@@ -369,8 +370,8 @@ export async function syncNativeCallLogIncremental(opts?: {
     return { calls: [], returnedCallIds: [], lastWebSyncedId: 0, maxCallId: 0 };
   }
 
-  const pageSize = Math.max(200, Math.min(5000, Math.round(opts?.pageSize ?? 2000)));
-  const maxPages = 250; // Up to 500,000 call logs without hitting WebView IPC limits
+  const pageSize = Math.max(200, Math.min(5000, Math.round(opts?.pageSize ?? 1000)));
+  const maxPages = 500; // Up to 500,000 call logs without hitting WebView IPC limits
   const allRawEntries: NativeCallLogEntry[] = [];
   const returnedIdSet = new Set<string>();
   let firstLastWebSyncedId = 0;
@@ -406,7 +407,7 @@ export async function syncNativeCallLogIncremental(opts?: {
 
     const hasMore = Boolean(res?.hasMore);
     const minCallId = Number(res?.minCallId) || 0;
-    if (!hasMore || rawList.length === 0 || minCallId <= 0) {
+    if (!hasMore || minCallId <= 0) {
       break;
     }
     if (typeof cursorBeforeId === 'number' && minCallId >= cursorBeforeId) {
@@ -792,6 +793,7 @@ export async function runNativeFileExport(opts: {
   mimeType: string;
   base64Data: string;
   shareTitle?: string;
+  openShare?: boolean;
 }): Promise<{ saved?: boolean; shared?: boolean; path?: string } | null> {
   const plugin = getCapacitor()?.Plugins?.FileExport;
   if (!plugin || typeof plugin.saveAndShare !== 'function') return null;

@@ -871,7 +871,7 @@ export function RemindersModal({
                         )}
                       </button>
 
-                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => snoozeScheduledCall(item.id, 15)}
@@ -964,7 +964,7 @@ export function RemindersModal({
                           {missed.sim ? ` · ${missed.sim}` : ''}
                         </p>
                       </button>
-                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() =>

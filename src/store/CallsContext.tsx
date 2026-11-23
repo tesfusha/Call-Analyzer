@@ -2876,7 +2876,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
           const hasFullHistorySynced = await getScopedWithLegacyMigration<boolean>(
             user.uid,
-            'fullHistorySyncedV2',
+            'fullHistorySyncedV3',
             false,
           );
           const effectiveFullResync = fullResync || !hasFullHistorySynced;
@@ -2891,8 +2891,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               await acknowledgeNativeSyncedCalls(result.maxCallId);
             }
           }
-          if (!hasFullHistorySynced) {
-            await idbSetScoped(user.uid, 'fullHistorySyncedV2', true);
+          if (!hasFullHistorySynced && (result.calls.length > 0 || perm?.callLog === 'granted')) {
+            await idbSetScoped(user.uid, 'fullHistorySyncedV3', true);
           }
 
           if (result.returnedCallIds.length > 0) {
@@ -2934,13 +2934,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
           if (counts.added > 0) {
             showNotice(
-              `Synced ${counts.added} call${counts.added === 1 ? '' : 's'} from your phone.`,
+              `Synced ${counts.added.toLocaleString()} call${counts.added === 1 ? '' : 's'} from your phone (${stateRef.current.calls.length.toLocaleString()} total).`,
               'success',
             );
           } else if (manual) {
             showNotice(
               result.calls.length > 0
-                ? `Phone call logs up to date (${result.calls.length} checked).`
+                ? `Phone call logs up to date (${result.calls.length.toLocaleString()} checked · ${stateRef.current.calls.length.toLocaleString()} in app).`
                 : 'Phone call logs are already up to date.',
               'tap',
             );

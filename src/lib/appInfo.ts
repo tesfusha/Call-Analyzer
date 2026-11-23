@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '2.5.2';
-export const APP_VERSION_CODE = 2;
+export const APP_VERSION_NAME = '2.5.3';
+export const APP_VERSION_CODE = 3;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Brand Logo, Mobile Modal Safe-Area & Contact Streak Fixes';
+export const APP_RELEASE_LABEL = 'Full Call Log Sync, Save PNG & Mobile Layout Fixes';
 export const GUIDE_SEEN_KEY = 'callanalyzer.guideSeen.v1';
 export const WHATS_NEW_SEEN_KEY = 'callanalyzer.whatsNewVersion.v1';
 export const UPDATE_VERSION_URL = 'https://youthful-limiter-kjk7s.web.app/version.json';
@@ -13,22 +13,22 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
-    id: 'streak-counting',
-    title: 'Accurate Daily & Contact Streaks',
+    id: 'clean-call-logs',
+    title: 'Complete Android Call Log Sync',
     detail:
-      'Contact streaks now count consecutive days for all incoming and outgoing calls (including short or 0s answered/placed calls), while keeping missed calls excluded.',
+      'Fixed Android 11+ call log query paging so older call history loads completely without stopping early on restricted or empty-number entries.',
+  },
+  {
+    id: 'streak-counting',
+    title: 'Save Streak Milestone PNGs to Pictures',
+    detail:
+      'Added native Android file saving so tapping Save PNG on 3-day and higher streak cards saves directly into Pictures/Call Analyzer - ETH.',
   },
   {
     id: 'mobile-modals',
-    title: 'Mobile Scroll, Score & Safe-Area Fixes',
+    title: 'Clean Mobile Button Wrapping & Layout',
     detail:
-      'Portaled Score, Contact Streaks, and detail sheets above scrolled content and added bottom safe-area spacing to stay clear of Android navigation buttons.',
-  },
-  {
-    id: 'brand-launcher',
-    title: 'Official App Logo & Dark Header Contrast',
-    detail:
-      'Replaced the Android launcher icon and splash screen with the Call Analyzer - ETH emblem and added a subtle border for dark mode visibility.',
+      'Fixed the Launch App Guide button placement in Settings and wrapped action button groups neatly on compact phone screens.',
   },
   {
     id: 'notification-actions',

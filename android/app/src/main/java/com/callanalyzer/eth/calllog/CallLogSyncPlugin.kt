@@ -147,36 +147,19 @@ class CallLogSyncPlugin : Plugin() {
                     else -> requestedLimit.coerceAtMost(5000)
                 }
 
-                val queryLimit = pageLimit?.plus(1)
-                val queriedDesc = CallLogReader.queryCallsAfterId(
+                val page = CallLogReader.queryCallsPage(
                     context = appContext,
                     afterId = lastWebId,
-                    limit = queryLimit,
+                    limit = pageLimit,
                     beforeId = beforeId
-                ).sortedByDescending { it.rawId }
-
-                val hasMore = pageLimit != null && queriedDesc.size > pageLimit
-                val pageEntries = if (hasMore && pageLimit != null) {
-                    queriedDesc.take(pageLimit)
-                } else {
-                    queriedDesc
-                }
+                )
 
                 val callsArr = JSArray()
-                var maxCallId = lastWebId
-                var minCallId = Long.MAX_VALUE
-                for (entry in pageEntries) {
+                for (entry in page.entries) {
                     callsArr.put(entry.toJson())
-                    if (entry.rawId > maxCallId) {
-                        maxCallId = entry.rawId
-                    }
-                    if (entry.rawId < minCallId) {
-                        minCallId = entry.rawId
-                    }
                 }
-                if (minCallId == Long.MAX_VALUE) {
-                    minCallId = 0L
-                }
+                val maxCallId = maxOf(lastWebId, page.maxScannedRawId)
+                val minCallId = page.minScannedRawId
 
                 val returnedArr = JSArray()
                 if (beforeId == null) {
@@ -191,7 +174,7 @@ class CallLogSyncPlugin : Plugin() {
                     put("lastWebSyncedId", lastWebId)
                     put("maxCallId", maxCallId)
                     put("minCallId", minCallId)
-                    put("hasMore", hasMore)
+                    put("hasMore", page.hasMore)
                 }
                 call.resolve(res)
             } catch (e: Exception) {
@@ -323,7 +306,7 @@ class CallLogSyncPlugin : Plugin() {
     }
 
     companion object {
-        private const val DEFAULT_SYNC_PAGE_SIZE = 2000
+        private const val DEFAULT_SYNC_PAGE_SIZE = 1000
 
         @Volatile
         private var activeInstance: WeakReference<CallLogSyncPlugin>? = null

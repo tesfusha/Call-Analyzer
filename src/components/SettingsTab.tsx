@@ -614,7 +614,7 @@ export function SettingsTab({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -922,7 +922,7 @@ export function SettingsTab({
       {/* About App, Version & Features */}
       <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-[220px] flex-1">
+          <div className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-auto">
             <BrandLogo size={40} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
@@ -939,7 +939,7 @@ export function SettingsTab({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
             {onCheckForUpdates && (
               <button
                 type="button"
@@ -1383,7 +1383,7 @@ export function SettingsTab({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => void handleAlertSetup()}
@@ -1487,7 +1487,7 @@ export function SettingsTab({
                 Exact alert after 5 or 10 minutes if a missed call isn&apos;t returned (works when app is closed)
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() =>

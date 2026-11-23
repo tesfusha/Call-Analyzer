@@ -255,10 +255,33 @@ export function drawMilestoneCardCanvas(
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error('Could not export canvas image.'));
-    }, 'image/png');
+    const fallbackToDataUrl = () => {
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64 = dataUrl.split(',')[1] ?? '';
+        if (!base64) {
+          reject(new Error('Could not export canvas image.'));
+          return;
+        }
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        resolve(new Blob([bytes], { type: 'image/png' }));
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error('Could not export canvas image.'));
+      }
+    };
+
+    if (typeof canvas.toBlob === 'function') {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else fallbackToDataUrl();
+      }, 'image/png');
+    } else {
+      fallbackToDataUrl();
+    }
   });
 }
 
@@ -278,10 +301,10 @@ function blobToBase64(blob: Blob): Promise<string> {
 export async function downloadMilestoneCardPng(
   canvas: HTMLCanvasElement,
   filename: string,
-): Promise<void> {
+): Promise<'native' | 'shared' | 'downloaded'> {
   const blob = await canvasToBlob(canvas);
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  await saveAndShareBytes(filename, bytes, 'image/png', filename);
+  return saveAndShareBytes(filename, bytes, 'image/png', filename, false);
 }
 
 export async function shareMilestoneCardImage(

@@ -1,3 +1,4 @@
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import { APP_VERSION } from '@/src/lib/appInfo';
 import {
   hasNativeFileExportPlugin,
@@ -274,22 +275,39 @@ export async function saveAndShareBytes(
   bytes: Uint8Array,
   mimeType: string,
   shareTitle?: string,
+  openShare = true,
 ): Promise<ExportDeliveryResult> {
   const baseMime = mimeType.split(';')[0]?.trim() || 'application/octet-stream';
+  const base64Data = isNativeCapacitor() ? uint8ToBase64(bytes) : '';
 
   if (isNativeCapacitor() && hasNativeFileExportPlugin()) {
     try {
       const res = await runNativeFileExport({
         filename,
         mimeType: baseMime,
-        base64Data: uint8ToBase64(bytes),
+        base64Data,
         shareTitle: shareTitle || filename,
+        openShare,
       });
       if (res?.saved || res?.shared) {
         return 'native';
       }
     } catch {
-      // fall through to Web Share / Blob fallback
+      // fall through to Capacitor Filesystem / Web Share fallback
+    }
+  }
+
+  if (isNativeCapacitor()) {
+    try {
+      await Filesystem.writeFile({
+        path: `Call Analyzer - ETH/${filename}`,
+        data: base64Data || uint8ToBase64(bytes),
+        directory: Directory.Documents,
+        recursive: true,
+      });
+      return 'native';
+    } catch {
+      // fall through to Web Share if available
     }
   }
 
@@ -313,8 +331,12 @@ export async function saveAndShareBytes(
       if ((err as { name?: string })?.name === 'AbortError') {
         return 'shared';
       }
-      // fall through to browser download
+      // fall through
     }
+  }
+
+  if (isNativeCapacitor()) {
+    throw new Error('Could not write file to Android device storage.');
   }
 
   const copy = new Uint8Array(bytes.byteLength);

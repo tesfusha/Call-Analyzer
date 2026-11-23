@@ -170,7 +170,7 @@ export function WelcomeHero({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 shrink-0">
+      <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
         {callsCount === 0 ? (
           <>
             {canSyncPhone && onSyncPhone ? (
