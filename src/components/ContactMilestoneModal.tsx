@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Award, Check, Download, Flame, Share2, ShieldCheck, Trophy, X } from 'lucide-react';
 import { triggerHaptic } from '@/src/lib/haptics';
@@ -142,7 +143,7 @@ export function ContactMilestoneModal({
 
   const canIncludeRealName = Boolean(rawSavedName) && !privacyMode;
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {milestone && (
         <motion.div
@@ -164,7 +165,7 @@ export function ContactMilestoneModal({
             role="dialog"
             aria-modal="true"
             aria-label={`${milestone.badgeTitle} celebration`}
-            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[92vh] overflow-hidden shadow-2xl"
+            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[92dvh] overflow-hidden shadow-2xl"
           >
             {/* Header */}
             <div className="px-5 py-4 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
@@ -192,7 +193,7 @@ export function ContactMilestoneModal({
             </div>
 
             {/* Body */}
-            <div className="p-5 overflow-y-auto overscroll-contain space-y-4 flex-1">
+            <div className="p-5 overflow-y-auto overscroll-contain space-y-4 flex-1 min-h-0">
               {/* Earned Points & Badge Summary */}
               <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 <div className="min-w-0 space-y-0.5">
@@ -295,7 +296,7 @@ export function ContactMilestoneModal({
             </div>
 
             {/* Footer Actions */}
-            <div className="px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/85 dark:bg-[var(--dark-canvas)]/75 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/85 dark:bg-[var(--dark-canvas)]/75 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <button
                 type="button"
                 disabled={saving}
@@ -331,4 +332,7 @@ export function ContactMilestoneModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

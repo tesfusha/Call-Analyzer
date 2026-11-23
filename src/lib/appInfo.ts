@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '2.5.1';
-export const APP_VERSION_CODE = 1;
+export const APP_VERSION_NAME = '2.5.2';
+export const APP_VERSION_CODE = 2;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Local-First Storage, Milestones, Update Notices & Privacy';
+export const APP_RELEASE_LABEL = 'Brand Logo, Mobile Modal Safe-Area & Contact Streak Fixes';
 export const GUIDE_SEEN_KEY = 'callanalyzer.guideSeen.v1';
 export const WHATS_NEW_SEEN_KEY = 'callanalyzer.whatsNewVersion.v1';
 export const UPDATE_VERSION_URL = 'https://youthful-limiter-kjk7s.web.app/version.json';
@@ -13,28 +13,28 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
-    id: 'clean-call-logs',
-    title: 'Streamlined Call Log Rows',
+    id: 'streak-counting',
+    title: 'Accurate Daily & Contact Streaks',
     detail:
-      'Call logs now show Name/Number · Tag · SIM1(ETC), Call Status · Duration · Time, and a multiple-call count icon, keeping cost and notes in Details.',
+      'Contact streaks now count consecutive days for all incoming and outgoing calls (including short or 0s answered/placed calls), while keeping missed calls excluded.',
+  },
+  {
+    id: 'mobile-modals',
+    title: 'Mobile Scroll, Score & Safe-Area Fixes',
+    detail:
+      'Portaled Score, Contact Streaks, and detail sheets above scrolled content and added bottom safe-area spacing to stay clear of Android navigation buttons.',
+  },
+  {
+    id: 'brand-launcher',
+    title: 'Official App Logo & Dark Header Contrast',
+    detail:
+      'Replaced the Android launcher icon and splash screen with the Call Analyzer - ETH emblem and added a subtle border for dark mode visibility.',
   },
   {
     id: 'notification-actions',
-    title: 'Instant Notification Action Replies',
+    title: 'Instant Notification Replies & Privacy',
     detail:
-      'Call, +15 Min, Snooze, Wish, Remind later, View, Clear, and Mute buttons execute directly from the notification shade.',
-  },
-  {
-    id: 'profile-avatars',
-    title: 'Profile Editor, Avatars & Quick Contact Share',
-    detail:
-      'Fixed Edit Profile modal layout, added responsive Account buttons, alohe/avatars collections, password updates, and .vcf contact sharing.',
-  },
-  {
-    id: 'smart-rules',
-    title: 'Modern Special Events, Wishes & Quiet Rules',
-    detail:
-      'One-tap Anniversary & Event presets with Ethiopian/Gregorian Month & Day selectors, Birthday/Holiday-only Wish, and 5-call / 7-day rules.',
+      'One-tap callback and reminder actions, local-first IndexedDB storage, Privacy Mode masking, and shareable contact milestone cards.',
   },
 ] as const;
 

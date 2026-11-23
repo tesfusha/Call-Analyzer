@@ -10,6 +10,7 @@ import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 
@@ -215,6 +216,7 @@ object CallLogReader {
                 }
             }
 
+            val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
             val accounts: List<PhoneAccountHandle> = try {
                 telecom?.callCapablePhoneAccounts ?: emptyList()
@@ -226,10 +228,11 @@ object CallLogReader {
                 val handleId = handle.id?.trim() ?: return@forEachIndexed
                 var resolvedSlot: String? = map[handleId] ?: map[handleId.lowercase()]
 
-                if (resolvedSlot == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && subManager != null) {
+                if (resolvedSlot == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && telephonyManager != null) {
                     try {
-                        val subId = subManager.getSubscriptionId(handle)
-                        if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                        val phoneAccountTelephony = telephonyManager.createForPhoneAccountHandle(handle)
+                        val subId = phoneAccountTelephony?.subscriptionId
+                        if (subId != null && subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
                             resolvedSlot = map[subId.toString()]
                         }
                     } catch (_: Exception) {

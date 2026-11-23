@@ -1,10 +1,14 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BellRing,
   CheckCircle2,
+  Flame,
   HeartHandshake,
   Phone,
+  ShieldCheck,
+  Smartphone,
   Sparkles,
   UserCog,
   X,
@@ -19,6 +23,9 @@ import {
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 const NOTE_ICONS = {
+  'streak-counting': Flame,
+  'mobile-modals': Smartphone,
+  'brand-launcher': ShieldCheck,
   'clean-call-logs': Phone,
   'notification-actions': BellRing,
   'smart-rules': HeartHandshake,
@@ -46,7 +53,7 @@ export function WhatsNewModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {open && (
         <motion.div
@@ -56,7 +63,7 @@ export function WhatsNewModal({
           exit={{ opacity: 0 }}
           transition={{ duration: prefersReducedMotion ? 0.1 : 0.16 }}
           onClick={onClose}
-          className="fixed inset-0 z-50 bg-black/55 flex items-center justify-center p-3 sm:p-4 overscroll-contain"
+          className="fixed inset-0 z-50 bg-black/55 flex items-center justify-center p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-4 overscroll-contain"
         >
           <motion.div
             initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.98 }}
@@ -67,7 +74,7 @@ export function WhatsNewModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="whats-new-title"
-            className="w-full max-w-lg rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-xl overflow-hidden flex flex-col max-h-[88vh]"
+            className="w-full max-w-lg rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-xl overflow-hidden flex flex-col max-h-[88dvh]"
           >
             {/* Pinned Header */}
             <div className="px-5 py-4 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
@@ -103,7 +110,7 @@ export function WhatsNewModal({
             </div>
 
             {/* Scrollable Body */}
-            <div className="p-5 overflow-y-auto space-y-3 flex-1">
+            <div className="p-5 overflow-y-auto overscroll-contain space-y-3 flex-1 min-h-0">
               <div className="rounded-xl bg-[#FFF0E6]/70 dark:bg-[#FF6A00]/10 border border-[#FF6A00]/25 px-3.5 py-2.5 flex items-center gap-2.5">
                 <CheckCircle2 size={16} className="text-[#FF6A00] shrink-0" />
                 <p className="text-xs font-medium text-[#08246B] dark:text-white">
@@ -166,4 +173,7 @@ export function WhatsNewModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

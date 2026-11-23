@@ -341,6 +341,19 @@ function AppShell() {
     let pullAnchorY: number | null = null;
     let currentOffset = 0;
     let wasAtBottom = false;
+    let clearTransformTimer: number | null = null;
+
+    const clearInlineTransform = () => {
+      if (clearTransformTimer !== null) {
+        window.clearTimeout(clearTransformTimer);
+        clearTransformTimer = null;
+      }
+      const el = mainContentRef.current;
+      if (el) {
+        el.style.transform = '';
+        el.style.transition = '';
+      }
+    };
 
     const resetTransform = () => {
       const el = mainContentRef.current;
@@ -348,22 +361,49 @@ function AppShell() {
         pullAnchorY = null;
         return;
       }
-      el.style.transition = 'transform 400ms cubic-bezier(0.22, 1, 0.36, 1)';
+      if (clearTransformTimer !== null) {
+        window.clearTimeout(clearTransformTimer);
+      }
+      el.style.transition = 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)';
       el.style.transform = 'translate3d(0, 0, 0)';
       currentOffset = 0;
       pullAnchorY = null;
+      clearTransformTimer = window.setTimeout(() => {
+        clearTransformTimer = null;
+        const target = mainContentRef.current;
+        if (target && currentOffset === 0) {
+          target.style.transform = '';
+          target.style.transition = '';
+        }
+      }, 280);
+    };
+
+    const isOverlayActive = (target?: EventTarget | null) => {
+      if (document.body.style.position === 'fixed') return true;
+      if (target instanceof Element && target.closest('[role="dialog"], [aria-modal="true"]')) {
+        return true;
+      }
+      return false;
     };
 
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1 || isOverlayActive(e.target)) return;
       lastY = e.touches[0].clientY;
       pullAnchorY = null;
+      if (clearTransformTimer !== null) {
+        window.clearTimeout(clearTransformTimer);
+        clearTransformTimer = null;
+      }
       const el = mainContentRef.current;
       if (el) el.style.transition = 'none';
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+      if (isOverlayActive(e.target)) {
+        if (currentOffset !== 0) resetTransform();
+        return;
+      }
       const el = mainContentRef.current;
       if (!el) return;
 
@@ -397,6 +437,7 @@ function AppShell() {
     };
 
     const onScroll = () => {
+      if (isOverlayActive()) return;
       const docEl = document.documentElement;
       const maxScroll = Math.max(0, docEl.scrollHeight - window.innerHeight);
       const atBottomNow = maxScroll > 120 && window.scrollY >= maxScroll - 2;
@@ -429,6 +470,7 @@ function AppShell() {
       window.removeEventListener('touchend', resetTransform);
       window.removeEventListener('touchcancel', resetTransform);
       window.removeEventListener('scroll', onScroll);
+      clearInlineTransform();
     };
   }, [
     prefersReducedMotion,

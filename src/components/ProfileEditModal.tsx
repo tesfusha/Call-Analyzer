@@ -195,7 +195,7 @@ export function ProfileEditModal({
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
             transition={{ duration: prefersReducedMotion ? 0.12 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90vh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90dvh] overflow-hidden shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -257,7 +257,7 @@ export function ProfileEditModal({
             </div>
 
             {/* Scrollable Body */}
-            <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
+            <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-5">
               <CategoryPanel activeKey={activeTab} label={activeHeading} transitionStyle="fade" className="space-y-4">
                 <div className="pb-2 border-b border-[#DDE4EA]/70 dark:border-[var(--dark-border)]">
                   <h3 className="text-sm font-bold text-[#08246B] dark:text-white">
@@ -477,7 +477,7 @@ export function ProfileEditModal({
 
             {/* Pinned Footer for Profile & Avatar Tabs */}
             {activeTab !== 'password' && (
-              <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/90 dark:bg-[var(--dark-canvas)]/90">
+              <div className="shrink-0 flex items-center justify-end gap-2 px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/90 dark:bg-[var(--dark-canvas)]/90">
                 <button
                   type="button"
                   onClick={onClose}

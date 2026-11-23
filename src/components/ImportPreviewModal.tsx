@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
@@ -92,7 +93,7 @@ export function ImportPreviewModal({
       ]
     : [];
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {pending && preview && (
         <motion.div
@@ -114,7 +115,7 @@ export function ImportPreviewModal({
             role="dialog"
             aria-modal="true"
             aria-label="Import Preview"
-            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[88vh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[88dvh] overflow-hidden shadow-xl"
           >
             {/* Header */}
             <div className="px-5 py-4 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
@@ -143,7 +144,7 @@ export function ImportPreviewModal({
             </div>
 
             {/* Body */}
-            <div className="p-5 overflow-y-auto overscroll-contain space-y-4 flex-1">
+            <div className="p-5 overflow-y-auto overscroll-contain space-y-4 flex-1 min-h-0">
               {preview.newerSchemaWarning && (
                 <div className="rounded-xl bg-[#F59E0B]/12 border border-[#F59E0B]/35 px-3.5 py-2.5 flex items-start gap-2.5 text-xs text-[#08246B] dark:text-white">
                   <AlertTriangle size={15} className="text-[#F59E0B] mt-0.5 shrink-0" />
@@ -249,7 +250,7 @@ export function ImportPreviewModal({
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-end gap-2 shrink-0">
+            <div className="px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-end gap-2 shrink-0">
               <button
                 type="button"
                 onClick={onClose}
@@ -278,4 +279,7 @@ export function ImportPreviewModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

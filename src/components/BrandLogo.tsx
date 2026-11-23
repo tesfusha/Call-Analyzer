@@ -25,15 +25,19 @@ export function BrandLogo({
   }
 
   return (
-    <img
-      src={BRAND_LOGO_SRC}
-      alt="Call Analyzer - ETH logo"
-      width={size}
-      height={size}
-      referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
+    <div
       style={{ width: size, height: size }}
-      className={`bg-transparent object-contain shrink-0 ${className}`}
-    />
+      className={`rounded-[22%] overflow-hidden bg-[#02124F] border border-[#DDE4EA]/80 dark:border-white/25 shadow-sm shrink-0 flex items-center justify-center ${className}`}
+    >
+      <img
+        src={BRAND_LOGO_SRC}
+        alt="Call Analyzer - ETH logo"
+        width={size}
+        height={size}
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className="w-full h-full object-cover scale-[1.04]"
+      />
+    </div>
   );
 }

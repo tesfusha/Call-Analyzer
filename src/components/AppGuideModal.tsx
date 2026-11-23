@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BarChart3,
@@ -286,7 +287,7 @@ export function AppGuideModal({
   const StepIcon = step.icon;
   const isLast = stepIndex === GUIDE_STEPS.length - 1;
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {open && (
         <motion.div
@@ -308,7 +309,7 @@ export function AppGuideModal({
             role="dialog"
             aria-modal="true"
             aria-label={`${APP_NAME} Interactive Guide`}
-            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90vh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90dvh] overflow-hidden shadow-xl"
           >
             {/* Header */}
             <div className="px-5 pt-5 pb-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
@@ -383,7 +384,7 @@ export function AppGuideModal({
             </div>
 
             {/* Footer Navigation */}
-            <div className="px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-between gap-3 shrink-0">
+            <div className="px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-1.5" role="tablist" aria-label="Guide steps">
                 {GUIDE_STEPS.map((s, idx) => {
                   const active = idx === stepIndex;
@@ -446,4 +447,7 @@ export function AppGuideModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

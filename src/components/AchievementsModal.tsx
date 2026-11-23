@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Award,
@@ -135,7 +136,7 @@ export function AchievementsModal({
     return entry.label;
   };
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {open && (
         <motion.div
@@ -157,7 +158,7 @@ export function AchievementsModal({
             role="dialog"
             aria-modal="true"
             aria-label="Streaks, Score and Achievements"
-            className="w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90vh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[88dvh] overflow-hidden shadow-xl"
           >
             {/* Header */}
             <div className="px-5 pt-4 pb-3 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3 shrink-0">
@@ -230,7 +231,7 @@ export function AchievementsModal({
             </div>
 
             {/* Body */}
-            <div className="p-5 overflow-y-auto overscroll-contain space-y-5 flex-1">
+            <div className="p-5 overflow-y-auto overscroll-contain space-y-5 flex-1 min-h-0">
               {tab === 'general' ? (
                 <>
                   {/* Summary Metrics */}
@@ -474,7 +475,7 @@ export function AchievementsModal({
                       How Per-Contact Streaks &amp; Badges Work
                     </h3>
                     <p className="text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      A day counts with a contact when at least one incoming or outgoing call lasts above 0 seconds (East Africa Time UTC+3). Milestones unlock at{' '}
+                      A day counts with a contact when you have at least one incoming or outgoing call (East Africa Time UTC+3). Milestones unlock at{' '}
                       <span className="font-mono font-semibold text-[#08246B] dark:text-white">
                         {CONTACT_BADGE_DEFINITIONS.map((b) => `${b.days}d`).join(' · ')}
                       </span>
@@ -485,7 +486,7 @@ export function AchievementsModal({
                   {/* Contact Status List */}
                   {topContactStatuses.length === 0 ? (
                     <div className="rounded-xl bg-[#EEF2F6]/70 dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 text-center text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      No connected contact streaks yet. Incoming or outgoing calls over 0 seconds will start building streaks, scores, and badges for each contact.
+                      No contact streaks yet. Incoming or outgoing calls will start building streaks, scores, and badges for each contact.
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden bg-white dark:bg-[var(--dark-canvas)]">
@@ -579,7 +580,7 @@ export function AchievementsModal({
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-end shrink-0">
+            <div className="px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70 flex items-center justify-end shrink-0">
               <button
                 type="button"
                 onClick={onClose}
@@ -593,4 +594,7 @@ export function AchievementsModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

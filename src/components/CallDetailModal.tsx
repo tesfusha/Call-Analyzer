@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Clock, FileText, Phone, Plus, Star, Tag, Trash2, User, X } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
@@ -108,7 +109,7 @@ export function CallDetailModal({
     ? formatDisplayNameOrPhone(call.name, call.number, privacyMode)
     : '';
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {call && (
         <motion.div
@@ -126,7 +127,7 @@ export function CallDetailModal({
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
             transition={{ duration: prefersReducedMotion ? 0.12 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col h-[82vh] sm:h-[580px] max-h-[90vh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col h-[82dvh] sm:h-[580px] max-h-[90dvh] overflow-hidden shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -465,7 +466,7 @@ export function CallDetailModal({
             </div>
 
             {/* Pinned Footer Actions */}
-            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70">
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/80 dark:bg-[var(--dark-canvas)]/70">
               {!confirmDelete ? (
                 <button
                   type="button"
@@ -520,4 +521,7 @@ export function CallDetailModal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

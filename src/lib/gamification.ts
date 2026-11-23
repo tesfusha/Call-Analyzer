@@ -394,7 +394,7 @@ export function buildEmptyContactStatus(
     nextMilestoneDays: CONTACT_MILESTONE_DAYS[0],
     daysToNextMilestone: CONTACT_MILESTONE_DAYS[0],
     statusHeadline: 'No streak yet',
-    statusSubtext: 'Talk >0s (incoming or outgoing) to start',
+    statusSubtext: 'Call or answer (incoming or outgoing) to start',
     badges,
     earnedBadgesCount: 0,
   };
@@ -473,7 +473,7 @@ export function computeContactStatuses(
       bucket.outgoingCalls.push(call);
     }
 
-    if (call.duration > 0 && (call.direction === 'incoming' || call.direction === 'outgoing')) {
+    if (call.direction === 'incoming' || call.direction === 'outgoing') {
       bucket.totalConnectedCalls += 1;
       const eatDate = toEatDateString(call.timestamp);
       const flags = bucket.dayDirections.get(eatDate) ?? { incoming: false, outgoing: false };
@@ -603,7 +603,7 @@ export function computeContactStatuses(
       [...badges].reverse().find((b) => currentStreak >= b.days) ?? null;
 
     let statusHeadline = 'No streak yet';
-    let statusSubtext = 'Talk >0s (incoming or outgoing) to start';
+    let statusSubtext = 'Call or answer (incoming or outgoing) to start';
 
     if (currentStreak >= 3) {
       statusHeadline = `You made ${currentStreak} days!`;
@@ -617,11 +617,11 @@ export function computeContactStatuses(
     } else if (longestStreak >= 3) {
       statusHeadline = `Best: ${longestStreak} days`;
       statusSubtext = highestEarnedBadge
-        ? `${highestEarnedBadge.title} earned · Call today (>0s) to restart`
-        : 'Streak paused · Call today (>0s) to restart';
+        ? `${highestEarnedBadge.title} earned · Call today to restart`
+        : 'Streak paused · Call today to restart';
     } else if (totalConnectedDays > 0) {
       statusHeadline = `${totalConnectedDays} connected day${totalConnectedDays === 1 ? '' : 's'}`;
-      statusSubtext = 'Talk consecutive days (>0s) to unlock 3 Days Connected';
+      statusSubtext = 'Call consecutive days to unlock 3 Days Connected';
     }
 
     result[key] = {

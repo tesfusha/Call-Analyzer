@@ -1,7 +1,7 @@
 {
-  "versionCode": 1,
-  "versionName": "2.5.1",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.1.apk",
-  "notes": "Local-first IndexedDB storage, contact milestones & shareable cards, privacy mode masking, and update notifications.",
+  "versionCode": 2,
+  "versionName": "2.5.2",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.2.apk",
+  "notes": "Official app logo & Android launcher icon, Score & Contact Streaks modal scroll/safe-area fixes, and contact streak support for all incoming/outgoing calls including 0s calls.",
   "mandatory": false
 }

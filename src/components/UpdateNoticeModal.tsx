@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Download, ExternalLink, Info, ShieldAlert, X } from 'lucide-react';
 import { APP_VERSION_CODE, APP_VERSION_NAME } from '@/src/lib/appInfo';
@@ -26,7 +27,7 @@ export function UpdateNoticeModal({ update, onDismiss }: UpdateNoticeModalProps)
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, mandatory, onDismiss]);
 
-  return (
+  const modalContent = (
     <AnimatePresence>
       {update && (
         <motion.div
@@ -50,7 +51,7 @@ export function UpdateNoticeModal({ update, onDismiss }: UpdateNoticeModalProps)
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
             transition={{ duration: prefersReducedMotion ? 0.1 : 0.2, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 shadow-xl space-y-4"
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 max-h-[90dvh] overflow-y-auto overscroll-contain shadow-xl space-y-4"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
@@ -131,4 +132,7 @@ export function UpdateNoticeModal({ update, onDismiss }: UpdateNoticeModalProps)
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }

@@ -74,8 +74,8 @@ export const BADGE_DEFINITIONS: readonly BadgeDefinition[] = [
 
 /**
  * Single constant governing whether a contact-streak day (EAT UTC+3) requires:
- * - 'any_connected': at least one incoming or outgoing call with duration > 0s
- * - 'both_directions': both an incoming (>0s) and an outgoing (>0s) call on that day
+ * - 'any_connected': at least one incoming or outgoing call on that day
+ * - 'both_directions': both an incoming and an outgoing call on that day
  */
 export const CONTACT_STREAK_DAY_RULE: 'any_connected' | 'both_directions' = 'any_connected';
 

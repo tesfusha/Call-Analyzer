@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BatteryCharging,
   BellRing,
@@ -132,9 +133,9 @@ export function AndroidPermissionsModal({
     onClose();
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto overscroll-contain"
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain"
       onClick={onClose}
     >
       <div
@@ -142,7 +143,7 @@ export function AndroidPermissionsModal({
         aria-modal="true"
         aria-labelledby="android-setup-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 sm:p-6 space-y-5 shadow-xl my-auto"
+        className="w-full max-w-lg rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 sm:p-6 space-y-5 shadow-xl my-auto max-h-[90dvh] overflow-y-auto overscroll-contain"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -354,4 +355,7 @@ export function AndroidPermissionsModal({
       </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+  return createPortal(modalContent, document.body);
 }
