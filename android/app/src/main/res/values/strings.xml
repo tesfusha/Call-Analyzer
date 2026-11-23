@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Call Analyzer - ETH</string>
+    <string name="title_activity_main">Call Analyzer - ETH</string>
+    <string name="package_name">com.callanalyzer.eth</string>
+    <string name="custom_url_scheme">com.callanalyzer.eth</string>
+</resources>

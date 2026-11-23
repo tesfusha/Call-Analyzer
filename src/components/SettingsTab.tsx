@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpDown,
+  Award,
   Bell,
   Calendar,
   CheckCircle2,
@@ -12,6 +13,7 @@ import {
   EyeOff,
   FileDown,
   FileText,
+  Flame,
   HelpCircle,
   Info,
   Lock,
@@ -25,22 +27,28 @@ import {
   Smartphone,
   Sparkles,
   Trash2,
+  Trophy,
   Type,
   Upload,
   User,
   UserPlus,
+  Users,
 } from 'lucide-react';
+import { AchievementsModal } from '@/src/components/AchievementsModal';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { CategoryPanel, CategoryTabs } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
+import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { ProfileEditModal } from '@/src/components/ProfileEditModal';
+import { BADGE_DEFINITIONS, POINTS_CONFIG } from '@/src/lib/gamificationConstants';
 import {
   APP_FEATURES,
   APP_NAME,
   APP_PRIVACY_NOTE,
   APP_RELEASE_LABEL,
   APP_VERSION,
+  APP_VERSION_CODE,
 } from '@/src/lib/appInfo';
 import {
   isContactPickerSupported,
@@ -51,20 +59,22 @@ import {
 } from '@/src/lib/contacts';
 import { CARRIER_PRESETS } from '@/src/lib/ethiopia';
 import {
+  buildVersionedBackupJson,
   callsToCsv,
   callsToHtmlReport,
-  callsToJson,
   downloadTextFile,
   shareContactVcard,
 } from '@/src/lib/export';
 import { formatTime } from '@/src/lib/format';
 import { isHapticsEnabled, setHapticsEnabledStorage, triggerHaptic } from '@/src/lib/haptics';
-import { parseCallImport } from '@/src/lib/import';
+import { hasNativeCallLogSyncPlugin, isNativeCapacitor } from '@/src/lib/capacitor';
+import { buildImportPreview, parseBackupImport } from '@/src/lib/import';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
 
 const CALLBACK_DELAY_OPTIONS = [15, 30, 60, 120];
+const MISSED_CALL_REMINDER_DELAYS = [5, 10] as const;
 const EVENT_LEAD_OPTIONS = [0, 3, 7, 14];
 const QUIET_DAYS_OPTIONS = [14, 30, 45];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -119,14 +129,24 @@ export function SettingsTab({
   onOpenReminders,
   onOpenGuide,
   onOpenWhatsNew,
+  onOpenAndroidSetup,
+  onSelectContact,
+  onCheckForUpdates,
 }: {
   onOpenReminders: () => void;
   onOpenGuide?: () => void;
   onOpenWhatsNew?: () => void;
+  onOpenAndroidSetup?: () => void;
+  onSelectContact?: (number: string) => void;
+  onCheckForUpdates?: () => Promise<void>;
 }) {
   const {
     calls,
     contacts,
+    scheduledCalls,
+    favorites,
+    dismissedMissedIds,
+    mutedAlertKeys,
     tariffs,
     setTariffs,
     simLabels,
@@ -135,6 +155,7 @@ export function SettingsTab({
     setCalendarPrefs,
     reminderPrefs,
     setReminderPrefs,
+    voiceBundles,
     theme,
     themePreference,
     systemIsDark,
@@ -165,10 +186,21 @@ export function SettingsTab({
     syncStatus,
     lastSyncedAt,
     signOutAccount,
+    deleteAllLocalData,
     syncNow,
-    importCalls,
+    canSyncPhoneCalls,
+    availableTags,
+    customTags,
+    streaks,
+    effectiveStreaks,
+    badges,
+    pointsHistory,
+    score,
+    topContactStatuses,
+    contactMilestones,
+    rebuildScore,
+    importBackupPackage,
     importContactProfiles,
-    loadSampleData,
     clearCalls,
     showNotice,
   } = useCalls();
@@ -185,8 +217,13 @@ export function SettingsTab({
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [achievementsTab, setAchievementsTab] = useState<'general' | 'contacts'>('general');
+  const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
   const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() => isHapticsEnabled());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -210,20 +247,52 @@ export function SettingsTab({
     if (!file) return;
     try {
       const text = await readUploadedTextFile(file);
-      const result = parseCallImport(text, file.name);
-      if (result.calls.length === 0) {
-        showNotice(result.problems[0] ?? 'No valid calls found.');
+      const pkg = parseBackupImport(text, file.name);
+      const preview = buildImportPreview(file.name, pkg, {
+        calls,
+        contacts,
+        availableTags,
+        scheduledCalls,
+      });
+      if (
+        preview.totalRowsEvaluated === 0 &&
+        !preview.isBackup &&
+        preview.problems.length > 0
+      ) {
+        showNotice(preview.problems[0]);
         return;
       }
-      const counts = importCalls(result.calls);
-      showNotice(
-        `Imported ${counts.added} call${counts.added === 1 ? '' : 's'}${
-          counts.duplicates > 0 ? ` · ${counts.duplicates} duplicates skipped` : ''
-        }`,
-      );
+      setPendingImport({ pkg, preview });
     } catch {
       showNotice('Could not read the selected file.');
     }
+  };
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) return;
+    const counts = importBackupPackage(pendingImport.pkg);
+    setPendingImport(null);
+    const parts: string[] = [];
+    if (counts.callsAdded > 0) {
+      parts.push(`Imported ${counts.callsAdded} call${counts.callsAdded === 1 ? '' : 's'}`);
+    } else if (counts.callsMerged > 0) {
+      parts.push(
+        `Merged notes/tags on ${counts.callsMerged} existing call${counts.callsMerged === 1 ? '' : 's'}`,
+      );
+    } else if (counts.restoredSections.length > 0) {
+      parts.push(`Restored ${counts.restoredSections.join(', ')}`);
+    } else {
+      parts.push('No new calls added');
+    }
+    if (counts.callsDuplicates > 0) {
+      parts.push(
+        `${counts.callsDuplicates} duplicate${counts.callsDuplicates === 1 ? '' : 's'} skipped`,
+      );
+    }
+    showNotice(
+      parts.join(' · '),
+      counts.callsAdded > 0 || counts.restoredSections.length > 0 ? 'success' : 'tap',
+    );
   };
 
   const handleContactsFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -351,7 +420,7 @@ export function SettingsTab({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv,.json,text/csv,application/json"
+        accept=".csv,.json,.txt,text/csv,application/json,text/plain"
         className="hidden"
         onChange={handleImport}
       />
@@ -389,135 +458,292 @@ export function SettingsTab({
             <>
               {/* Account & Cloud Sync */}
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            {effectivePhotoUrl ? (
-              <img
-                src={effectivePhotoUrl}
-                alt={effectiveDisplayName}
-                referrerPolicy="no-referrer"
-                className="w-11 h-11 rounded-full object-cover border border-[#DDE4EA] dark:border-[var(--dark-border)] shrink-0"
-              />
-            ) : (
-              <div className="w-11 h-11 rounded-full bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                <Cloud size={20} />
-              </div>
-            )}
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
-                {authLoading
-                  ? 'Checking account...'
-                  : authUser
-                    ? effectiveDisplayName
-                    : isGuest
-                      ? 'Guest Mode (Sample Preview)'
-                      : 'Sign in required'}
-              </h2>
-              <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] break-words">
-                {authUser ? (
-                  <>
-                    {authUser.email}
-                    {userPhone ? ` · ${maskPhoneNumber(userPhone, privacyMode)}` : ''}
-                    {authProvider ? ` · ${authProvider === 'google' ? 'Google' : 'Email'}` : ''}
-                    {' · '}
-                    {syncStatus === 'syncing'
-                      ? 'Syncing...'
-                      : syncStatus === 'error'
-                        ? 'Sync attention needed'
-                        : lastSyncedAt
-                          ? `Synced ${formatTime(lastSyncedAt)}`
-                          : 'Cloud sync active'}
-                    {' · All data & contacts belong to this account'}
-                  </>
-                ) : isGuest ? (
-                  'Viewing sample calls & contacts. Login or create an account to import your own data and save across devices.'
-                ) : (
-                  'Sign in or create an account to access your private calls, contacts, schedules, and settings.'
-                )}
-              </p>
+        <div className="flex items-start gap-3.5 min-w-0">
+          {effectivePhotoUrl ? (
+            <img
+              src={effectivePhotoUrl}
+              alt={effectiveDisplayName}
+              referrerPolicy="no-referrer"
+              className="w-12 h-12 rounded-full object-cover border border-[#DDE4EA] dark:border-[var(--dark-border)] shrink-0"
+            />
+          ) : (
+            <div className="w-12 h-12 rounded-full bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+              <Cloud size={22} />
             </div>
+          )}
+          <div className="flex-1 min-w-0 space-y-1">
+            <h2 className="text-base font-semibold text-[#08246B] dark:text-white truncate">
+              {authLoading
+                ? 'Checking account...'
+                : authUser
+                  ? effectiveDisplayName
+                  : isGuest
+                    ? 'Guest Mode (Sample Preview)'
+                    : 'Sign in required'}
+            </h2>
+            <p className="text-xs leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              {authUser ? (
+                <>
+                  <span className="font-medium text-[#08246B] dark:text-white/90 break-all sm:break-normal">
+                    {authUser.email}
+                  </span>
+                  {userPhone ? ` · ${maskPhoneNumber(userPhone, privacyMode)}` : ''}
+                  {authProvider ? ` · ${authProvider === 'google' ? 'Google' : 'Email'}` : ''}
+                  {' · '}
+                  {syncStatus === 'syncing'
+                    ? 'Syncing...'
+                    : syncStatus === 'error'
+                      ? 'Sync attention needed'
+                      : lastSyncedAt
+                        ? `Synced ${formatTime(lastSyncedAt)}`
+                        : 'Cloud sync active'}
+                  {' · All data & contacts belong to this account'}
+                </>
+              ) : isGuest ? (
+                'Viewing sample calls & contacts. Login or create an account to import your own data and save across devices.'
+              ) : (
+                'Sign in or create an account to access your private calls, contacts, schedules, and settings.'
+              )}
+            </p>
           </div>
+        </div>
 
-          <div
-            className={
-              authUser
-                ? 'grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto shrink-0'
-                : 'flex flex-wrap items-center gap-2 shrink-0'
-            }
-          >
-            {authUser ? (
-              <>
+        <div
+          className={
+            authUser
+              ? 'pt-1 grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2'
+              : 'pt-1 flex flex-wrap items-center gap-2'
+          }
+        >
+          {authUser ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setProfileModalOpen(true)}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
+              >
+                <Edit3 size={14} />
+                Edit Profile
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleShareMyContact()}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
+              >
+                <Share2 size={14} className="text-[#FF6A00]" />
+                Share Contact
+              </button>
+              <button
+                type="button"
+                onClick={() => void syncNow()}
+                disabled={syncStatus === 'syncing'}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
+              >
+                <RefreshCw size={14} className={syncStatus === 'syncing' ? 'animate-spin' : ''} />
+                Sync now
+              </button>
+              <button
+                type="button"
+                onClick={() => void signOutAccount()}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
+              >
+                <LogOut size={14} />
+                Sign out
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={authLoading}
+                onClick={() => openAuthPrompt('signin')}
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <LogIn size={15} />
+                Login
+              </button>
+              <button
+                type="button"
+                disabled={authLoading}
+                onClick={() => openAuthPrompt('signup')}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <UserPlus size={15} />
+                Create Account
+              </button>
+              {isGuest && (
                 <button
                   type="button"
-                  onClick={() => setProfileModalOpen(true)}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
+                  onClick={exitGuestMode}
+                  className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white whitespace-nowrap shrink-0 transition-colors"
                 >
-                  <Edit3 size={14} />
-                  Edit Profile
+                  Exit Guest
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void handleShareMyContact()}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
-                >
-                  <Share2 size={14} className="text-[#FF6A00]" />
-                  Share Contact
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void syncNow()}
-                  disabled={syncStatus === 'syncing'}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
-                >
-                  <RefreshCw size={14} className={syncStatus === 'syncing' ? 'animate-spin' : ''} />
-                  Sync now
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void signOutAccount()}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
-                >
-                  <LogOut size={14} />
-                  Sign out
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={authLoading}
-                  onClick={() => openAuthPrompt('signin')}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-                >
-                  <LogIn size={15} />
-                  Login
-                </button>
-                <button
-                  type="button"
-                  disabled={authLoading}
-                  onClick={() => openAuthPrompt('signup')}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-                >
-                  <UserPlus size={15} />
-                  Create Account
-                </button>
-                {isGuest && (
-                  <button
-                    type="button"
-                    onClick={exitGuestMode}
-                    className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    Exit Guest
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
+      {/* General Score, Daily Streak, Contact Streaks & Achievements */}
+      {!isGuest && authUser && (() => {
+        const topContact = topContactStatuses[0] ?? null;
+        const activeContactCount = topContactStatuses.filter((c) => c.currentStreak > 0).length;
+        const milestoneContactsCount = topContactStatuses.filter((c) => c.longestStreak >= 3).length;
+        const maskedTopName = topContact
+          ? formatDisplayNameOrPhone(
+              topContact.displayName,
+              topContact.number,
+              privacyMode,
+            )
+          : '';
+        return (
+          <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Trophy size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
+                    General Score &amp; Badges
+                  </h2>
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Stored locally in IndexedDB · East Africa Time (UTC+3)
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('tap');
+                    const rebuilt = rebuildScore();
+                    showNotice(`Score rebuilt: ${rebuilt} pts.`, 'success');
+                  }}
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                >
+                  <RefreshCw size={13} className="text-[#FF6A00]" />
+                  Rebuild
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('tap');
+                    setAchievementsTab('general');
+                    setAchievementsOpen(true);
+                  }}
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                >
+                  <Award size={14} />
+                  View History &amp; Badges
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
+                <p className="text-lg font-mono font-bold tabular-nums text-[#FF6A00]">
+                  {score}
+                </p>
+                <p className="text-[11px] font-semibold text-[#08246B] dark:text-white">
+                  General Score (pts)
+                </p>
+              </div>
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
+                <p className="text-lg font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-center gap-1">
+                  <Flame size={15} className="text-[#FF6A00]" />
+                  <span>{effectiveStreaks.currentStreak}d</span>
+                </p>
+                <p className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Daily Streak (Best {effectiveStreaks.longestStreak}d)
+                </p>
+              </div>
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
+                <p className="text-lg font-mono font-bold tabular-nums text-[#10B981]">
+                  {badges.length}/{BADGE_DEFINITIONS.length}
+                </p>
+                <p className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  General Badges
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {BADGE_DEFINITIONS.map((def) => {
+                const earned = badges.some((b) => b.id === def.id);
+                return (
+                  <div
+                    key={def.id}
+                    className={`rounded-xl border px-3 py-2 flex items-center gap-2 min-w-0 ${
+                      earned
+                        ? 'bg-[#FFF0E6]/65 dark:bg-[#FF6A00]/12 border-[#FF6A00]/40 text-[#08246B] dark:text-white'
+                        : 'bg-[#EEF2F6]/60 dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] opacity-75'
+                    }`}
+                  >
+                    {earned ? (
+                      <Award size={14} className="text-[#FF6A00] shrink-0" />
+                    ) : (
+                      <Lock size={13} className="text-[#8A93A0] shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold truncate">{def.title}</p>
+                      <p className="text-[10px] truncate opacity-80">{def.requirementLabel}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                <div className="w-8 h-8 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#FF6A00] flex items-center justify-center shrink-0 mt-0.5">
+                  <Users size={15} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                    Contact Streaks &amp; Badges
+                  </p>
+                  {topContact ? (
+                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
+                      Status with {maskedTopName}:{' '}
+                      <span className="font-semibold text-[#FF6A00]">
+                        {topContact.statusHeadline}
+                      </span>{' '}
+                      · {topContact.contactScore} pts · {activeContactCount} active ·{' '}
+                      {milestoneContactsCount} reached 3d+
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                      Connect with any contact on consecutive EAT days to unlock 3d–365d badges.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setAchievementsTab('contacts');
+                  setAchievementsOpen(true);
+                }}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors tabular-nums"
+              >
+                <Users size={13} className="text-[#FF6A00]" />
+                <span>Contact Streaks ({topContactStatuses.length})</span>
+              </button>
+            </div>
+
+            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              Points: +{POINTS_CONFIG.DAILY_FIRST_OPEN} daily open · +{POINTS_CONFIG.QUICK_MISSED_CALLBACK} quick callback (&le;{reminderPrefs.missedCallReminderDelayMinutes}m) · +{POINTS_CONFIG.CALL_TAG_OR_NOTE} tag/note · +{POINTS_CONFIG.STREAK_MILESTONE_BONUS} at 7/30/100d streaks + contact 3d–365d milestones.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Appearance & Font Size */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">Appearance</h2>
@@ -696,15 +922,15 @@ export function SettingsTab({
       {/* About App, Version & Features */}
       <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-[220px] flex-1">
             <BrandLogo size={40} />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm font-bold text-[#08246B] dark:text-white">
                   {APP_NAME}
                 </h2>
-                <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00]">
-                  v{APP_VERSION}
+                <span className="text-[11px] font-mono tabular-nums font-semibold px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00]">
+                  v{APP_VERSION} · build {APP_VERSION_CODE}
                 </span>
               </div>
               <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
@@ -714,6 +940,24 @@ export function SettingsTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onCheckForUpdates && (
+              <button
+                type="button"
+                disabled={checkingUpdate}
+                onClick={async () => {
+                  setCheckingUpdate(true);
+                  try {
+                    await onCheckForUpdates();
+                  } finally {
+                    setCheckingUpdate(false);
+                  }
+                }}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] disabled:opacity-50 text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <RefreshCw size={14} className={`text-[#FF6A00] ${checkingUpdate ? 'animate-spin' : ''}`} />
+                {checkingUpdate ? 'Checking...' : 'Check Updates'}
+              </button>
+            )}
             {onOpenWhatsNew && (
               <button
                 type="button"
@@ -755,9 +999,9 @@ export function SettingsTab({
         </div>
 
         <div className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+          <div className="flex items-start gap-2.5 min-w-[220px] flex-1">
             <Info size={16} className="text-[#FF6A00] mt-0.5 shrink-0" />
-            <div className="space-y-0.5 min-w-0">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <p className="text-xs font-semibold text-[#08246B] dark:text-white">
                 Privacy &amp; Account Ownership
               </p>
@@ -1233,6 +1477,80 @@ export function SettingsTab({
           </div>
         </div>
 
+        <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                Missed-Call Reminder Notification
+              </p>
+              <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Exact alert after 5 or 10 minutes if a missed call isn&apos;t returned (works when app is closed)
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() =>
+                  setReminderPrefs({
+                    ...reminderPrefs,
+                    missedCallReminderEnabled: !reminderPrefs.missedCallReminderEnabled,
+                  })
+                }
+                className={`min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap transition-colors ${
+                  reminderPrefs.missedCallReminderEnabled
+                    ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
+                    : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white'
+                }`}
+              >
+                {reminderPrefs.missedCallReminderEnabled ? 'Missed Alerts: On' : 'Missed Alerts: Off'}
+              </button>
+
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                {MISSED_CALL_REMINDER_DELAYS.map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    disabled={!reminderPrefs.missedCallReminderEnabled}
+                    onClick={() =>
+                      setReminderPrefs({
+                        ...reminderPrefs,
+                        missedCallReminderDelayMinutes: mins,
+                      })
+                    }
+                    className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-semibold transition-colors disabled:opacity-50 ${
+                      reminderPrefs.missedCallReminderDelayMinutes === mins
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                    }`}
+                  >
+                    {mins} min
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {onOpenAndroidSetup && (isNativeCapacitor() || hasNativeCallLogSyncPlugin()) && (
+            <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                  Android Permissions &amp; Battery Optimization
+                </p>
+                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Manage Call Log access, Exact Alarms, and Tecno/Infinix/itel/Xiaomi/Samsung Autostart settings
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenAndroidSetup}
+                className="min-h-[40px] px-3.5 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white whitespace-nowrap shrink-0 transition-colors"
+              >
+                Permissions &amp; Battery Setup
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold text-[#08246B] dark:text-white">
@@ -1361,7 +1679,7 @@ export function SettingsTab({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
-              Import & Export Call History
+              Import & Export Call History & Backups
             </h2>
             <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
               {calls.length} call{calls.length === 1 ? '' : 's'} currently stored
@@ -1372,6 +1690,24 @@ export function SettingsTab({
           </div>
         </div>
 
+        {!canSyncPhoneCalls && (
+          <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-2.5 flex items-start gap-2.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+            <Smartphone size={15} className="text-[#FF6A00] mt-0.5 shrink-0" />
+            <span>
+              <span className="font-semibold text-[#08246B] dark:text-white">
+                Android-only auto-sync:
+              </span>{' '}
+              Automatic call-log fetching works on Android only. Use CSV, JSON, or TXT import on Web and iOS.
+            </span>
+          </div>
+        )}
+
+        {privacyMode && (
+          <p className="text-[11px] text-[#B45309] dark:text-[#FBBF24]">
+            Privacy Mode is on: exported files mask phone numbers and notes. Turn off Privacy Mode before exporting a restorable backup.
+          </p>
+        )}
+
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
@@ -1379,22 +1715,7 @@ export function SettingsTab({
             className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
             <Upload size={15} />
-            Import CSV / JSON
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              const counts = loadSampleData();
-              showNotice(
-                counts.added > 0
-                  ? `Loaded ${counts.added} sample calls.`
-                  : 'Sample calls are already loaded.',
-              );
-            }}
-            className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap shrink-0 transition-colors"
-          >
-            Load sample data
+            Import CSV / JSON / TXT
           </button>
 
           <button
@@ -1425,28 +1746,65 @@ export function SettingsTab({
 
           <button
             type="button"
-            disabled={calls.length === 0}
+            disabled={
+              calls.length === 0 &&
+              contactCount === 0 &&
+              scheduledCalls.length === 0 &&
+              customTags.length === 0 &&
+              pointsHistory.length === 0 &&
+              badges.length === 0 &&
+              contactMilestones.length === 0
+            }
             onClick={async () => {
               try {
+                const jsonBackup = buildVersionedBackupJson(
+                  {
+                    calls,
+                    tags: customTags,
+                    contacts: Object.values(contacts),
+                    settings: {
+                      tariffs,
+                      simLabels,
+                      calendarPrefs,
+                      reminderPrefs,
+                      voiceBundles,
+                      notificationsEnabled,
+                      privacyMode,
+                      themePreference,
+                      fontSizeScale,
+                      profileName,
+                    },
+                    streaks,
+                    score,
+                    pointsHistory,
+                    badges,
+                    contactMilestones,
+                    scheduledCalls,
+                    favorites: Array.from(favorites),
+                    dismissedMissedIds: Array.from(dismissedMissedIds),
+                    mutedAlertKeys,
+                  },
+                  privacyMode,
+                );
                 const delivery = await downloadTextFile(
-                  'call-log-export.json',
-                  callsToJson(calls, privacyMode),
+                  'call-analyzer-backup.json',
+                  jsonBackup,
                   'application/json;charset=utf-8',
-                  'Call Log Export (JSON)',
+                  'Call Analyzer Backup (JSON)',
                 );
                 showNotice(
                   delivery === 'native'
-                    ? 'JSON saved to Downloads & ready to share.'
-                    : 'JSON exported.',
+                    ? 'Versioned backup (.json) saved to Downloads & ready to share.'
+                    : 'Versioned backup (.json) exported.',
                 );
               } catch {
-                showNotice('Could not export JSON report.');
+                showNotice('Could not export JSON backup.');
               }
             }}
             className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
           >
             <Download size={15} />
-            Export JSON
+            Export Backup (.json)
           </button>
 
           <button
@@ -1506,7 +1864,7 @@ export function SettingsTab({
         </div>
 
         {calls.length > 0 && (
-          <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3">
+          <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
               Remove all call records belonging to this account
             </span>
@@ -1542,6 +1900,49 @@ export function SettingsTab({
             )}
           </div>
         )}
+
+        {authUser && (
+          <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5 min-w-[200px] flex-1">
+              <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                Delete all my data on this device
+              </p>
+              <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Permanently erases your calls, contacts, schedules, streaks, score, badges, and PIN from this device. Signing out keeps your local data intact.
+              </p>
+            </div>
+            {!confirmDeleteAll ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteAll(true)}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DC2626]/40 text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Trash2 size={15} />
+                Delete all my data on this device
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteAll(false)}
+                  className="min-h-[44px] px-3 rounded-xl text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await deleteAllLocalData();
+                    setConfirmDeleteAll(false);
+                  }}
+                  className="min-h-[44px] px-3.5 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-xs font-semibold text-white whitespace-nowrap shrink-0 transition-colors"
+                >
+                  Yes, delete all local data
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
             </>
           )}
@@ -1550,6 +1951,19 @@ export function SettingsTab({
       <ProfileEditModal
         open={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
+      />
+
+      <ImportPreviewModal
+        pending={pendingImport}
+        onClose={() => setPendingImport(null)}
+        onConfirm={handleConfirmImport}
+      />
+
+      <AchievementsModal
+        open={achievementsOpen}
+        onClose={() => setAchievementsOpen(false)}
+        initialTab={achievementsTab}
+        onSelectContact={onSelectContact}
       />
     </div>
   );

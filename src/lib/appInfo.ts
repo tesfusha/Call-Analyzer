@@ -1,11 +1,15 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION = '2.5.1';
-export const APP_RELEASE_LABEL = 'Notification Actions, Profile Modal & Modern Events';
+export const APP_VERSION_NAME = '2.5.1';
+export const APP_VERSION_CODE = 1;
+export const APP_VERSION = APP_VERSION_NAME;
+export const APP_RELEASE_LABEL = 'Local-First Storage, Milestones, Update Notices & Privacy';
 export const GUIDE_SEEN_KEY = 'callanalyzer.guideSeen.v1';
 export const WHATS_NEW_SEEN_KEY = 'callanalyzer.whatsNewVersion.v1';
+export const UPDATE_VERSION_URL = 'https://youthful-limiter-kjk7s.web.app/version.json';
+export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export const APP_PRIVACY_NOTE =
-  'Your call logs, contacts, schedules, and notes stay strictly private to your account — no data is seen by or shared with 3rd parties.';
+  'Your call logs, contacts, schedules, and notes stay strictly on this device in private browser storage — no call data, phone numbers, or contact names are ever sent to the cloud.';
 
 export const LATEST_RELEASE_NOTES = [
   {
@@ -36,8 +40,8 @@ export const LATEST_RELEASE_NOTES = [
 
 export const APP_FEATURES = [
   {
-    title: 'Dual-SIM Call Sync & Smart Search',
-    detail: 'Sync, search, and filter calls across SIM 1 (ETC) and SIM 2 (SFC) with automatic ETB cost estimates.',
+    title: 'Dual-SIM Call Sync, Preview Import & Backups',
+    detail: 'Auto-sync call history on Android, import CSV/JSON/TXT with preview & deduplication, and export versioned JSON backups.',
   },
   {
     title: 'Interactive Usage Charts & PDF Statements',

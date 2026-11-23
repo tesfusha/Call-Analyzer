@@ -13,8 +13,9 @@ import { CategoryPanel, CategoryTabs } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { firstGraphemes, formatDateTime } from '@/src/lib/format';
+import { toEatDateString } from '@/src/lib/gamification';
 import { useCalls } from '@/src/store/CallsContext';
-import type { RegisteredUserRecord } from '@/src/types/call';
+import type { DailyActiveRecord, RegisteredUserRecord } from '@/src/types/call';
 
 type AdminCategory = 'stats' | 'users';
 type Granularity = 'daily' | 'weekly' | 'monthly';
@@ -37,8 +38,8 @@ const ADMIN_CATEGORIES: Array<{
 }> = [
   {
     key: 'stats',
-    label: 'User Stats',
-    description: 'Daily, weekly, and monthly registered user & activity analytics',
+    label: 'Active Clients & Stats',
+    description: 'Active clients per day/7d/30d from dailyActive and registered user totals',
     icon: BarChart3,
   },
   {
@@ -55,8 +56,27 @@ function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
+function eatDateOffsetFromToday(daysAgo: number, now: Date): string {
+  return toEatDateString(now.getTime() - daysAgo * MS_DAY);
+}
+
+function countDistinctActiveUidsInRange(
+  records: DailyActiveRecord[],
+  startEatDate: string,
+  endEatDateInclusive: string,
+): number {
+  const uids = new Set<string>();
+  for (const rec of records) {
+    if (rec.date >= startEatDate && rec.date <= endEatDateInclusive) {
+      uids.add(rec.uid);
+    }
+  }
+  return uids.size;
+}
+
 function buildBuckets(
   users: RegisteredUserRecord[],
+  dailyActive: DailyActiveRecord[],
   granularity: Granularity,
   now: Date,
 ): TimeBucket[] {
@@ -68,14 +88,13 @@ function buildBuckets(
       const start = todayStart - i * MS_DAY;
       const end = start + MS_DAY;
       const d = new Date(start);
+      const eatDate = eatDateOffsetFromToday(i, now);
       const newUsers = users.filter(
         (u) => u.registeredAtMs >= start && u.registeredAtMs < end,
       ).length;
-      const activeUsers = users.filter(
-        (u) => u.lastActiveAtMs >= start && u.lastActiveAtMs < end,
-      ).length;
+      const activeUsers = countDistinctActiveUidsInRange(dailyActive, eatDate, eatDate);
       buckets.push({
-        key: `d-${start}`,
+        key: `d-${eatDate}`,
         label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         subLabel: formatEthiopianShort(d, 'english'),
         newUsers,
@@ -92,15 +111,15 @@ function buildBuckets(
       const start = end - 7 * MS_DAY;
       const dStart = new Date(start);
       const dEnd = new Date(end - MS_DAY);
+      const endEat = eatDateOffsetFromToday(i * 7, now);
+      const startEat = eatDateOffsetFromToday(i * 7 + 6, now);
       const newUsers = users.filter(
         (u) => u.registeredAtMs >= start && u.registeredAtMs < end,
       ).length;
-      const activeUsers = users.filter(
-        (u) => u.lastActiveAtMs >= start && u.lastActiveAtMs < end,
-      ).length;
+      const activeUsers = countDistinctActiveUidsInRange(dailyActive, startEat, endEat);
       buckets.push({
-        key: `w-${start}`,
-        label: `${dStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+        key: `w-${startEat}`,
+        label: dStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         subLabel: `to ${dEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
         newUsers,
         activeUsers,
@@ -114,78 +133,99 @@ function buildBuckets(
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const start = d.getTime();
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+    const monthPrefix = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const newUsers = users.filter(
       (u) => u.registeredAtMs >= start && u.registeredAtMs < end,
     ).length;
-    const activeUsers = users.filter(
-      (u) => u.lastActiveAtMs >= start && u.lastActiveAtMs < end,
-    ).length;
+    const monthUids = new Set<string>();
+    for (const rec of dailyActive) {
+      if (rec.date.startsWith(monthPrefix)) {
+        monthUids.add(rec.uid);
+      }
+    }
     buckets.push({
-      key: `m-${d.getFullYear()}-${d.getMonth()}`,
+      key: `m-${monthPrefix}`,
       label: d.toLocaleDateString('en-US', { month: 'short' }),
       subLabel: String(d.getFullYear()),
       newUsers,
-      activeUsers,
+      activeUsers: monthUids.size,
     });
   }
   return buckets;
 }
 
 export function AdminTab() {
-  const { isAdmin, fetchRegisteredUsers, calendarPrefs, showNotice } = useCalls();
+  const {
+    isAdmin,
+    fetchRegisteredUsers,
+    fetchDailyActiveRecords,
+    calendarPrefs,
+    showNotice,
+  } = useCalls();
 
   const [activeCategory, setActiveCategory] = useState<AdminCategory>('stats');
   const [granularity, setGranularity] = useState<Granularity>('daily');
   const [users, setUsers] = useState<RegisteredUserRecord[]>([]);
+  const [dailyActive, setDailyActive] = useState<DailyActiveRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [periodFilter, setPeriodFilter] = useState<UserPeriodFilter>('all');
   const [sortBy, setSortBy] = useState<UserSortKey>('newest');
 
-  const loadUsers = useCallback(async () => {
+  const loadAdminData = useCallback(async () => {
     if (!isAdmin) return;
     setLoading(true);
     try {
-      const list = await fetchRegisteredUsers();
-      setUsers(list);
+      const [userList, activeList] = await Promise.all([
+        fetchRegisteredUsers(),
+        fetchDailyActiveRecords(),
+      ]);
+      setUsers(userList);
+      setDailyActive(activeList);
     } catch {
-      showNotice('Could not load registered users right now.');
+      showNotice('Could not load admin analytics right now.');
     } finally {
       setLoading(false);
     }
-  }, [fetchRegisteredUsers, isAdmin, showNotice]);
+  }, [fetchDailyActiveRecords, fetchRegisteredUsers, isAdmin, showNotice]);
 
   useEffect(() => {
-    void loadUsers();
-  }, [loadUsers]);
+    void loadAdminData();
+  }, [loadAdminData]);
 
-  const now = useMemo(() => new Date(), [users]);
+  const now = useMemo(() => new Date(), [users, dailyActive]);
   const todayStart = useMemo(() => startOfDay(now), [now]);
   const weekStart = useMemo(() => now.getTime() - 7 * MS_DAY, [now]);
   const monthStart = useMemo(() => now.getTime() - 30 * MS_DAY, [now]);
 
   const summary = useMemo(() => {
+    const todayEat = toEatDateString(now.getTime());
+    const sevenDaysAgoEat = eatDateOffsetFromToday(6, now);
+    const thirtyDaysAgoEat = eatDateOffsetFromToday(29, now);
+
     const total = users.length;
     const newDaily = users.filter((u) => u.registeredAtMs >= todayStart).length;
-    const activeDaily = users.filter((u) => u.lastActiveAtMs >= todayStart).length;
     const newWeekly = users.filter((u) => u.registeredAtMs >= weekStart).length;
-    const activeWeekly = users.filter((u) => u.lastActiveAtMs >= weekStart).length;
     const newMonthly = users.filter((u) => u.registeredAtMs >= monthStart).length;
-    const activeMonthly = users.filter((u) => u.lastActiveAtMs >= monthStart).length;
+
+    const activeToday = countDistinctActiveUidsInRange(dailyActive, todayEat, todayEat);
+    const active7d = countDistinctActiveUidsInRange(dailyActive, sevenDaysAgoEat, todayEat);
+    const active30d = countDistinctActiveUidsInRange(dailyActive, thirtyDaysAgoEat, todayEat);
+
     return {
       total,
       newDaily,
-      activeDaily,
+      activeToday,
       newWeekly,
-      activeWeekly,
+      active7d,
       newMonthly,
-      activeMonthly,
+      active30d,
     };
-  }, [users, todayStart, weekStart, monthStart]);
+  }, [users, dailyActive, now, todayStart, weekStart, monthStart]);
 
   const buckets = useMemo(
-    () => buildBuckets(users, granularity, now),
-    [users, granularity, now],
+    () => buildBuckets(users, dailyActive, granularity, now),
+    [users, dailyActive, granularity, now],
   );
 
   const maxBucketVal = useMemo(
@@ -243,7 +283,7 @@ export function AdminTab() {
           <button
             type="button"
             disabled={loading}
-            onClick={() => void loadUsers()}
+            onClick={() => void loadAdminData()}
             className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -263,7 +303,7 @@ export function AdminTab() {
       <div className="rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/10 border border-[#FF6A00]/30 px-4 py-3 flex items-start gap-2.5 text-xs text-[#08246B] dark:text-white">
         <ShieldCheck size={16} className="text-[#FF6A00] shrink-0 mt-0.5" />
         <span>
-          Privacy enforced: Admin insights cover only basic registered accounts and daily, weekly, and monthly activity stats. User customers, contacts, and call histories remain strictly inaccessible.
+          Privacy enforced: Active client counts come from minimal daily open pings (UID + date only) and registered totals from the account registry. No call logs, phone numbers, or contact names are stored in the cloud.
         </span>
       </div>
 
@@ -279,53 +319,53 @@ export function AdminTab() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  <span>Total Users</span>
+                  <span>Registered Users</span>
                   <Users size={15} className="text-[#FF6A00]" />
                 </div>
                 <p className="text-2xl font-bold font-mono tabular-nums text-[#08246B] dark:text-white">
                   {summary.total}
                 </p>
-                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Registered accounts
+                <p className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Total in registry
                 </p>
               </div>
 
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  <span>Daily (Today)</span>
+                  <span>Active Today</span>
                   <Activity size={15} className="text-[#10B981]" />
                 </div>
                 <p className="text-2xl font-bold font-mono tabular-nums text-[#08246B] dark:text-white">
-                  +{summary.newDaily}
+                  {summary.activeToday}
                 </p>
                 <p className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  {summary.activeDaily} active today
+                  +{summary.newDaily} new today
                 </p>
               </div>
 
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  <span>Weekly (7d)</span>
+                  <span>Active (Last 7d)</span>
                   <CalendarDays size={15} className="text-[#4FA3F7]" />
                 </div>
                 <p className="text-2xl font-bold font-mono tabular-nums text-[#08246B] dark:text-white">
-                  +{summary.newWeekly}
+                  {summary.active7d}
                 </p>
                 <p className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  {summary.activeWeekly} active in 7d
+                  +{summary.newWeekly} new in 7d
                 </p>
               </div>
 
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  <span>Monthly (30d)</span>
+                  <span>Active (Last 30d)</span>
                   <UserCheck size={15} className="text-[#FF6A00]" />
                 </div>
                 <p className="text-2xl font-bold font-mono tabular-nums text-[#08246B] dark:text-white">
-                  +{summary.newMonthly}
+                  {summary.active30d}
                 </p>
                 <p className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  {summary.activeMonthly} active in 30d
+                  +{summary.newMonthly} new in 30d
                 </p>
               </div>
             </div>
@@ -335,14 +375,14 @@ export function AdminTab() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
-                    Registration & Activity Trend
+                    Active Clients &amp; Signups Trend
                   </h2>
                   <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     {granularity === 'daily'
-                      ? 'Last 14 days breakdown'
+                      ? 'Last 14 EAT days (unique active clients & new signups)'
                       : granularity === 'weekly'
-                        ? 'Last 8 weeks breakdown'
-                        : 'Last 6 months breakdown'}
+                        ? 'Last 8 weeks (unique active clients & new signups)'
+                        : 'Last 6 months (unique active clients & new signups)'}
                   </p>
                 </div>
 
@@ -383,7 +423,7 @@ export function AdminTab() {
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-sm bg-[#4FA3F7]" />
-                  Active users
+                  Active clients
                 </span>
               </div>
 
@@ -404,12 +444,12 @@ export function AdminTab() {
                       >
                         <div className="w-full flex items-end justify-center gap-1 h-32">
                           <div
-                            title={`${b.label}: ${b.newUsers} new`}
+                            title={`${b.label}: ${b.newUsers} new signups`}
                             className="w-2.5 rounded-t bg-[#FF6A00] transition-all"
                             style={{ height: `${b.newUsers > 0 ? Math.max(8, newH) : 3}%`, opacity: b.newUsers > 0 ? 1 : 0.25 }}
                           />
                           <div
-                            title={`${b.label}: ${b.activeUsers} active`}
+                            title={`${b.label}: ${b.activeUsers} active clients`}
                             className="w-2.5 rounded-t bg-[#4FA3F7] transition-all"
                             style={{ height: `${b.activeUsers > 0 ? Math.max(8, actH) : 3}%`, opacity: b.activeUsers > 0 ? 1 : 0.25 }}
                           />
@@ -554,7 +594,6 @@ export function AdminTab() {
                           </div>
                           <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
                             {u.email}
-                            {u.phone ? ` · ${u.phone}` : ''}
                           </p>
                         </div>
                       </div>

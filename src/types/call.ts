@@ -81,6 +81,8 @@ export type CalendarPrefs = {
 
 export type ReminderPrefs = {
   callbackDelayMinutes: number;
+  missedCallReminderEnabled: boolean;
+  missedCallReminderDelayMinutes: 5 | 10;
   eventLeadDays: number;
   quietContactDays: number;
   quietHoursEnabled: boolean;
@@ -114,3 +116,127 @@ export type RegisteredUserRecord = {
   registeredAtMs: number;
   lastActiveAtMs: number;
 };
+
+export type StreakRecord = {
+  currentStreak: number;
+  longestStreak: number;
+  lastActiveDate: string | null;
+  totalActiveDays?: number;
+};
+
+export type BadgeRecord = {
+  id: string;
+  title?: string;
+  description?: string;
+  unlockedAt: number;
+};
+
+export type PointsReason =
+  | 'daily_open'
+  | 'quick_callback'
+  | 'call_tag_or_note'
+  | 'streak_bonus'
+  | 'contact_milestone';
+
+export type PointsHistoryEntry = {
+  id: string;
+  reason: PointsReason;
+  points: number;
+  label: string;
+  timestamp: number;
+  eatDate: string;
+  meta?: string;
+};
+
+export type ContactBadgeItem = {
+  id: string;
+  days: number;
+  title: string;
+  description: string;
+  points: number;
+  earned: boolean;
+  unlockedEatDate: string | null;
+};
+
+export type ContactMilestoneRun = {
+  days: number;
+  streakStartDate: string;
+  reachedDate: string;
+};
+
+export type ContactMilestoneRecord = {
+  id: string;
+  contactKey: string;
+  days: number;
+  streakStartDate: string;
+  reachedDate: string;
+  badgeId: string;
+  badgeTitle: string;
+  points: number;
+  awardedAt: number;
+  celebratedAt: number | null;
+};
+
+export type ContactStreakStatus = {
+  contactKey: string;
+  number: string;
+  displayName: string;
+  tag: string;
+  currentStreak: number;
+  longestStreak: number;
+  totalConnectedDays: number;
+  totalConnectedCalls: number;
+  quickCallbacksCount: number;
+  taggedOrNotedCallsCount: number;
+  lastConnectedDate: string | null;
+  currentStreakStartDate: string | null;
+  milestoneRuns: ContactMilestoneRun[];
+  contactScore: number;
+  unlockedMilestones: number[];
+  nextMilestoneDays: number | null;
+  daysToNextMilestone: number;
+  statusHeadline: string;
+  statusSubtext: string;
+  badges: ContactBadgeItem[];
+  earnedBadgesCount: number;
+};
+
+export type CallsTabState = {
+  lastOpenedAt: number;
+  unseenCallIds: string[];
+};
+
+export type BackupSettingsSnapshot = {
+  tariffs?: {
+    sim1RatePerMin: number;
+    sim2RatePerMin: number;
+    billingMode: 'per-second' | 'per-minute';
+    monthlyBudgetEtb: number;
+  };
+  simLabels?: SimLabels;
+  calendarPrefs?: CalendarPrefs;
+  reminderPrefs?: ReminderPrefs;
+  voiceBundles?: VoiceBundles;
+  notificationsEnabled?: boolean;
+  privacyMode?: boolean;
+  themePreference?: 'system' | 'light' | 'dark-gray';
+  fontSizeScale?: 'default' | 'large' | 'xlarge';
+  profileName?: string;
+};
+
+export type DailyActiveRecord = {
+  id: string;
+  uid: string;
+  date: string; // YYYY-MM-DD in East Africa Time
+  openedAtMs: number;
+};
+
+export type AppUpdateNotice = {
+  versionCode: number;
+  versionName: string;
+  apkUrl: string;
+  notes: string;
+  mandatory: boolean;
+};
+
+

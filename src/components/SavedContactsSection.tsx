@@ -17,7 +17,6 @@ import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { QuickWishModal } from '@/src/components/QuickWishModal';
 import { SavedContactFormModal } from '@/src/components/SavedContactFormModal';
 import {
-  buildSampleContactProfiles,
   daysUntilAnnualDate,
   getContactKey,
   isContactPickerSupported,
@@ -31,7 +30,7 @@ import { detectCarrier } from '@/src/lib/ethiopia';
 import { getEthiopianMonthName } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDuration, initials } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactProfile } from '@/src/types/call';
 
@@ -50,6 +49,7 @@ export function SavedContactsSection({
     calls,
     contacts,
     availableTags,
+    contactStatuses,
     authUser,
     isGuest,
     openAuthPrompt,
@@ -348,16 +348,6 @@ export function SavedContactsSection({
             >
               Add first contact
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const res = importContactProfiles(buildSampleContactProfiles());
-                showNotice(`Loaded ${res.added} sample contacts.`);
-              }}
-              className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap"
-            >
-              Load sample contacts
-            </button>
           </div>
         </div>
       ) : filteredContacts.length === 0 ? (
@@ -384,6 +374,12 @@ export function SavedContactsSection({
                   ? `${getEthiopianMonthName(profile.birthday.month, 'english')} ${profile.birthday.day} EC`
                   : `${profile.birthday.month}/${profile.birthday.day} GC`
                 : null;
+              const contactStatus = contactStatuses[profile.key];
+              const hasStatusMeta =
+                contactStatus &&
+                (contactStatus.currentStreak > 0 ||
+                  contactStatus.longestStreak >= 3 ||
+                  contactStatus.contactScore > 0);
 
               return (
                 <div
@@ -404,7 +400,7 @@ export function SavedContactsSection({
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
-                          {profile.name}
+                          {formatDisplayNameOrPhone(profile.name, profile.number, privacyMode)}
                         </span>
                         {profile.tag && (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-[#FF6A00] shrink-0">
@@ -440,6 +436,22 @@ export function SavedContactsSection({
                           <span>
                             {bdayLabel || profile.events.length > 0 ? '· ' : ''}
                             No calls logged yet
+                          </span>
+                        )}
+                        {hasStatusMeta && (
+                          <span className="text-[#FF6A00] font-semibold font-mono tabular-nums">
+                            ·{' '}
+                            {contactStatus.currentStreak > 0
+                              ? `${contactStatus.currentStreak}d streak`
+                              : contactStatus.longestStreak >= 3
+                                ? `Best ${contactStatus.longestStreak}d`
+                                : `${contactStatus.totalConnectedDays}d connected`}
+                            {contactStatus.contactScore > 0
+                              ? ` · ${contactStatus.contactScore} pts`
+                              : ''}
+                            {contactStatus.earnedBadgesCount > 0
+                              ? ` · ${contactStatus.earnedBadgesCount} badge${contactStatus.earnedBadgesCount === 1 ? '' : 's'}`
+                              : ''}
                           </span>
                         )}
                       </div>

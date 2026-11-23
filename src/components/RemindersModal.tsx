@@ -479,7 +479,7 @@ export function RemindersModal({
                         className="min-w-0 text-left space-y-0.5"
                       >
                         <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                          {evt.name}
+                          {formatDisplayNameOrPhone(evt.name, evt.number, privacyMode)}
                           {evt.tag ? (
                             <span className="ml-2 text-xs font-medium text-[#FF6A00]">{evt.tag}</span>
                           ) : null}
@@ -499,8 +499,13 @@ export function RemindersModal({
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => void copyText(wish, `Copied wish for ${evt.name}.`)}
-                          aria-label={`Copy wish for ${evt.name}`}
+                          onClick={() =>
+                            void copyText(
+                              wish,
+                              `Copied wish for ${formatDisplayNameOrPhone(evt.name, evt.number, privacyMode)}.`,
+                            )
+                          }
+                          aria-label={`Copy wish for ${formatDisplayNameOrPhone(evt.name, evt.number, privacyMode)}`}
                           className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
                         >
                           <Copy size={13} />
@@ -629,7 +634,7 @@ export function RemindersModal({
                         <div className="flex items-center gap-2">
                           <UserCheck size={13} className="text-[#FF6A00] shrink-0" />
                           <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                            {caller.name}
+                            {formatDisplayNameOrPhone(caller.name, caller.number, privacyMode)}
                           </span>
                           {caller.tag && (
                             <span className="text-xs font-medium text-[#FF6A00] shrink-0">
@@ -646,7 +651,10 @@ export function RemindersModal({
                         <button
                           type="button"
                           onClick={() =>
-                            void copyText(wishText, `Copied ${holidayTitle} wish for ${caller.name}.`)
+                            void copyText(
+                              wishText,
+                              `Copied ${holidayTitle} wish for ${formatDisplayNameOrPhone(caller.name, caller.number, privacyMode)}.`,
+                            )
                           }
                           className="min-h-[36px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
                         >
@@ -755,7 +763,7 @@ export function RemindersModal({
                                   : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
                               }`}
                             >
-                              {c.name}
+                              {formatDisplayNameOrPhone(c.name, c.number, privacyMode)}
                               {c.tag ? ` · ${c.tag}` : ''}
                             </button>
                           );

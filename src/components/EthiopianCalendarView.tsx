@@ -106,7 +106,7 @@ export function EthiopianCalendarView({
     const ecMap = new Map<string, Array<{ name: string; number: string; label: string; tag: string }>>();
 
     Object.values(contacts).forEach((profile) => {
-      const display = profile.name || profile.number;
+      const display = formatDisplayNameOrPhone(profile.name, profile.number, privacyMode);
       if (profile.birthday) {
         const key = `${profile.birthday.month}-${profile.birthday.day}`;
         const entry = {
@@ -132,7 +132,7 @@ export function EthiopianCalendarView({
     });
 
     return { gcMap, ecMap };
-  }, [contacts]);
+  }, [contacts, privacyMode]);
 
   const cellKeyFromGc = (gc: { year: number; month: number; day: number }) =>
     `${gc.year}-${String(gc.month).padStart(2, '0')}-${String(gc.day).padStart(2, '0')}`;

@@ -72,7 +72,6 @@ export function UsageTab({
     voiceBundles,
     setVoiceBundles,
     privacyMode,
-    loadSampleData,
     mergeContacts,
     showNotice,
   } = useCalls();
@@ -199,26 +198,23 @@ export function UsageTab({
                   No usage data yet
                 </h2>
                 <p className="text-sm text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Load sample calls or import a file to compare SIM 1 vs SIM 2 usage, or switch to Saved Contacts or Voice Bundles above.
+                  Sync your phone call log on Android or import a call file in Calls to compare SIM 1 vs SIM 2 usage, or switch to Saved Contacts or Voice Bundles above.
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    const counts = loadSampleData();
-                    showNotice(`Loaded ${counts.added} sample calls.`);
-                  }}
+                  onClick={() => setActiveCategory('contacts')}
                   className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap shrink-0"
                 >
-                  Load sample data
+                  Open Saved Contacts
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveCategory('contacts')}
+                  onClick={() => setActiveCategory('bundles')}
                   className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap shrink-0"
                 >
-                  Open Saved Contacts
+                  Open Voice Bundles
                 </button>
               </div>
             </div>

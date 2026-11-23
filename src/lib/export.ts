@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@/src/lib/appInfo';
 import {
   hasNativeFileExportPlugin,
   isNativeCapacitor,
@@ -6,9 +7,21 @@ import {
 import { estimateCallCostEtb, formatEtb, formatSimDisplay, type TariffConfig } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
+import { computeScoreFromHistory } from '@/src/lib/gamification';
+import { CURRENT_BACKUP_SCHEMA_VERSION } from '@/src/lib/import';
 import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
 import { carrierStats, computeTotals, contactStats, totalSpendEtb } from '@/src/lib/stats';
-import type { CallRecord, SimLabels } from '@/src/types/call';
+import type {
+  BackupSettingsSnapshot,
+  BadgeRecord,
+  CallRecord,
+  ContactMilestoneRecord,
+  ContactProfile,
+  PointsHistoryEntry,
+  ScheduledCall,
+  SimLabels,
+  StreakRecord,
+} from '@/src/types/call';
 
 function escapeCsvCell(value: string): string {
   if (/[",\n\r]/.test(value)) {
@@ -51,8 +64,27 @@ export function callsToCsv(calls: CallRecord[], privacyMode = false): string {
   return `\uFEFF${lines.join('\n')}`;
 }
 
-export function callsToJson(calls: CallRecord[], privacyMode = false): string {
-  const sorted = [...calls]
+export type VersionedBackupInput = {
+  calls: CallRecord[];
+  tags?: string[];
+  contacts?: ContactProfile[];
+  settings?: BackupSettingsSnapshot;
+  streaks?: StreakRecord;
+  score?: number;
+  pointsHistory?: PointsHistoryEntry[];
+  badges?: BadgeRecord[];
+  contactMilestones?: ContactMilestoneRecord[];
+  scheduledCalls?: ScheduledCall[];
+  favorites?: string[];
+  dismissedMissedIds?: string[];
+  mutedAlertKeys?: string[];
+};
+
+export function buildVersionedBackupJson(
+  input: VersionedBackupInput,
+  privacyMode = false,
+): string {
+  const sortedCalls = [...input.calls]
     .sort((a, b) => b.timestamp - a.timestamp)
     .map((call) =>
       privacyMode
@@ -65,7 +97,81 @@ export function callsToJson(calls: CallRecord[], privacyMode = false): string {
           }
         : call,
     );
-  return JSON.stringify({ exportedAt: new Date().toISOString(), calls: sorted }, null, 2);
+
+  const contactsList = (input.contacts ?? []).map((contact) =>
+    privacyMode
+      ? {
+          ...contact,
+          number: maskPhoneNumber(contact.number, true),
+          name: formatDisplayNameOrPhone(contact.name, contact.number, true),
+          notes: contact.notes ? maskPrivateText(contact.notes, true) : '',
+          tag: contact.tag ? maskPrivateText(contact.tag, true) : '',
+        }
+      : contact,
+  );
+
+  const scheduledList = (input.scheduledCalls ?? []).map((item) =>
+    privacyMode
+      ? {
+          ...item,
+          number: maskPhoneNumber(item.number, true),
+          name: item.name ? formatDisplayNameOrPhone(item.name, item.number, true) : null,
+          note: item.note ? maskPrivateText(item.note, true) : null,
+        }
+      : item,
+  );
+
+  const tags = Array.from(
+    new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)),
+  );
+
+  const pointsHistory = input.pointsHistory ?? [];
+  const score =
+    typeof input.score === 'number' && Number.isFinite(input.score)
+      ? Math.max(0, Math.round(input.score))
+      : computeScoreFromHistory(pointsHistory);
+
+  const milestoneList = (input.contactMilestones ?? []).map((item) =>
+    privacyMode
+      ? {
+          ...item,
+          id: `${maskPhoneNumber(item.contactKey, true)}:${item.days}:${item.streakStartDate}`,
+          contactKey: maskPhoneNumber(item.contactKey, true),
+        }
+      : item,
+  );
+
+  const payload = {
+    schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    calls: sortedCalls,
+    tags,
+    contacts: contactsList,
+    settings: input.settings ?? {},
+    streaks: input.streaks ?? {
+      currentStreak: 0,
+      longestStreak: 0,
+      lastActiveDate: null,
+      totalActiveDays: 0,
+    },
+    score,
+    pointsHistory,
+    badges: input.badges ?? [],
+    contactMilestones: milestoneList,
+    scheduledCalls: scheduledList,
+    favorites: privacyMode
+      ? (input.favorites ?? []).map((fav) => maskPhoneNumber(fav, true))
+      : (input.favorites ?? []),
+    dismissedMissedIds: input.dismissedMissedIds ?? [],
+    mutedAlertKeys: input.mutedAlertKeys ?? [],
+  };
+
+  return JSON.stringify(payload, null, 2);
+}
+
+export function callsToJson(calls: CallRecord[], privacyMode = false): string {
+  return buildVersionedBackupJson({ calls }, privacyMode);
 }
 
 export function callsToHtmlReport(

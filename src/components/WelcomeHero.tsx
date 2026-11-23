@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Upload, X } from 'lucide-react';
+import { RefreshCw, Upload, X } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import type { UpcomingHoliday } from '@/src/lib/ethiopianCalendar';
@@ -30,7 +30,9 @@ export function WelcomeHero({
   unreturnedCount,
   upcomingHoliday,
   defaultLang,
-  onLoadSample,
+  canSyncPhone,
+  syncingPhone,
+  onSyncPhone,
   onImportFile,
   onDismiss,
 }: {
@@ -40,7 +42,9 @@ export function WelcomeHero({
   unreturnedCount: number;
   upcomingHoliday: UpcomingHoliday | null;
   defaultLang: 'english' | 'amharic';
-  onLoadSample: () => void;
+  canSyncPhone?: boolean;
+  syncingPhone?: boolean;
+  onSyncPhone?: () => void;
   onImportFile: () => void;
   onDismiss: () => void;
 }) {
@@ -57,7 +61,7 @@ export function WelcomeHero({
         ? unreturnedCount > 0
           ? `${callsCount} calls synced · ${unreturnedCount} missed call${unreturnedCount === 1 ? '' : 's'} waiting for callback`
           : `${callsCount} calls analyzed · All missed callbacks caught up`
-        : 'Sync phone call history or import CSV/JSON logs in one tap',
+        : 'Auto-sync calls on Android or import CSV, JSON, or TXT logs in one tap',
       `${savedContactsCount} saved contact${savedContactsCount === 1 ? '' : 's'} · ETC & SFC tracking`,
     ];
     return items;
@@ -169,20 +173,28 @@ export function WelcomeHero({
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         {callsCount === 0 ? (
           <>
-            <button
-              type="button"
-              onClick={onLoadSample}
-              className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap shrink-0 transition-colors"
-            >
-              Load sample data
-            </button>
+            {canSyncPhone && onSyncPhone ? (
+              <button
+                type="button"
+                disabled={syncingPhone}
+                onClick={onSyncPhone}
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <RefreshCw size={14} className={syncingPhone ? 'animate-spin' : ''} />
+                {syncingPhone ? 'Syncing...' : 'Sync Phone'}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onImportFile}
-              className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              className={
+                canSyncPhone && onSyncPhone
+                  ? 'min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors'
+                  : 'min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors'
+              }
             >
-              <Upload size={14} className="text-[#FF6A00] shrink-0" />
-              Import
+              <Upload size={14} className={canSyncPhone && onSyncPhone ? 'text-[#FF6A00] shrink-0' : 'shrink-0'} />
+              Import File
             </button>
           </>
         ) : (

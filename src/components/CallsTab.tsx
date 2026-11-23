@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowUp,
   ArrowUpDown,
+  Award,
   Bell,
   Cake,
   Check,
@@ -22,21 +23,27 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Smartphone,
   Sparkles,
   Star,
   Tag,
   TrendingUp,
+  Trophy,
   Upload,
   User,
+  Users,
   Wrench,
   X,
   Zap,
 } from 'lucide-react';
+import { AchievementsModal } from '@/src/components/AchievementsModal';
 import { CarrierUssdModal, type UssdCategory } from '@/src/components/CarrierUssdModal';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { WelcomeHero } from '@/src/components/WelcomeHero';
+import { BADGE_DEFINITIONS } from '@/src/lib/gamificationConstants';
 import { clusterConsecutiveCalls, filterCalls, groupCalls } from '@/src/lib/calls';
 import {
   formatShortTag,
@@ -57,7 +64,7 @@ import {
 } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDuration, formatTime, initials } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { parseCallImport } from '@/src/lib/import';
+import { buildImportPreview, parseBackupImport } from '@/src/lib/import';
 import { unreturnedMissedCalls } from '@/src/lib/reminders';
 import { formatScheduledCountdown, formatScheduledLabel } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
@@ -68,7 +75,7 @@ import type { CallDirection, CallRecord } from '@/src/types/call';
 
 type CallsCategory = 'log' | 'action' | 'vip' | 'tools';
 
-const CALLS_PAGE_SIZE = 50;
+const CALLS_PAGE_SIZE = 100;
 
 const CALLS_META: Record<CallsCategory, { title: string; description: string }> = {
   log: {
@@ -134,14 +141,20 @@ export const CallsTab = memo(function CallsTab({
     openAuthPrompt,
     privacyMode,
     toggleFavorite,
-    importCalls,
-    loadSampleData,
+    availableTags,
+    importBackupPackage,
     canSyncPhoneCalls,
     syncPhoneCalls,
     scheduleCall,
     completeScheduledCall,
     snoozeScheduledCall,
     dismissMissedCall,
+    effectiveStreaks,
+    score,
+    badges,
+    topContactStatuses,
+    sessionNewCallIds,
+    markCallSeen,
     showNotice,
   } = useCalls();
 
@@ -158,7 +171,11 @@ export const CallsTab = memo(function CallsTab({
   const [quickScheduleOpen, setQuickScheduleOpen] = useState(false);
   const [ussdOpen, setUssdOpen] = useState(false);
   const [ussdInitialCategory, setUssdInitialCategory] = useState<UssdCategory>('all');
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [achievementsTab, setAchievementsTab] = useState<'general' | 'contacts'>('general');
   const [budgetAlertDismissed, setBudgetAlertDismissed] = useState(false);
+  const [androidNoticeDismissed, setAndroidNoticeDismissed] = useState(false);
+  const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const [syncingPhone, setSyncingPhone] = useState(false);
   const prefersReducedMotion = useReducedMotion();
@@ -420,21 +437,46 @@ export const CallsTab = memo(function CallsTab({
     if (!file) return;
     try {
       const text = await readUploadedTextFile(file);
-      const result = parseCallImport(text, file.name);
-      if (result.calls.length === 0) {
-        showNotice(result.problems[0] ?? 'No valid calls found in that file.');
+      const pkg = parseBackupImport(text, file.name);
+      const preview = buildImportPreview(file.name, pkg, {
+        calls,
+        contacts,
+        availableTags,
+        scheduledCalls,
+      });
+      if (
+        preview.totalRowsEvaluated === 0 &&
+        !preview.isBackup &&
+        preview.problems.length > 0
+      ) {
+        showNotice(preview.problems[0]);
         return;
       }
-      const counts = importCalls(result.calls);
-      showNotice(
-        `Imported ${counts.added} call${counts.added === 1 ? '' : 's'}${
-          counts.duplicates > 0 ? ` · ${counts.duplicates} duplicates skipped` : ''
-        }`,
-      );
-      setActiveCategory('log');
+      setPendingImport({ pkg, preview });
     } catch {
       showNotice('Could not read the selected file.');
     }
+  };
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) return;
+    const counts = importBackupPackage(pendingImport.pkg);
+    setPendingImport(null);
+    const parts: string[] = [];
+    if (counts.callsAdded > 0) {
+      parts.push(`Imported ${counts.callsAdded} call${counts.callsAdded === 1 ? '' : 's'}`);
+    } else if (counts.callsMerged > 0) {
+      parts.push(`Merged notes/tags on ${counts.callsMerged} existing call${counts.callsMerged === 1 ? '' : 's'}`);
+    } else if (counts.restoredSections.length > 0) {
+      parts.push(`Restored ${counts.restoredSections.join(', ')}`);
+    } else {
+      parts.push('No new calls added');
+    }
+    if (counts.callsDuplicates > 0) {
+      parts.push(`${counts.callsDuplicates} duplicate${counts.callsDuplicates === 1 ? '' : 's'} skipped`);
+    }
+    showNotice(parts.join(' · '), counts.callsAdded > 0 || counts.restoredSections.length > 0 ? 'success' : 'tap');
+    setActiveCategory('log');
   };
 
   const upcomingEvents = useMemo(
@@ -492,7 +534,7 @@ export const CallsTab = memo(function CallsTab({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv,.json,text/csv,application/json"
+        accept=".csv,.json,.txt,text/csv,application/json,text/plain"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -505,14 +547,126 @@ export const CallsTab = memo(function CallsTab({
           unreturnedCount={unreturnedList.length}
           upcomingHoliday={upcomingHoliday}
           defaultLang={calendarPrefs.defaultLang}
-          onLoadSample={() => {
-            const counts = loadSampleData();
-            showNotice(`Loaded ${counts.added} sample calls.`);
+          canSyncPhone={canSyncPhoneCalls}
+          syncingPhone={syncingPhone}
+          onSyncPhone={() => {
+            setSyncingPhone(true);
+            void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
           }}
           onImportFile={triggerCallImport}
           onDismiss={dismissBanner}
         />
       )}
+
+      {!isGuest && authUser && (() => {
+        const topContact = topContactStatuses[0] ?? null;
+        const activeContactStreaksCount = topContactStatuses.filter((c) => c.currentStreak > 0).length;
+        const maskedTopName = topContact
+          ? formatDisplayNameOrPhone(
+              topContact.displayName,
+              topContact.number,
+              privacyMode,
+            )
+          : '';
+        return (
+          <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-5 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                    <Flame size={17} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#08246B] dark:text-white tabular-nums">
+                      {effectiveStreaks.currentStreak}d daily streak
+                    </p>
+                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+                      Best {effectiveStreaks.longestStreak}d · EAT (UTC+3)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="h-7 w-px bg-[#DDE4EA] dark:bg-[var(--dark-border)] hidden sm:block" />
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-[#FF6A00] flex items-center justify-center shrink-0">
+                    <Trophy size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#08246B] dark:text-white font-mono tabular-nums">
+                      General: {score} pts
+                    </p>
+                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums flex items-center gap-1">
+                      <Award size={11} className="text-[#FF6A00] shrink-0" />
+                      <span>
+                        {badges.length}/{BADGE_DEFINITIONS.length} general badges
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setAchievementsTab('general');
+                  setAchievementsOpen(true);
+                }}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#EEF2F6]/70 dark:bg-[var(--dark-canvas)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <span>Score &amp; Badges</span>
+                <ChevronRight size={14} className="text-[#FF6A00]" />
+              </button>
+            </div>
+
+            <div className="pt-2.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-2">
+              {topContact ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('tap');
+                    onSelectContact(topContact.number);
+                  }}
+                  className="flex items-center gap-2 min-w-0 text-left hover:opacity-85 transition-opacity"
+                >
+                  <Users size={14} className="text-[#FF6A00] shrink-0" />
+                  <p className="text-xs text-[#08246B] dark:text-white truncate">
+                    <span className="font-semibold">Status with {maskedTopName}:</span>{' '}
+                    <span className="font-bold text-[#FF6A00]">{topContact.statusHeadline}</span>
+                    <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums">
+                      {' '}
+                      · {topContact.contactScore} pts · {activeContactStreaksCount} active
+                    </span>
+                  </p>
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 min-w-0">
+                  <Users size={14} className="text-[#8A93A0] shrink-0" />
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Contact streaks: connect across consecutive days to unlock 3d–365d badges.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setAchievementsTab('contacts');
+                  setAchievementsOpen(true);
+                }}
+                className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-semibold text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors tabular-nums"
+              >
+                <span>
+                  Contact Streaks{topContactStatuses.length > 0 ? ` (${topContactStatuses.length})` : ''}
+                </span>
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -804,30 +958,73 @@ export const CallsTab = memo(function CallsTab({
               </AnimatePresence>
             </div>
 
+            {!canSyncPhoneCalls && calls.length > 0 && !androidNoticeDismissed && (
+              <div className="rounded-2xl bg-[#EEF2F6]/80 dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                  <Smartphone size={16} className="text-[#FF6A00] mt-0.5 shrink-0" />
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    <span className="font-semibold text-[#08246B] dark:text-white">
+                      Android-only auto-sync:
+                    </span>{' '}
+                    Automatic call-log fetching works on Android only. Use CSV, JSON, or TXT import on Web and iOS.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={triggerCallImport}
+                    className="min-h-[34px] px-3 rounded-lg bg-white dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] whitespace-nowrap"
+                  >
+                    Import File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAndroidNoticeDismissed(true)}
+                    aria-label="Dismiss Android sync notice"
+                    className="min-h-[34px] min-w-[34px] rounded-lg text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-white/70 dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {calls.length === 0 ? (
               <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-8 text-center space-y-4">
-                <div className="space-y-1 max-w-md mx-auto">
+                <div className="space-y-1.5 max-w-md mx-auto">
                   <h2 className="text-base font-semibold text-[#08246B] dark:text-white">
                     No call history yet
                   </h2>
                   <p className="text-sm text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Tap Sync Phone or import a CSV/JSON call log to analyze your history.
+                    {canSyncPhoneCalls
+                      ? 'Tap Sync Phone to fetch all call logs from your device, or import a CSV, JSON, or TXT backup file.'
+                      : 'Automatic call-log syncing works on Android. On Web and iOS, import a CSV, JSON, or TXT call file to get started.'}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   {canSyncPhoneCalls ? (
-                    <button
-                      type="button"
-                      disabled={syncingPhone}
-                      onClick={() => {
-                        setSyncingPhone(true);
-                        void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
-                      }}
-                      className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <RefreshCw size={14} className={syncingPhone ? 'animate-spin' : ''} />
-                      {syncingPhone ? 'Syncing...' : 'Sync Phone'}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={syncingPhone}
+                        onClick={() => {
+                          setSyncingPhone(true);
+                          void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <RefreshCw size={14} className={syncingPhone ? 'animate-spin' : ''} />
+                        {syncingPhone ? 'Syncing...' : 'Sync Phone'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={triggerCallImport}
+                        className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <Upload size={14} />
+                        Import CSV / JSON / TXT
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -835,19 +1032,9 @@ export const CallsTab = memo(function CallsTab({
                       className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap"
                     >
                       <Upload size={14} />
-                      Import CSV / JSON
+                      Import CSV / JSON / TXT
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const counts = loadSampleData();
-                      showNotice(`Loaded ${counts.added} sample calls.`);
-                    }}
-                    className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] whitespace-nowrap"
-                  >
-                    Load sample data
-                  </button>
                 </div>
               </div>
             ) : sections.length === 0 ? (
@@ -902,6 +1089,9 @@ export const CallsTab = memo(function CallsTab({
                         const hasUnreturned = cluster.calls.some((item) =>
                           unreturnedIds.has(item.id),
                         );
+                        const hasNewCall = cluster.calls.some((item) =>
+                          sessionNewCallIds.has(item.id),
+                        );
 
                         return (
                           <div key={cluster.id}>
@@ -926,6 +1116,7 @@ export const CallsTab = memo(function CallsTab({
                                       [cluster.id]: !prev[cluster.id],
                                     }));
                                   } else {
+                                    markCallSeen(call.id);
                                     onSelectCall(call);
                                   }
                                 }}
@@ -936,6 +1127,11 @@ export const CallsTab = memo(function CallsTab({
                                   <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
                                     {displayName}
                                   </span>
+                                  {hasNewCall && (
+                                    <span className="px-1.5 py-0.5 rounded bg-[#FF6A00] text-white text-[10px] font-bold uppercase tracking-wider leading-none shrink-0">
+                                      NEW
+                                    </span>
+                                  )}
                                   {shortTag && (
                                     <>
                                       <span
@@ -1081,7 +1277,10 @@ export const CallsTab = memo(function CallsTab({
                                       <button
                                         key={subCall.id}
                                         type="button"
-                                        onClick={() => onSelectCall(subCall)}
+                                        onClick={() => {
+                                          markCallSeen(subCall.id);
+                                          onSelectCall(subCall);
+                                        }}
                                         className="w-full min-h-[44px] py-2.5 flex items-center justify-between gap-2 text-left hover:text-[#FF6A00] transition-colors"
                                       >
                                         <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
@@ -1095,6 +1294,11 @@ export const CallsTab = memo(function CallsTab({
                                           >
                                             {formatCallStatus(subCall.direction)}
                                           </span>
+                                          {sessionNewCallIds.has(subCall.id) && (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#FF6A00] text-white text-[9px] font-bold uppercase tracking-wider leading-none shrink-0">
+                                              NEW
+                                            </span>
+                                          )}
                                           <span aria-hidden="true">·</span>
                                           <span>
                                             {subCall.duration > 0
@@ -1184,16 +1388,28 @@ export const CallsTab = memo(function CallsTab({
                         </button>
                       )}
                       {renderedClusterCount < totalClusterCount && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            triggerHaptic('tap');
-                            setVisibleClusterLimit((prev) => prev + CALLS_PAGE_SIZE);
-                          }}
-                          className="min-h-[40px] px-3.5 py-1.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white transition-colors"
-                        >
-                          Show more (+{Math.min(CALLS_PAGE_SIZE, totalClusterCount - renderedClusterCount)})
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              setVisibleClusterLimit((prev) => prev + CALLS_PAGE_SIZE);
+                            }}
+                            className="min-h-[40px] px-3.5 py-1.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white transition-colors"
+                          >
+                            Show more (+{Math.min(CALLS_PAGE_SIZE, totalClusterCount - renderedClusterCount)})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              setVisibleClusterLimit(totalClusterCount);
+                            }}
+                            className="min-h-[40px] px-3 py-1.5 rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] transition-colors"
+                          >
+                            Show all
+                          </button>
+                        </>
                       )}
                       {renderedClusterCount > 6 && (
                         <button
@@ -1280,7 +1496,12 @@ export const CallsTab = memo(function CallsTab({
                     >
                       <Cake size={14} className="text-[#FF6A00] shrink-0" />
                       <span>
-                        {upcomingEvents[0].name}&apos;s {upcomingEvents[0].title}{' '}
+                        {formatDisplayNameOrPhone(
+                          upcomingEvents[0].name,
+                          upcomingEvents[0].number,
+                          privacyMode,
+                        )}
+                        &apos;s {upcomingEvents[0].title}{' '}
                         <span className="text-[#FF6A00]">
                           ({upcomingEvents[0].isToday ? 'Today!' : `in ${upcomingEvents[0].daysUntil}d`})
                         </span>
@@ -1673,7 +1894,7 @@ export const CallsTab = memo(function CallsTab({
                   <Upload size={16} />
                 </span>
                 <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                  Import CSV/JSON
+                  Import CSV/JSON/TXT
                 </span>
               </button>
             </div>
@@ -1927,6 +2148,17 @@ export const CallsTab = memo(function CallsTab({
         open={ussdOpen}
         onClose={() => setUssdOpen(false)}
         initialCategory={ussdInitialCategory}
+      />
+      <ImportPreviewModal
+        pending={pendingImport}
+        onClose={() => setPendingImport(null)}
+        onConfirm={handleConfirmImport}
+      />
+      <AchievementsModal
+        open={achievementsOpen}
+        onClose={() => setAchievementsOpen(false)}
+        initialTab={achievementsTab}
+        onSelectContact={onSelectContact}
       />
     </div>
   );

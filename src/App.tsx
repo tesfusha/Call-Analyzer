@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { AdminTab } from '@/src/components/AdminTab';
 import { AnalyticsTab } from '@/src/components/AnalyticsTab';
+import { AndroidPermissionsModal } from '@/src/components/AndroidPermissionsModal';
 import { AppGuideModal } from '@/src/components/AppGuideModal';
 import { AppLockOverlay } from '@/src/components/AppLockOverlay';
 import { AuthForm } from '@/src/components/AuthForm';
@@ -27,14 +28,32 @@ import { BrandLogo } from '@/src/components/BrandLogo';
 import { CallDetailModal } from '@/src/components/CallDetailModal';
 import { CallsTab } from '@/src/components/CallsTab';
 import { ContactDetailModal } from '@/src/components/ContactDetailModal';
+import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { ErrorBoundary } from '@/src/components/ErrorBoundary';
 import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
 import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
+import { UpdateNoticeModal } from '@/src/components/UpdateNoticeModal';
 import { UsageTab } from '@/src/components/UsageTab';
 import { WhatsNewModal } from '@/src/components/WhatsNewModal';
-import { APP_VERSION, GUIDE_SEEN_KEY, WHATS_NEW_SEEN_KEY } from '@/src/lib/appInfo';
+import {
+  APP_VERSION,
+  GUIDE_SEEN_KEY,
+  UPDATE_CHECK_INTERVAL_MS,
+  WHATS_NEW_SEEN_KEY,
+} from '@/src/lib/appInfo';
+import {
+  checkForAppUpdate,
+  dismissUpdateVersionCode,
+  isUpdateCheckDue,
+} from '@/src/lib/updateChecker';
+import {
+  getCallLogSyncPermissionStatus,
+  hasNativeCallLogSyncPlugin,
+  isNativeCapacitor,
+  markNativeMissedCallReturned,
+} from '@/src/lib/capacitor';
 import { getContactKey, getUpcomingContactEvents } from '@/src/lib/contacts';
 import {
   formatEthiopianShort,
@@ -46,7 +65,9 @@ import { quietContacts, unreturnedMissedCalls } from '@/src/lib/reminders';
 import { maskPhoneNumber } from '@/src/lib/security';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { CallsProvider, useCalls } from '@/src/store/CallsContext';
-import type { CallRecord, TabKey } from '@/src/types/call';
+import type { AppUpdateNotice, CallRecord, ContactMilestoneRecord, TabKey } from '@/src/types/call';
+
+const ANDROID_SETUP_SEEN_KEY = 'callanalyzer.androidSetupSeen.v1';
 
 const TABS: Array<{ key: TabKey; label: string; icon: typeof Phone }> = [
   { key: 'calls', label: 'Calls', icon: Phone },
@@ -94,9 +115,15 @@ function AppShell() {
     checkEmailVerification,
     signOutAccount,
     isAdmin,
+    syncPhoneCalls,
     toggleFavorite,
     patchCall,
     removeCall,
+    unseenNewCallIds,
+    markCallsTabOpened,
+    clearSessionNewCalls,
+    pendingMilestoneCelebration,
+    markContactMilestoneCelebrated,
     notice,
     showNotice,
   } = useCalls();
@@ -109,15 +136,66 @@ function AppShell() {
   const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(() => new Set(['calls']));
   const [detailId, setDetailId] = useState<string | null>(null);
   const [selectedContactNumber, setSelectedContactNumber] = useState<string | null>(null);
+  const [manualMilestone, setManualMilestone] = useState<ContactMilestoneRecord | null>(null);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [remindersInitialCategory, setRemindersInitialCategory] = useState<
     'action' | 'wishes' | 'quiet' | 'reports'
   >('action');
   const [guideOpen, setGuideOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [androidSetupOpen, setAndroidSetupOpen] = useState(false);
+  const [updateNotice, setUpdateNotice] = useState<AppUpdateNotice | null>(null);
   const [checkingVerify, setCheckingVerify] = useState(false);
   const [resendingVerify, setResendingVerify] = useState(false);
   const mainContentRef = useRef<HTMLDivElement>(null);
+
+  // Check remote version.json on app start and once every 24 hours (fails silently offline)
+  useEffect(() => {
+    let cancelled = false;
+    const runCheck = async () => {
+      const result = await checkForAppUpdate();
+      if (!cancelled && result) {
+        setUpdateNotice(result);
+      }
+    };
+    void runCheck();
+
+    const intervalId = window.setInterval(() => {
+      if (isUpdateCheckDue()) {
+        void runCheck();
+      }
+    }, UPDATE_CHECK_INTERVAL_MS);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && isUpdateCheckDue()) {
+        void runCheck();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  const handleDismissUpdate = useCallback(() => {
+    setUpdateNotice((prev) => {
+      if (!prev || prev.mandatory) return prev;
+      dismissUpdateVersionCode(prev.versionCode);
+      return null;
+    });
+  }, []);
+
+  const handleManualUpdateCheck = useCallback(async () => {
+    const result = await checkForAppUpdate({ force: true, ignoreDismissed: true });
+    if (result) {
+      setUpdateNotice(result);
+    } else {
+      showNotice(`You are on the latest version (v${APP_VERSION}).`, 'tap');
+    }
+  }, [showNotice]);
 
   const visibleTabs = useMemo(
     () =>
@@ -131,6 +209,7 @@ function AppShell() {
   useEffect(() => {
     setDetailId(null);
     setSelectedContactNumber(null);
+    setManualMilestone(null);
     setRemindersOpen(false);
     setActiveTab('calls');
     setVisitedTabs(new Set(['calls']));
@@ -173,6 +252,28 @@ function AppShell() {
   }, [authLoading, needsEmailVerification, isLocked, authUser, isGuest]);
 
   useEffect(() => {
+    if (authLoading || needsEmailVerification || isLocked || !authUser) return;
+    if (!isNativeCapacitor() || !hasNativeCallLogSyncPlugin()) return;
+    let cancelled = false;
+    const checkAndroidSetup = async () => {
+      try {
+        const seen = localStorage.getItem(ANDROID_SETUP_SEEN_KEY) === '1';
+        const status = await getCallLogSyncPermissionStatus();
+        if (cancelled) return;
+        if (!seen || (status && !status.allCoreGranted)) {
+          setAndroidSetupOpen(true);
+        }
+      } catch {
+        // ignore setup check error
+      }
+    };
+    void checkAndroidSetup();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, needsEmailVerification, isLocked, authUser]);
+
+  useEffect(() => {
     if (authPromptMode === 'closed') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeAuthPrompt();
@@ -198,6 +299,17 @@ function AppShell() {
     setActiveTab(nextTab);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
+
+  const prevActiveTabRef = useRef<TabKey>(activeTab);
+  useEffect(() => {
+    const prev = prevActiveTabRef.current;
+    prevActiveTabRef.current = activeTab;
+    if (activeTab === 'calls') {
+      markCallsTabOpened();
+    } else if (prev === 'calls') {
+      clearSessionNewCalls();
+    }
+  }, [activeTab, markCallsTabOpened, clearSessionNewCalls]);
 
   useEffect(() => {
     if (!notificationActionTarget) return;
@@ -409,6 +521,7 @@ function AppShell() {
   const handleCallBack = useCallback(
     (number: string) => {
       triggerHaptic('tap');
+      void markNativeMissedCallReturned(number);
       window.location.href = `tel:${number}`;
       showNotice(`Dialing ${maskPhoneNumber(number, privacyMode)}...`, false);
     },
@@ -570,6 +683,7 @@ function AppShell() {
         </main>
 
         <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />
+        <UpdateNoticeModal update={updateNotice} onDismiss={handleDismissUpdate} />
 
         <AnimatePresence>
           {notice && (
@@ -605,8 +719,8 @@ function AppShell() {
   return (
     <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col md:flex-row">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex md:w-64 md:shrink-0 md:flex-col border-r border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] p-4 justify-between">
-        <div className="space-y-6">
+      <aside className="hidden md:sticky md:top-0 md:flex md:h-screen md:w-56 lg:w-64 md:shrink-0 md:flex-col md:overflow-y-auto border-r border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] p-4 justify-between gap-4">
+        <div className="space-y-5">
           <div className="px-1 pt-1 space-y-1">
             <div className="flex items-center gap-2.5">
               <BrandLogo size={34} />
@@ -623,6 +737,8 @@ function AppShell() {
             {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.key;
+              const showNewBadge =
+                tab.key === 'calls' && unseenNewCallIds.length > 0 && activeTab !== 'calls';
               return (
                 <button
                   key={tab.key}
@@ -636,6 +752,11 @@ function AppShell() {
                 >
                   <Icon size={18} className="shrink-0" />
                   <span>{tab.label}</span>
+                  {showNewBadge && (
+                    <span className="ml-auto px-1.5 py-0.5 rounded bg-[#FF6A00] text-white text-[9px] font-bold uppercase tracking-wider leading-none shrink-0">
+                      NEW
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -867,6 +988,25 @@ function AppShell() {
             </div>
           )}
 
+          {privacyMode && (
+            <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <EyeOff size={15} className="text-[#FF6A00] shrink-0" />
+                <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                  Privacy Mode is on · Phone numbers are masked
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={togglePrivacyMode}
+                className="min-h-[34px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Eye size={13} />
+                Show full numbers
+              </button>
+            </div>
+          )}
+
           {visitedTabs.has('calls') && (
             <div className={activeTab === 'calls' ? 'block' : 'hidden'}>
               <CallsTab
@@ -906,6 +1046,9 @@ function AppShell() {
                 onOpenReminders={handleOpenReminders}
                 onOpenGuide={handleOpenGuide}
                 onOpenWhatsNew={handleOpenWhatsNew}
+                onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+                onSelectContact={handleSelectContact}
+                onCheckForUpdates={handleManualUpdateCheck}
               />
             </div>
           )}
@@ -932,6 +1075,8 @@ function AppShell() {
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.key;
+            const showNewBadge =
+              tab.key === 'calls' && unseenNewCallIds.length > 0 && activeTab !== 'calls';
             return (
               <button
                 key={tab.key}
@@ -946,6 +1091,11 @@ function AppShell() {
                     aria-hidden="true"
                     className="pointer-events-none absolute top-0 left-3 right-3 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00]"
                   />
+                )}
+                {showNewBadge && (
+                  <span className="pointer-events-none absolute top-1.5 right-2 px-1 py-[1px] rounded bg-[#FF6A00] text-white text-[8px] font-bold uppercase tracking-wider leading-none">
+                    NEW
+                  </span>
                 )}
                 <Icon size={19} className="shrink-0" />
                 <span className="text-[10px] font-semibold leading-none whitespace-nowrap">
@@ -986,6 +1136,21 @@ function AppShell() {
           handleSelectCall(call);
         }}
         onCallBack={handleCallBack}
+        onShareMilestone={(m) => {
+          setSelectedContactNumber(null);
+          setManualMilestone(m);
+        }}
+      />
+
+      <ContactMilestoneModal
+        milestone={manualMilestone ?? pendingMilestoneCelebration}
+        onClose={() => {
+          if (manualMilestone) {
+            setManualMilestone(null);
+          } else if (pendingMilestoneCelebration) {
+            markContactMilestoneCelebrated(pendingMilestoneCelebration.id);
+          }
+        }}
       />
 
       <RemindersModal
@@ -1006,6 +1171,21 @@ function AppShell() {
         onClose={handleCloseWhatsNew}
         onOpenGuide={handleOpenGuide}
       />
+
+      <AndroidPermissionsModal
+        open={androidSetupOpen}
+        onClose={() => setAndroidSetupOpen(false)}
+        onCompleted={() => {
+          try {
+            localStorage.setItem(ANDROID_SETUP_SEEN_KEY, '1');
+          } catch {
+            // ignore storage errors
+          }
+          void syncPhoneCalls({ fullResync: false });
+        }}
+      />
+
+      <UpdateNoticeModal update={updateNotice} onDismiss={handleDismissUpdate} />
 
       <AnimatePresence>
         {authPromptMode !== 'closed' && (

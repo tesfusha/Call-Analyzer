@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  Award,
   Cake,
   Check,
   Clock,
   Copy,
   Download,
+  Flame,
+  Lock,
   MessageSquare,
   Phone,
   PhoneIncoming,
@@ -16,6 +19,7 @@ import {
   Star,
   Tag,
   Trash2,
+  Trophy,
   User,
   X,
 } from 'lucide-react';
@@ -38,6 +42,7 @@ import {
 } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile, shareContactVcard } from '@/src/lib/export';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import { buildEmptyContactStatus } from '@/src/lib/gamification';
 import {
   buildScheduledCallIcs,
   formatScheduledCountdown,
@@ -52,8 +57,10 @@ import type {
   CalendarKind,
   CallDirection,
   CallRecord,
+  ContactBadgeItem,
   ContactBirthday,
   ContactEvent,
+  ContactMilestoneRecord,
   ContactProfile,
 } from '@/src/types/call';
 
@@ -83,11 +90,13 @@ export function ContactDetailModal({
   onClose,
   onSelectCall,
   onCallBack,
+  onShareMilestone,
 }: {
   contactNumber: string | null;
   onClose: () => void;
   onSelectCall: (call: CallRecord) => void;
   onCallBack: (number: string) => void;
+  onShareMilestone?: (milestone: ContactMilestoneRecord) => void;
 }) {
   const {
     calls,
@@ -106,6 +115,8 @@ export function ContactDetailModal({
     scheduleCall,
     completeScheduledCall,
     snoozeScheduledCall,
+    contactStatuses,
+    contactMilestones,
     showNotice,
   } = useCalls();
 
@@ -255,6 +266,16 @@ export function ContactDetailModal({
   const isContactBirthdayToday = hasBirthday && bdayCountdown === 0;
   const canShowWishToday = isContactBirthdayToday || todaysHoliday !== null;
 
+  const contactStatus = useMemo(() => {
+    if (!contactKey) {
+      return buildEmptyContactStatus('', '', displayName, tag);
+    }
+    return (
+      contactStatuses[contactKey] ??
+      buildEmptyContactStatus(contactKey, safeNumber, displayName, tag)
+    );
+  }, [contactStatuses, contactKey, safeNumber, displayName, tag]);
+
   const handleSaveProfile = () => {
     if (!contactNumber) return;
     const cleanTag = tag.trim();
@@ -390,7 +411,7 @@ export function ContactDetailModal({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={`Contact details for ${displayName}`}
+            aria-label={`Contact details for ${formatDisplayNameOrPhone(displayName, contactNumber, privacyMode)}`}
           >
             {/* Pinned Header + Tabs */}
             <div className="shrink-0 p-5 pb-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3.5">
@@ -405,7 +426,7 @@ export function ContactDetailModal({
                   <div className="min-w-0 space-y-0.5">
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <h2 className="text-lg font-bold text-[#08246B] dark:text-white truncate">
-                        {displayName}
+                        {formatDisplayNameOrPhone(displayName, contactNumber, privacyMode)}
                       </h2>
                       {tag.trim() && (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00] shrink-0">
@@ -681,6 +702,201 @@ export function ContactDetailModal({
               </p>
             )}
           </div>
+        </div>
+
+        {/* Status with Contact: Streak, Score & Badges */}
+        <div className="rounded-2xl bg-[#EEF2F6]/80 dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
+          <div className="flex flex-wrap items-start justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  contactStatus.currentStreak >= 3
+                    ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/20 text-[#FF6A00]'
+                    : 'bg-white dark:bg-[var(--dark-surface)] text-[#08246B] dark:text-[#FF6A00] border border-[#DDE4EA] dark:border-[var(--dark-border)]'
+                }`}
+              >
+                <Flame size={17} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                  Status with {displayName}: {contactStatus.statusHeadline}
+                </p>
+                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  {contactStatus.statusSubtext}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-right shrink-0">
+              <p className="text-sm font-mono font-bold tabular-nums text-[#FF6A00] flex items-center justify-end gap-1">
+                <Trophy size={13} />
+                <span>{contactStatus.contactScore} pts</span>
+              </p>
+              <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                {contactStatus.earnedBadgesCount}/{contactStatus.badges.length} badges
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[#DDE4EA]/80 dark:border-[var(--dark-border)] text-center">
+            <div className="py-1.5">
+              <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                {contactStatus.currentStreak}d
+              </p>
+              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Current Streak
+              </p>
+            </div>
+            <div className="py-1.5 border-x border-[#DDE4EA]/80 dark:border-[var(--dark-border)]">
+              <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                {contactStatus.longestStreak}d
+              </p>
+              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Best Streak
+              </p>
+            </div>
+            <div className="py-1.5">
+              <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                {contactStatus.totalConnectedDays}d
+              </p>
+              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Connected Days
+              </p>
+            </div>
+          </div>
+
+          {contactStatus.nextMilestoneDays !== null && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+                <span>
+                  Next goal: {contactStatus.nextMilestoneDays}-Day Badge
+                </span>
+                <span className="font-mono font-semibold text-[#08246B] dark:text-white">
+                  {Math.min(contactStatus.currentStreak, contactStatus.nextMilestoneDays)}/{contactStatus.nextMilestoneDays}d
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-white dark:bg-[var(--dark-surface)] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round(
+                        (contactStatus.currentStreak / contactStatus.nextMilestoneDays) * 100,
+                      ),
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
+                <Award size={13} className="text-[#FF6A00]" />
+                Contact Badges ({contactStatus.earnedBadgesCount}/{contactStatus.badges.length})
+              </p>
+              {onShareMilestone && contactStatus.earnedBadgesCount > 0 && (() => {
+                const highestBadge = [...contactStatus.badges].reverse().find((b) => b.earned);
+                if (!highestBadge) return null;
+                const openBadgeShare = (badge: ContactBadgeItem) => {
+                  const existing = contactMilestones.find(
+                    (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
+                  );
+                  const reachedDate =
+                    existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
+                  onShareMilestone(
+                    existing ?? {
+                      id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
+                      contactKey: contactStatus.contactKey,
+                      days: badge.days,
+                      streakStartDate: reachedDate,
+                      reachedDate,
+                      badgeId: badge.id,
+                      badgeTitle: badge.title,
+                      points: badge.points,
+                      awardedAt: Date.now(),
+                      celebratedAt: Date.now(),
+                    },
+                  );
+                };
+                return (
+                  <button
+                    type="button"
+                    onClick={() => openBadgeShare(highestBadge)}
+                    className="min-h-[30px] px-2.5 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-[11px] font-semibold text-white flex items-center gap-1 whitespace-nowrap transition-colors"
+                  >
+                    <Share2 size={11} />
+                    <span>Share Milestone</span>
+                  </button>
+                );
+              })()}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {contactStatus.badges.map((badge) => {
+                const handleBadgeClick = () => {
+                  if (!badge.earned || !onShareMilestone) return;
+                  const existing = contactMilestones.find(
+                    (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
+                  );
+                  const reachedDate =
+                    existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
+                  onShareMilestone(
+                    existing ?? {
+                      id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
+                      contactKey: contactStatus.contactKey,
+                      days: badge.days,
+                      streakStartDate: reachedDate,
+                      reachedDate,
+                      badgeId: badge.id,
+                      badgeTitle: badge.title,
+                      points: badge.points,
+                      awardedAt: Date.now(),
+                      celebratedAt: Date.now(),
+                    },
+                  );
+                };
+                const isInteractive = badge.earned && Boolean(onShareMilestone);
+                return (
+                  <button
+                    key={badge.id}
+                    type="button"
+                    disabled={!isInteractive}
+                    onClick={handleBadgeClick}
+                    className={`text-left rounded-xl border px-2.5 py-2 space-y-0.5 transition-colors ${
+                      badge.earned
+                        ? 'bg-white dark:bg-[var(--dark-surface)] border-[#FF6A00]/45 hover:border-[#FF6A00]'
+                        : 'bg-white/50 dark:bg-[var(--dark-surface)]/50 border-[#DDE4EA] dark:border-[var(--dark-border)] opacity-70 cursor-default'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                        {badge.days}d
+                      </span>
+                      {badge.earned ? (
+                        <Check size={12} className="text-[#10B981] shrink-0" />
+                      ) : (
+                        <Lock size={11} className="text-[#8A93A0] shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
+                      {badge.title}
+                    </p>
+                    <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                      {badge.earned
+                        ? `+${badge.points} pts${badge.unlockedEatDate ? ` · ${badge.unlockedEatDate}` : ''}`
+                        : `+${badge.points} pts goal`}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
+            Score breakdown: {contactStatus.totalConnectedDays} connected day{contactStatus.totalConnectedDays === 1 ? '' : 's'} · {contactStatus.quickCallbacksCount} quick callback{contactStatus.quickCallbacksCount === 1 ? '' : 's'} · {contactStatus.taggedOrNotedCallsCount} tagged/noted call{contactStatus.taggedOrNotedCallsCount === 1 ? '' : 's'} · EAT (UTC+3)
+          </p>
         </div>
           </div>
         )}

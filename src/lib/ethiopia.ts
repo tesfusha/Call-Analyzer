@@ -124,11 +124,39 @@ export function formatSimCompact(sim: SimSlot, labels: SimLabels): string {
 
 /** Normalise Ethiopian numbers to compact digits for carrier matching & contact comparison. */
 export function normaliseEthPhone(raw: string): string {
-  const cleaned = raw.replace(/[\s()-]/g, '');
-  if (cleaned.startsWith('+251')) return `0${cleaned.slice(4)}`;
-  if (cleaned.startsWith('251') && cleaned.length >= 12) return `0${cleaned.slice(3)}`;
-  if (cleaned.startsWith('00251')) return `0${cleaned.slice(5)}`;
-  return cleaned;
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const hasLeadingPlus = trimmed.startsWith('+');
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (!digitsOnly) return trimmed.replace(/[\s()-]/g, '');
+
+  let national: string | null = null;
+  if (digitsOnly.startsWith('00251') && digitsOnly.length > 5) {
+    national = digitsOnly.slice(5);
+  } else if (digitsOnly.startsWith('251') && digitsOnly.length >= 11) {
+    national = digitsOnly.slice(3);
+  }
+
+  if (national !== null) {
+    const stripped = national.startsWith('0') ? national.slice(1) : national;
+    if (stripped.length === 9 && (stripped.startsWith('9') || stripped.startsWith('7'))) {
+      return `0${stripped}`;
+    }
+    if (national.startsWith('0') && national.length === 10) {
+      return national;
+    }
+    return national.startsWith('0') ? national : `0${national}`;
+  }
+
+  if (digitsOnly.startsWith('0')) {
+    return digitsOnly;
+  }
+
+  if (!hasLeadingPlus && digitsOnly.length === 9 && (digitsOnly.startsWith('9') || digitsOnly.startsWith('7'))) {
+    return `0${digitsOnly}`;
+  }
+
+  return hasLeadingPlus ? `+${digitsOnly}` : digitsOnly;
 }
 
 export function detectCarrier(number: string): CarrierName {

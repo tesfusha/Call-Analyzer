@@ -1,0 +1,7 @@
+{
+  "versionCode": 1,
+  "versionName": "2.5.1",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.1.apk",
+  "notes": "Local-first IndexedDB storage, contact milestones & shareable cards, privacy mode masking, and update notifications.",
+  "mandatory": false
+}

@@ -27,26 +27,25 @@ import {
 import {
   Timestamp,
   collection,
-  deleteDoc,
   deleteField,
   doc,
   getDoc,
   getDocs,
   onSnapshot,
-  query,
   serverTimestamp,
   setDoc,
   updateDoc,
-  where,
-  writeBatch,
 } from 'firebase/firestore';
 import {
   type NotificationActionEvent,
   type NotificationMeta,
+  acknowledgeNativeSyncedCalls,
   cancelNativeNotification,
   fetchNativeRecentCalls,
+  getCallLogSyncPermissionStatus,
   getNativeNotificationPermission,
   hasNativeCallLogPlugin,
+  hasNativeCallLogSyncPlugin,
   hasNativeGoogleAuth,
   hasNativeNotificationsPlugin,
   isNativeCapacitor,
@@ -57,7 +56,9 @@ import {
   showNativeNotification,
   subscribeNativeCallLog,
   subscribeNativeNotificationActions,
+  syncNativeCallLogIncremental,
   syncNativeStatusBar,
+  updateNativeMissedCallSettings,
 } from '@/src/lib/capacitor';
 import {
   DEFAULT_RELATIONSHIP_TAGS,
@@ -87,9 +88,28 @@ import {
   db,
   googleProvider,
   handleFirestoreError,
-  toFirestoreDocId,
 } from '@/src/lib/firebase';
-import { buildSampleCalls, makeCallId } from '@/src/lib/import';
+import {
+  buildCallDedupKey,
+  buildSampleCalls,
+  makeCallId,
+  mergeCallWithoutOverwrite,
+  type ParsedImportPackage,
+} from '@/src/lib/import';
+import {
+  applyDailyAppOpen,
+  computeContactStatuses,
+  computeScoreFromHistory,
+  createTagOrNotePointEntry,
+  detectQuickMissedCallbacks,
+  eatDateDiffDays,
+  getEffectiveStreak,
+  mergePointsHistory,
+  reconcileBadges,
+  reconcileContactMilestones,
+  toEatDateString,
+} from '@/src/lib/gamification';
+import { POINTS_CONFIG } from '@/src/lib/gamificationConstants';
 import { isWithinQuietHours, quietContacts, quietMessage } from '@/src/lib/reminders';
 import {
   clearPinLockoutState,
@@ -101,19 +121,32 @@ import {
   verifyPin,
   writePinLockoutState,
 } from '@/src/lib/security';
+import {
+  clearLegacyUserLocalStorage,
+  getScopedWithLegacyMigration,
+  idbClearUser,
+  idbDeleteScoped,
+  idbSetScoped,
+  migrateUserLocalStorageToIdb,
+} from '@/src/lib/idbStorage';
 import { triggerHaptic, type HapticKind } from '@/src/lib/haptics';
 import type {
   AuthProviderType,
+  BadgeRecord,
   CalendarPrefs,
-  CallDirection,
   CallPatch,
   CallRecord,
+  CallsTabState,
+  ContactMilestoneRecord,
   ContactProfile,
+  ContactStreakStatus,
+  DailyActiveRecord,
+  PointsHistoryEntry,
   RegisteredUserRecord,
   ReminderPrefs,
   ScheduledCall,
   SimLabels,
-  SimSlot,
+  StreakRecord,
   TabKey,
   VoiceBundleSlot,
   VoiceBundles,
@@ -163,6 +196,11 @@ const SCOPED_SUFFIXES = [
   'pinLockout',
   'welcomeDismissed',
   'pendingRegistration',
+  'streaks',
+  'badges',
+  'pointsHistory',
+  'contactMilestones',
+  'callsTabState',
 ] as const;
 
 function userStorageKey(uid: string, suffix: (typeof SCOPED_SUFFIXES)[number]): string {
@@ -235,6 +273,8 @@ export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
 
 export const DEFAULT_REMINDER_PREFS: ReminderPrefs = {
   callbackDelayMinutes: 15,
+  missedCallReminderEnabled: true,
+  missedCallReminderDelayMinutes: 5,
   eventLeadDays: 7,
   quietContactDays: 30,
   quietHoursEnabled: false,
@@ -245,6 +285,31 @@ export const DEFAULT_REMINDER_PREFS: ReminderPrefs = {
 export type ImportCounts = {
   added: number;
   duplicates: number;
+  merged?: number;
+  addedIds?: string[];
+};
+
+export type BackupRestoreCounts = {
+  callsAdded: number;
+  callsDuplicates: number;
+  callsMerged: number;
+  contactsAdded: number;
+  contactsUpdated: number;
+  scheduledAdded: number;
+  tagsAdded: number;
+  restoredSections: string[];
+};
+
+const DEFAULT_STREAKS: StreakRecord = {
+  currentStreak: 0,
+  longestStreak: 0,
+  lastActiveDate: null,
+  totalActiveDays: 0,
+};
+
+const DEFAULT_CALLS_TAB_STATE: CallsTabState = {
+  lastOpenedAt: 0,
+  unseenCallIds: [],
 };
 
 export type ScheduleCallInput = {
@@ -328,10 +393,12 @@ type CallsContextValue = {
   checkEmailVerification: () => Promise<boolean>;
   sendPasswordReset: (email: string) => Promise<AuthActionResult>;
   signOutAccount: () => Promise<void>;
+  deleteAllLocalData: () => Promise<void>;
   syncNow: () => Promise<void>;
   canSyncPhoneCalls: boolean;
   syncPhoneCalls: (options?: { fullResync?: boolean }) => Promise<void>;
   fetchRegisteredUsers: () => Promise<RegisteredUserRecord[]>;
+  fetchDailyActiveRecords: () => Promise<DailyActiveRecord[]>;
   setAppPin: (pin: string) => Promise<void>;
   clearAppPin: () => void;
   unlockWithPin: (pin: string) => Promise<boolean>;
@@ -339,8 +406,27 @@ type CallsContextValue = {
   setPrivacyMode: (enabled: boolean) => void;
   togglePrivacyMode: () => void;
   availableTags: string[];
+  customTags: string[];
+  streaks: StreakRecord;
+  effectiveStreaks: StreakRecord;
+  badges: BadgeRecord[];
+  pointsHistory: PointsHistoryEntry[];
+  score: number;
+  contactStatuses: Record<string, ContactStreakStatus>;
+  topContactStatuses: ContactStreakStatus[];
+  contactMilestones: ContactMilestoneRecord[];
+  pendingMilestoneCelebration: ContactMilestoneRecord | null;
+  markContactMilestoneCelebrated: (milestoneId: string) => void;
+  dismissAllPendingMilestones: () => void;
+  rebuildScore: () => number;
+  unseenNewCallIds: string[];
+  sessionNewCallIds: Set<string>;
+  markCallsTabOpened: () => void;
+  markCallSeen: (callId: string) => void;
+  clearSessionNewCalls: () => void;
   addCustomTag: (tag: string) => string;
   importCalls: (records: CallRecord[]) => ImportCounts;
+  importBackupPackage: (pkg: ParsedImportPackage) => BackupRestoreCounts;
   loadSampleData: () => ImportCounts;
   patchCall: (id: string, patch: CallPatch, options?: { applyTagToContact?: boolean }) => void;
   removeCall: (id: string) => void;
@@ -407,7 +493,9 @@ function clearLegacyUnscopedKeys() {
   LEGACY_UNSCOPED_KEYS.forEach(removeStorageKey);
 }
 
-function clearUserScopedStorage(uid: string) {
+async function clearUserScopedStorage(uid: string): Promise<void> {
+  await idbClearUser(uid);
+  clearLegacyUserLocalStorage(uid);
   SCOPED_SUFFIXES.forEach((suffix) => removeStorageKey(userStorageKey(uid, suffix)));
 }
 
@@ -428,6 +516,16 @@ type ScopedUserSnapshot = {
   notificationsEnabled: boolean;
   privacyMode: boolean;
   pinHash: string;
+  streaks: StreakRecord;
+  badges: BadgeRecord[];
+  pointsHistory: PointsHistoryEntry[];
+  contactMilestones: ContactMilestoneRecord[];
+  callsTabState: CallsTabState;
+};
+
+type HydratedScopedUserData = {
+  snapshot: ScopedUserSnapshot;
+  pendingReg: PendingRegistration | null;
 };
 
 function createEmptySnapshot(): ScopedUserSnapshot {
@@ -448,97 +546,307 @@ function createEmptySnapshot(): ScopedUserSnapshot {
     notificationsEnabled: true,
     privacyMode: false,
     pinHash: '',
+    streaks: { ...DEFAULT_STREAKS },
+    badges: [],
+    pointsHistory: [],
+    contactMilestones: [],
+    callsTabState: { ...DEFAULT_CALLS_TAB_STATE },
   };
 }
 
-function readScopedUserState(uid: string): ScopedUserSnapshot {
-  const rawContacts = readJson<Record<string, ContactProfile>>(userStorageKey(uid, 'contacts'), {});
-  const healedContacts: Record<string, ContactProfile> = {};
-  Object.entries(rawContacts).forEach(([k, profile]) => {
-    healedContacts[k] = healContactProfile(profile);
+function sanitizeStreaks(raw: unknown): StreakRecord {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_STREAKS };
+  const obj = raw as Record<string, unknown>;
+  const current = Math.max(0, Math.round(Number(obj.currentStreak) || 0));
+  const longest = Math.max(current, Math.round(Number(obj.longestStreak) || 0));
+  return {
+    currentStreak: current,
+    longestStreak: longest,
+    lastActiveDate:
+      typeof obj.lastActiveDate === 'string' && obj.lastActiveDate.trim()
+        ? obj.lastActiveDate.trim()
+        : null,
+    totalActiveDays:
+      typeof obj.totalActiveDays === 'number' && Number.isFinite(obj.totalActiveDays)
+        ? Math.max(0, Math.round(obj.totalActiveDays))
+        : 0,
+  };
+}
+
+function sanitizeBadges(raw: unknown): BadgeRecord[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is BadgeRecord => Boolean(item && typeof item === 'object' && typeof (item as BadgeRecord).id === 'string'))
+    .map((item) => ({
+      id: item.id,
+      ...(typeof item.title === 'string' ? { title: item.title } : {}),
+      ...(typeof item.description === 'string' ? { description: item.description } : {}),
+      unlockedAt: Number(item.unlockedAt) || Date.now(),
+    }));
+}
+
+function sanitizePointsHistory(raw: unknown): PointsHistoryEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const byId = new Map<string, PointsHistoryEntry>();
+  raw.forEach((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+    const rec = item as Partial<PointsHistoryEntry>;
+    if (typeof rec.id !== 'string' || !rec.id.trim()) return;
+    const points = Math.max(0, Math.round(Number(rec.points) || 0));
+    if (points <= 0) return;
+    const timestamp =
+      typeof rec.timestamp === 'number' && Number.isFinite(rec.timestamp) && rec.timestamp > 0
+        ? Math.round(rec.timestamp)
+        : Date.now();
+    const eatDate =
+      typeof rec.eatDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rec.eatDate.trim())
+        ? rec.eatDate.trim()
+        : toEatDateString(timestamp);
+    const reason =
+      rec.reason === 'quick_callback' ||
+      rec.reason === 'call_tag_or_note' ||
+      rec.reason === 'streak_bonus' ||
+      rec.reason === 'contact_milestone'
+        ? rec.reason
+        : 'daily_open';
+    if (!byId.has(rec.id)) {
+      byId.set(rec.id, {
+        id: rec.id,
+        reason,
+        points,
+        label: typeof rec.label === 'string' && rec.label.trim() ? rec.label.trim() : 'Points activity',
+        timestamp,
+        eatDate,
+        ...(typeof rec.meta === 'string' && rec.meta.trim() ? { meta: rec.meta.trim() } : {}),
+      });
+    }
   });
+  return Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function sanitizeContactMilestones(raw: unknown): ContactMilestoneRecord[] {
+  if (!Array.isArray(raw)) return [];
+  const byId = new Map<string, ContactMilestoneRecord>();
+  raw.forEach((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+    const rec = item as Partial<ContactMilestoneRecord>;
+    if (typeof rec.id !== 'string' || !rec.id.trim()) return;
+    if (typeof rec.contactKey !== 'string' || !rec.contactKey.trim()) return;
+    const days = Math.round(Number(rec.days) || 0);
+    if (!Number.isFinite(days) || days < 1) return;
+    const streakStartDate =
+      typeof rec.streakStartDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rec.streakStartDate.trim())
+        ? rec.streakStartDate.trim()
+        : '';
+    const reachedDate =
+      typeof rec.reachedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rec.reachedDate.trim())
+        ? rec.reachedDate.trim()
+        : streakStartDate || toEatDateString();
+    const awardedAt =
+      typeof rec.awardedAt === 'number' && Number.isFinite(rec.awardedAt) && rec.awardedAt > 0
+        ? Math.round(rec.awardedAt)
+        : Date.now();
+    const celebratedAt =
+      typeof rec.celebratedAt === 'number' && Number.isFinite(rec.celebratedAt) && rec.celebratedAt > 0
+        ? Math.round(rec.celebratedAt)
+        : null;
+    if (!byId.has(rec.id)) {
+      byId.set(rec.id, {
+        id: rec.id,
+        contactKey: rec.contactKey,
+        days,
+        streakStartDate: streakStartDate || reachedDate,
+        reachedDate,
+        badgeId:
+          typeof rec.badgeId === 'string' && rec.badgeId.trim()
+            ? rec.badgeId.trim()
+            : `contact_${days}d`,
+        badgeTitle:
+          typeof rec.badgeTitle === 'string' && rec.badgeTitle.trim()
+            ? rec.badgeTitle.trim()
+            : `${days}-Day Milestone`,
+        points: Math.max(0, Math.round(Number(rec.points) || 0)),
+        awardedAt,
+        celebratedAt,
+      });
+    }
+  });
+  return Array.from(byId.values()).sort((a, b) => b.awardedAt - a.awardedAt || b.days - a.days);
+}
+
+function sanitizeCallsTabState(raw: unknown): CallsTabState {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ...DEFAULT_CALLS_TAB_STATE };
+  }
+  const obj = raw as Record<string, unknown>;
+  const lastOpenedAt =
+    typeof obj.lastOpenedAt === 'number' && Number.isFinite(obj.lastOpenedAt) && obj.lastOpenedAt > 0
+      ? Math.round(obj.lastOpenedAt)
+      : 0;
+  const unseenCallIds = Array.isArray(obj.unseenCallIds)
+    ? Array.from(
+        new Set(
+          obj.unseenCallIds.filter(
+            (id): id is string => typeof id === 'string' && id.trim().length > 0,
+          ),
+        ),
+      ).slice(0, 500)
+    : [];
+  return { lastOpenedAt, unseenCallIds };
+}
+
+async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUserData> {
+  const data = await migrateUserLocalStorageToIdb(uid);
+  const pick = <T,>(key: string, fallback: T): T =>
+    Object.prototype.hasOwnProperty.call(data, key) && data[key] !== undefined
+      ? (data[key] as T)
+      : fallback;
+
+  const rawContacts = pick<Record<string, ContactProfile>>('contacts', {});
+  const healedContacts: Record<string, ContactProfile> = {};
+  if (rawContacts && typeof rawContacts === 'object') {
+    Object.entries(rawContacts).forEach(([k, profile]) => {
+      if (profile && typeof profile === 'object') {
+        healedContacts[k] = healContactProfile(profile);
+      }
+    });
+  }
+
+  const rawCalls = pick<CallRecord[]>('calls', []);
+  const rawScheduled = pick<ScheduledCall[]>('scheduledCalls', []);
+  const rawFavorites = pick<string[]>('favorites', []);
+  const rawDismissed = pick<string[]>('dismissedMissed', []);
+  const rawMuted = pick<string[]>('mutedAlerts', []);
+  const rawProfile = pick<string>('profile', '');
+  const rawPhoto = pick<string | null>('photoUrl', null);
+  const rawPinHash = pick<string>('pinHash', '');
+  const rawStreaks = pick<StreakRecord>('streaks', DEFAULT_STREAKS);
+  const rawBadges = pick<BadgeRecord[]>('badges', []);
+  const rawPointsHistory = pick<PointsHistoryEntry[]>('pointsHistory', []);
+  const rawContactMilestones = pick<ContactMilestoneRecord[]>('contactMilestones', []);
+  const rawCallsTabState = pick<CallsTabState>('callsTabState', DEFAULT_CALLS_TAB_STATE);
+  const rawPendingReg = pick<PendingRegistration | null>('pendingRegistration', null);
+  const pendingReg =
+    rawPendingReg && typeof rawPendingReg === 'object' && typeof rawPendingReg.phone === 'string'
+      ? rawPendingReg
+      : null;
 
   return {
-    calls: readJson<CallRecord[]>(userStorageKey(uid, 'calls'), []).map(healCallRecord),
-    contacts: healedContacts,
-    scheduledCalls: readJson<ScheduledCall[]>(userStorageKey(uid, 'scheduledCalls'), []).map(
-      healScheduledCall,
+    snapshot: {
+      calls: Array.isArray(rawCalls) ? rawCalls.map(healCallRecord) : [],
+      contacts: healedContacts,
+      scheduledCalls: Array.isArray(rawScheduled) ? rawScheduled.map(healScheduledCall) : [],
+      favoritesArray: Array.isArray(rawFavorites) ? rawFavorites : [],
+      dismissedMissedArray: Array.isArray(rawDismissed) ? rawDismissed : [],
+      mutedAlertKeys: Array.isArray(rawMuted) ? rawMuted : [],
+      tariffs: sanitizeTariffs({
+        ...DEFAULT_TARIFFS,
+        ...(pick<Partial<TariffConfig>>('tariffs', {}) || {}),
+      }),
+      simLabels: sanitizeSimLabels({
+        ...DEFAULT_SIM_LABELS,
+        ...(pick<Partial<SimLabels>>('simLabels', {}) || {}),
+      }),
+      calendarPrefs: sanitizeCalendarPrefs({
+        ...DEFAULT_CALENDAR_PREFS,
+        ...(pick<Partial<CalendarPrefs>>('calendarPrefs', {}) || {}),
+      }),
+      reminderPrefs: sanitizeReminderPrefs({
+        ...DEFAULT_REMINDER_PREFS,
+        ...(pick<Partial<ReminderPrefs>>('reminderPrefs', {}) || {}),
+      }),
+      voiceBundles: sanitizeVoiceBundles(
+        pick<Partial<VoiceBundles>>('voiceBundles', DEFAULT_VOICE_BUNDLES),
+      ),
+      profileName: typeof rawProfile === 'string' ? rawProfile : '',
+      userPhotoUrl: typeof rawPhoto === 'string' ? rawPhoto : null,
+      notificationsEnabled: Boolean(pick<boolean>('notifications', true)),
+      // Always show full phone numbers by default on app start; Privacy Mode is an intentional per-session toggle
+      privacyMode: false,
+      pinHash: typeof rawPinHash === 'string' ? rawPinHash : '',
+      streaks: sanitizeStreaks(rawStreaks),
+      badges: sanitizeBadges(rawBadges),
+      pointsHistory: sanitizePointsHistory(rawPointsHistory),
+      contactMilestones: sanitizeContactMilestones(rawContactMilestones),
+      callsTabState: sanitizeCallsTabState(rawCallsTabState),
+    },
+    pendingReg,
+  };
+}
+
+function sanitizeTariffs(t: Partial<TariffConfig> | undefined): TariffConfig {
+  const sim1 = Number(t?.sim1RatePerMin);
+  const sim2 = Number(t?.sim2RatePerMin);
+  const budget = Number(t?.monthlyBudgetEtb);
+  return {
+    sim1RatePerMin: Math.max(0, Math.min(1000, Number.isFinite(sim1) ? sim1 : 0)),
+    sim2RatePerMin: Math.max(0, Math.min(1000, Number.isFinite(sim2) ? sim2 : 0)),
+    billingMode: t?.billingMode === 'per-minute' ? 'per-minute' : 'per-second',
+    monthlyBudgetEtb: Math.max(0, Math.min(1000000, Number.isFinite(budget) ? budget : 0)),
+  };
+}
+
+function sanitizeSimLabels(s: Partial<SimLabels> | undefined): SimLabels {
+  const raw1 = typeof s?.sim1Label === 'string' && s.sim1Label.trim() ? s.sim1Label.trim() : 'SIM 1';
+  const raw2 = typeof s?.sim2Label === 'string' && s.sim2Label.trim() ? s.sim2Label.trim() : 'SIM 2';
+  const label1 = clampStr(formatCarrierShort(raw1) || raw1, 40) || 'SIM 1';
+  const label2 = clampStr(formatCarrierShort(raw2) || raw2, 40) || 'SIM 2';
+  return {
+    sim1Label: label1,
+    sim2Label: label2,
+  };
+}
+
+function sanitizeCalendarPrefs(c: Partial<CalendarPrefs> | undefined): CalendarPrefs {
+  return {
+    defaultLang: c?.defaultLang === 'amharic' ? 'amharic' : 'english',
+    defaultGeezNumerals: Boolean(c?.defaultGeezNumerals),
+    dateDisplay: c?.dateDisplay === 'both' ? 'both' : 'ec-first',
+  };
+}
+
+function sanitizeReminderPrefs(r: Partial<ReminderPrefs> | undefined): ReminderPrefs {
+  const callbackRaw = Number(r?.callbackDelayMinutes);
+  const leadRaw = Number(r?.eventLeadDays);
+  const quietDaysRaw = Number(r?.quietContactDays);
+  const startRaw = Number(r?.quietStartHour);
+  const endRaw = Number(r?.quietEndHour);
+  const rawMissedDelay = Number(r?.missedCallReminderDelayMinutes);
+  return {
+    callbackDelayMinutes: Math.max(
+      5,
+      Math.min(1440, Math.round(Number.isFinite(callbackRaw) && callbackRaw > 0 ? callbackRaw : 15)),
     ),
-    favoritesArray: readJson<string[]>(userStorageKey(uid, 'favorites'), []),
-    dismissedMissedArray: readJson<string[]>(userStorageKey(uid, 'dismissedMissed'), []),
-    mutedAlertKeys: readJson<string[]>(userStorageKey(uid, 'mutedAlerts'), []),
-    tariffs: sanitizeTariffs({
-      ...DEFAULT_TARIFFS,
-      ...readJson<Partial<TariffConfig>>(userStorageKey(uid, 'tariffs'), {}),
-    }),
-    simLabels: sanitizeSimLabels({
-      ...DEFAULT_SIM_LABELS,
-      ...readJson<Partial<SimLabels>>(userStorageKey(uid, 'simLabels'), {}),
-    }),
-    calendarPrefs: sanitizeCalendarPrefs({
-      ...DEFAULT_CALENDAR_PREFS,
-      ...readJson<Partial<CalendarPrefs>>(userStorageKey(uid, 'calendarPrefs'), {}),
-    }),
-    reminderPrefs: sanitizeReminderPrefs({
-      ...DEFAULT_REMINDER_PREFS,
-      ...readJson<Partial<ReminderPrefs>>(userStorageKey(uid, 'reminderPrefs'), {}),
-    }),
-    voiceBundles: sanitizeVoiceBundles(
-      readJson<Partial<VoiceBundles>>(userStorageKey(uid, 'voiceBundles'), DEFAULT_VOICE_BUNDLES),
+    missedCallReminderEnabled:
+      typeof r?.missedCallReminderEnabled === 'boolean' ? r.missedCallReminderEnabled : true,
+    missedCallReminderDelayMinutes: rawMissedDelay === 10 ? 10 : 5,
+    eventLeadDays: Math.max(
+      0,
+      Math.min(60, Math.round(Number.isFinite(leadRaw) ? leadRaw : 7)),
     ),
-    profileName: readJson<string>(userStorageKey(uid, 'profile'), ''),
-    userPhotoUrl: readJson<string | null>(userStorageKey(uid, 'photoUrl'), null),
-    notificationsEnabled: readJson<boolean>(userStorageKey(uid, 'notifications'), true),
-    privacyMode: readJson<boolean>(userStorageKey(uid, 'privacyMode'), false),
-    pinHash: readJson<string>(userStorageKey(uid, 'pinHash'), ''),
-  };
-}
-
-function sanitizeTariffs(t: TariffConfig): TariffConfig {
-  return {
-    sim1RatePerMin: Math.max(0, Math.min(1000, Number(t.sim1RatePerMin) || 0)),
-    sim2RatePerMin: Math.max(0, Math.min(1000, Number(t.sim2RatePerMin) || 0)),
-    billingMode: t.billingMode === 'per-minute' ? 'per-minute' : 'per-second',
-    monthlyBudgetEtb: Math.max(0, Math.min(1000000, Number(t.monthlyBudgetEtb) || 0)),
-  };
-}
-
-function sanitizeSimLabels(s: SimLabels): SimLabels {
-  return {
-    sim1Label: clampStr(formatCarrierShort(s.sim1Label.trim() || 'SIM 1'), 40),
-    sim2Label: clampStr(formatCarrierShort(s.sim2Label.trim() || 'SIM 2'), 40),
-  };
-}
-
-function sanitizeCalendarPrefs(c: CalendarPrefs): CalendarPrefs {
-  return {
-    defaultLang: c.defaultLang === 'amharic' ? 'amharic' : 'english',
-    defaultGeezNumerals: Boolean(c.defaultGeezNumerals),
-    dateDisplay: c.dateDisplay === 'both' ? 'both' : 'ec-first',
-  };
-}
-
-function sanitizeReminderPrefs(r: ReminderPrefs): ReminderPrefs {
-  const startRaw = Number(r.quietStartHour);
-  const endRaw = Number(r.quietEndHour);
-  return {
-    callbackDelayMinutes: Math.max(5, Math.min(1440, Math.round(Number(r.callbackDelayMinutes) || 15))),
-    eventLeadDays: Math.max(0, Math.min(60, Math.round(Number(r.eventLeadDays) || 7))),
-    quietContactDays: Math.max(3, Math.min(180, Math.round(Number(r.quietContactDays) || 30))),
-    quietHoursEnabled: Boolean(r.quietHoursEnabled),
+    quietContactDays: Math.max(
+      3,
+      Math.min(180, Math.round(Number.isFinite(quietDaysRaw) && quietDaysRaw > 0 ? quietDaysRaw : 30)),
+    ),
+    quietHoursEnabled: Boolean(r?.quietHoursEnabled),
     quietStartHour: Math.max(0, Math.min(23, Number.isFinite(startRaw) ? Math.round(startRaw) : 22)),
     quietEndHour: Math.max(0, Math.min(23, Number.isFinite(endRaw) ? Math.round(endRaw) : 7)),
   };
 }
 
 function sanitizeVoiceBundleSlot(slot: Partial<VoiceBundleSlot> | undefined, fallback: VoiceBundleSlot): VoiceBundleSlot {
+  const rawName = typeof slot?.name === 'string' ? slot.name : fallback.name;
+  const rawTotal = Number(slot?.totalMinutes ?? fallback.totalMinutes);
+  const rawPrice = Number(slot?.priceEtb ?? fallback.priceEtb);
+  const rawStarted = Number(slot?.startedAt ?? fallback.startedAt);
+  const rawExpires = Number(slot?.expiresAt ?? fallback.expiresAt);
   return {
     enabled: Boolean(slot?.enabled),
-    name: clampStr((slot?.name ?? fallback.name).trim(), 60),
-    totalMinutes: Math.max(0, Math.min(100000, Number(slot?.totalMinutes ?? fallback.totalMinutes) || 0)),
-    priceEtb: Math.max(0, Math.min(1000000, Number(slot?.priceEtb ?? fallback.priceEtb) || 0)),
-    startedAt: Math.max(0, Math.round(Number(slot?.startedAt ?? fallback.startedAt) || 0)),
-    expiresAt: Math.max(0, Math.round(Number(slot?.expiresAt ?? fallback.expiresAt) || 0)),
+    name: clampStr(rawName.trim(), 60),
+    totalMinutes: Math.max(0, Math.min(100000, Number.isFinite(rawTotal) ? rawTotal : 0)),
+    priceEtb: Math.max(0, Math.min(1000000, Number.isFinite(rawPrice) ? rawPrice : 0)),
+    startedAt: Math.max(0, Math.round(Number.isFinite(rawStarted) ? rawStarted : 0)),
+    expiresAt: Math.max(0, Math.round(Number.isFinite(rawExpires) ? rawExpires : 0)),
   };
 }
 
@@ -546,82 +854,6 @@ function sanitizeVoiceBundles(vb: Partial<VoiceBundles> | undefined): VoiceBundl
   return {
     sim1: sanitizeVoiceBundleSlot(vb?.sim1, DEFAULT_VOICE_BUNDLES.sim1),
     sim2: sanitizeVoiceBundleSlot(vb?.sim2, DEFAULT_VOICE_BUNDLES.sim2),
-  };
-}
-
-function serializeCallForFirestore(uid: string, call: CallRecord) {
-  const docId = toFirestoreDocId(call.id);
-  const direction: CallDirection =
-    call.direction === 'incoming' || call.direction === 'outgoing' || call.direction === 'missed'
-      ? call.direction
-      : 'incoming';
-  return {
-    id: docId,
-    ownerUid: uid,
-    number: clampStr(call.number.trim() || 'Unknown', 40),
-    name: call.name ? clampStr(call.name, 120) : null,
-    direction,
-    sim: call.sim === 'SIM 1' || call.sim === 'SIM 2' ? call.sim : null,
-    timestamp: Math.max(0, Math.round(Number(call.timestamp) || 0)),
-    duration: Math.max(0, Math.min(864000, Math.round(Number(call.duration) || 0))),
-    note: call.note ? clampStr(call.note, 500) : null,
-    tag: call.tag ? clampStr(call.tag, 48) : null,
-    syncedAt: serverTimestamp(),
-  };
-}
-
-function serializeContactForFirestore(uid: string, profile: ContactProfile) {
-  const docId = toFirestoreDocId(profile.key || getContactKey(profile.number));
-  const birthday = profile.birthday
-    ? {
-        month: Math.max(1, Math.min(13, Math.round(profile.birthday.month))),
-        day: Math.max(1, Math.min(31, Math.round(profile.birthday.day))),
-        calendar: profile.birthday.calendar,
-        ...(typeof profile.birthday.year === 'number'
-          ? { year: Math.max(1900, Math.min(2200, Math.round(profile.birthday.year))) }
-          : {}),
-      }
-    : null;
-
-  const events = profile.events.slice(0, 25).map((evt) => ({
-    id: clampStr(evt.id || `evt-${Date.now()}`, 80),
-    title: clampStr(evt.title.trim() || 'Event', 100),
-    month: Math.max(1, Math.min(13, Math.round(evt.month))),
-    day: Math.max(1, Math.min(31, Math.round(evt.day))),
-    calendar: evt.calendar,
-    ...(typeof evt.year === 'number'
-      ? { year: Math.max(1900, Math.min(2200, Math.round(evt.year))) }
-      : {}),
-  }));
-
-  return {
-    key: docId,
-    ownerUid: uid,
-    number: clampStr(profile.number.trim() || 'Unknown', 40),
-    name: clampStr(profile.name, 120),
-    tag: clampStr(profile.tag, 48),
-    birthday,
-    events,
-    notes: clampStr(profile.notes, 1000),
-    updatedAt: Math.max(0, Math.round(profile.updatedAt || Date.now())),
-    syncedAt: serverTimestamp(),
-  };
-}
-
-function serializeScheduledCallForFirestore(uid: string, item: ScheduledCall) {
-  const docId = toFirestoreDocId(item.id);
-  return {
-    id: docId,
-    ownerUid: uid,
-    number: clampStr(item.number.trim() || 'Unknown', 40),
-    name: item.name ? clampStr(item.name, 120) : null,
-    scheduledFor: Math.max(0, Math.round(item.scheduledFor)),
-    note: item.note ? clampStr(item.note, 500) : null,
-    sourceCallId: item.sourceCallId ? clampStr(item.sourceCallId, 128) : null,
-    status: item.status,
-    notifiedAt: typeof item.notifiedAt === 'number' ? Math.max(0, Math.round(item.notifiedAt)) : null,
-    createdAt: Math.max(0, Math.round(item.createdAt || Date.now())),
-    syncedAt: serverTimestamp(),
   };
 }
 
@@ -666,6 +898,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [voiceBundles, setVoiceBundlesState] = useState<VoiceBundles>(() =>
     sanitizeVoiceBundles(DEFAULT_VOICE_BUNDLES),
   );
+  const [streaks, setStreaksState] = useState<StreakRecord>({ ...DEFAULT_STREAKS });
+  const [badges, setBadgesState] = useState<BadgeRecord[]>([]);
+  const [pointsHistory, setPointsHistoryState] = useState<PointsHistoryEntry[]>([]);
+  const [contactMilestones, setContactMilestonesState] = useState<ContactMilestoneRecord[]>([]);
+  const [callsTabState, setCallsTabState] = useState<CallsTabState>({ ...DEFAULT_CALLS_TAB_STATE });
+  const [sessionNewCallIdsList, setSessionNewCallIdsList] = useState<string[]>([]);
+  const prevCallsTabOpenedAtRef = useRef<number>(0);
+  const callsTabActiveRef = useRef<boolean>(true);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return false;
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -798,6 +1038,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [hydratedUid, setHydratedUid] = useState<string | null>(null);
   const hydratedUidRef = useRef<string | null>(null);
   const workspaceReadyRef = useRef<{ uid: string; promise: Promise<void> } | null>(null);
+  const dailyAlertCacheRef = useRef<{ key: string; ids: Set<string> } | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('signed-out');
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [noticeState, setNoticeState] = useState<{ text: string; id: number } | null>(null);
@@ -829,6 +1070,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     userPhotoUrl,
     notificationsEnabled,
     privacyMode,
+    streaks,
+    badges,
+    pointsHistory,
+    contactMilestones,
+    callsTabState,
   });
 
   useEffect(() => {
@@ -849,6 +1095,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       userPhotoUrl,
       notificationsEnabled,
       privacyMode,
+      streaks,
+      badges,
+      pointsHistory,
+      contactMilestones,
+      callsTabState,
     };
   }, [
     calls,
@@ -867,6 +1118,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     userPhotoUrl,
     notificationsEnabled,
     privacyMode,
+    streaks,
+    badges,
+    pointsHistory,
+    contactMilestones,
+    callsTabState,
   ]);
 
   useEffect(() => {
@@ -918,6 +1174,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setPrivacyModeState(snap.privacyMode);
     setPinHash(snap.pinHash);
     setIsLocked(Boolean(snap.pinHash));
+    setStreaksState(snap.streaks);
+    setBadgesState(snap.badges);
+    setPointsHistoryState(snap.pointsHistory);
+    setContactMilestonesState(snap.contactMilestones);
+    setCallsTabState(snap.callsTabState);
+    prevCallsTabOpenedAtRef.current = snap.callsTabState.lastOpenedAt;
+    setSessionNewCallIdsList(snap.callsTabState.unseenCallIds);
     stateRef.current = {
       calls: snap.calls,
       contacts: snap.contacts,
@@ -935,6 +1198,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       userPhotoUrl: snap.userPhotoUrl,
       notificationsEnabled: snap.notificationsEnabled,
       privacyMode: snap.privacyMode,
+      streaks: snap.streaks,
+      badges: snap.badges,
+      pointsHistory: snap.pointsHistory,
+      contactMilestones: snap.contactMilestones,
+      callsTabState: snap.callsTabState,
     };
   }, []);
 
@@ -945,7 +1213,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     if (!canPersistScoped(hydratedUid)) return;
     const uid = hydratedUid;
     const timer = window.setTimeout(() => {
-      writeJson(userStorageKey(uid, 'calls'), calls);
+      if (canPersistScoped(uid)) {
+        void idbSetScoped(uid, 'calls', calls);
+      }
     }, 180);
     return () => window.clearTimeout(timer);
   }, [calls, hydratedUid]);
@@ -953,73 +1223,98 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     if (!canPersistScoped(hydratedUid)) return;
     const uid = hydratedUid;
     const timer = window.setTimeout(() => {
-      writeJson(userStorageKey(uid, 'contacts'), contacts);
+      if (canPersistScoped(uid)) {
+        void idbSetScoped(uid, 'contacts', contacts);
+      }
     }, 180);
     return () => window.clearTimeout(timer);
   }, [contacts, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'scheduledCalls'), scheduledCalls);
+      void idbSetScoped(hydratedUid, 'scheduledCalls', scheduledCalls);
     }
   }, [scheduledCalls, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'favorites'), favoritesArray);
+      void idbSetScoped(hydratedUid, 'favorites', favoritesArray);
     }
   }, [favoritesArray, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'dismissedMissed'), dismissedMissedArray);
+      void idbSetScoped(hydratedUid, 'dismissedMissed', dismissedMissedArray);
     }
   }, [dismissedMissedArray, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'mutedAlerts'), mutedAlertKeys);
+      void idbSetScoped(hydratedUid, 'mutedAlerts', mutedAlertKeys);
     }
   }, [mutedAlertKeys, hydratedUid]);
   useEffect(() => {
-    if (canPersistScoped(hydratedUid)) writeJson(userStorageKey(hydratedUid, 'tariffs'), tariffs);
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'tariffs', tariffs);
+    }
   }, [tariffs, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'simLabels'), simLabels);
+      void idbSetScoped(hydratedUid, 'simLabels', simLabels);
     }
   }, [simLabels, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'calendarPrefs'), calendarPrefs);
+      void idbSetScoped(hydratedUid, 'calendarPrefs', calendarPrefs);
     }
   }, [calendarPrefs, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'reminderPrefs'), reminderPrefs);
+      void idbSetScoped(hydratedUid, 'reminderPrefs', reminderPrefs);
     }
   }, [reminderPrefs, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'voiceBundles'), voiceBundles);
+      void idbSetScoped(hydratedUid, 'voiceBundles', voiceBundles);
     }
   }, [voiceBundles, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'profile'), profileName);
+      void idbSetScoped(hydratedUid, 'profile', profileName);
     }
   }, [profileName, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'photoUrl'), userPhotoUrl);
+      void idbSetScoped(hydratedUid, 'photoUrl', userPhotoUrl);
     }
   }, [userPhotoUrl, hydratedUid]);
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'notifications'), notificationsEnabled);
+      void idbSetScoped(hydratedUid, 'notifications', notificationsEnabled);
     }
   }, [notificationsEnabled, hydratedUid]);
+  // Privacy Mode is intentionally session-only so full phone numbers are always shown on app open.
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
-      writeJson(userStorageKey(hydratedUid, 'privacyMode'), privacyMode);
+      void idbSetScoped(hydratedUid, 'streaks', streaks);
     }
-  }, [privacyMode, hydratedUid]);
+  }, [streaks, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'badges', badges);
+    }
+  }, [badges, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'pointsHistory', pointsHistory);
+    }
+  }, [pointsHistory, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'contactMilestones', contactMilestones);
+    }
+  }, [contactMilestones, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'callsTabState', callsTabState);
+    }
+  }, [callsTabState, hydratedUid]);
 
   useEffect(() => {
     if (!noticeState) return;
@@ -1089,6 +1384,55 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const dailyActiveRecordedRef = useRef<string | null>(null);
+
+  const recordDailyActiveClient = useCallback(async (user: User) => {
+    if (!user || !user.emailVerified) return;
+    const todayEat = toEatDateString();
+    const cacheVal = `${user.uid}:${todayEat}`;
+    if (dailyActiveRecordedRef.current === cacheVal) return;
+
+    const storageKey = `callanalyzer.dailyActiveDate.${user.uid}`;
+    try {
+      if (localStorage.getItem(storageKey) === todayEat) {
+        dailyActiveRecordedRef.current = cacheVal;
+        return;
+      }
+    } catch {
+      // ignore storage errors
+    }
+
+    dailyActiveRecordedRef.current = cacheVal;
+    const docId = `${todayEat}_${user.uid}`;
+    try {
+      await setDoc(doc(db, 'dailyActive', docId), {
+        uid: user.uid,
+        date: todayEat,
+        openedAt: serverTimestamp(),
+      });
+      try {
+        localStorage.setItem(storageKey, todayEat);
+      } catch {
+        // ignore storage errors
+      }
+    } catch (error) {
+      const code = (error as { code?: string })?.code ?? '';
+      if (code === 'permission-denied') {
+        // Document already exists for today (updates are disallowed by rules).
+        try {
+          localStorage.setItem(storageKey, todayEat);
+        } catch {
+          // ignore storage errors
+        }
+      } else {
+        // Offline or transient error: allow retry on next app open.
+        if (dailyActiveRecordedRef.current === cacheVal) {
+          dailyActiveRecordedRef.current = null;
+        }
+      }
+    }
+  }, []);
+
   const persistWorkspaceToCloud = useCallback(
     async (
       user: User,
@@ -1106,11 +1450,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         calendarPrefs: CalendarPrefs;
         reminderPrefs: ReminderPrefs;
         voiceBundles: VoiceBundles;
-        favoritesArray: string[];
-        dismissedMissedArray: string[];
-        mutedAlertKeys: string[];
       }>,
     ) => {
+      if (!user || !user.emailVerified) return;
+
       const s = stateRef.current;
       const meta = accountMetaRef.current;
       const nextPhone = overrides?.phone !== undefined ? overrides.phone : meta.phone;
@@ -1125,39 +1468,37 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           ? overrides.termsAcceptedAt
           : meta.termsAcceptedAt;
 
+      const rawDisplayName = overrides?.profileName ?? (s.profileName || user.displayName || '');
+      const rawTheme = overrides?.theme ?? s.theme;
+      const safeTheme: ThemeMode = rawTheme === 'light' ? 'light' : 'dark-gray';
+
       const path = `users/${user.uid}`;
       try {
         setSyncStatus('syncing');
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
-          displayName: clampStr(
-            overrides?.profileName ?? (s.profileName || user.displayName || ''),
-            120,
-          ),
+          displayName: clampStr(typeof rawDisplayName === 'string' ? rawDisplayName : '', 120),
           email: clampStr(user.email || '', 254),
-          ...(nextPhone !== null ? { phone: clampStr(nextPhone, 40) } : {}),
-          ...(nextPhotoURL !== null ? { photoURL: clampStr(nextPhotoURL, 500) } : {}),
-          ...(typeof nextTermsAccepted === 'boolean' ? { termsAccepted: nextTermsAccepted } : {}),
-          ...(typeof nextTermsAcceptedAt === 'number'
-            ? { termsAcceptedAt: Math.max(0, Math.round(nextTermsAcceptedAt)) }
+          ...(typeof nextPhone === 'string' && nextPhone.trim().length > 0
+            ? { phone: clampStr(nextPhone.trim(), 40) }
             : {}),
-          theme: overrides?.theme ?? s.theme,
-          notificationsEnabled: overrides?.notificationsEnabled ?? s.notificationsEnabled,
-          privacyMode: overrides?.privacyMode ?? s.privacyMode,
+          ...(typeof nextPhotoURL === 'string' && nextPhotoURL.trim().length > 0
+            ? { photoURL: clampStr(nextPhotoURL.trim(), 500) }
+            : {}),
+          ...(typeof nextTermsAccepted === 'boolean' ? { termsAccepted: nextTermsAccepted } : {}),
+          ...(typeof nextTermsAcceptedAt === 'number' &&
+          Number.isFinite(nextTermsAcceptedAt) &&
+          nextTermsAcceptedAt >= 0
+            ? { termsAcceptedAt: Math.round(nextTermsAcceptedAt) }
+            : {}),
+          theme: safeTheme,
+          notificationsEnabled: Boolean(overrides?.notificationsEnabled ?? s.notificationsEnabled),
+          privacyMode: false,
           tariffs: sanitizeTariffs(overrides?.tariffs ?? s.tariffs),
           simLabels: sanitizeSimLabels(overrides?.simLabels ?? s.simLabels),
           calendarPrefs: sanitizeCalendarPrefs(overrides?.calendarPrefs ?? s.calendarPrefs),
           reminderPrefs: sanitizeReminderPrefs(overrides?.reminderPrefs ?? s.reminderPrefs),
           voiceBundles: sanitizeVoiceBundles(overrides?.voiceBundles ?? s.voiceBundles),
-          favorites: (overrides?.favoritesArray ?? s.favoritesArray)
-            .slice(0, 200)
-            .map((v) => clampStr(v, 128)),
-          dismissedMissedIds: (overrides?.dismissedMissedArray ?? s.dismissedMissedArray)
-            .slice(0, 500)
-            .map((v) => clampStr(v, 128)),
-          mutedAlertKeys: (overrides?.mutedAlertKeys ?? s.mutedAlertKeys)
-            .slice(0, 200)
-            .map((v) => clampStr(v, 128)),
           syncedAt: serverTimestamp(),
         });
         setSyncStatus('synced');
@@ -1165,23 +1506,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         setSyncStatus('error');
         handleFirestoreError(error, OperationType.WRITE, path);
-      }
-    },
-    [],
-  );
-
-  const commitBatchWrites = useCallback(
-    async (
-      writes: Array<{ pathSegments: [string, string, string, string]; data: Record<string, unknown> }>,
-    ) => {
-      const CHUNK = 350;
-      for (let i = 0; i < writes.length; i += CHUNK) {
-        const chunk = writes.slice(i, i + CHUNK);
-        const batch = writeBatch(db);
-        chunk.forEach(({ pathSegments, data }) => {
-          batch.set(doc(db, ...pathSegments), data);
-        });
-        await batch.commit();
       }
     },
     [],
@@ -1292,24 +1616,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [openAuthPrompt, showNotice],
   );
 
-  // Firebase Auth listener + strictly isolated UID-scoped hydration + real-time listeners
+  // Firebase Auth listener + strictly isolated UID-scoped IndexedDB hydration + account settings sync
   useEffect(() => {
     let unsubWorkspace: (() => void) | null = null;
-    let unsubCalls: (() => void) | null = null;
-    let unsubContacts: (() => void) | null = null;
-    let unsubScheduled: (() => void) | null = null;
     let cancelled = false;
     let activeRun = 0;
 
     const cleanupListeners = () => {
       unsubWorkspace?.();
-      unsubCalls?.();
-      unsubContacts?.();
-      unsubScheduled?.();
       unsubWorkspace = null;
-      unsubCalls = null;
-      unsubContacts = null;
-      unsubScheduled = null;
     };
 
     clearLegacyUnscopedKeys();
@@ -1368,16 +1683,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setAuthPromptReason(null);
       clearLegacyUnscopedKeys();
 
-      // Clear any previous/guest state first, then hydrate ONLY this logged-in user's scoped cache
+      // Clear any previous/guest state first, then hydrate ONLY this logged-in user's IndexedDB cache
       applySnapshotToState(createEmptySnapshot());
-      const scoped = readScopedUserState(uid);
+      const { snapshot: scoped, pendingReg } = await readScopedUserStateAsync(uid);
+      if (cancelled || myRun !== activeRun || auth.currentUser?.uid !== uid) {
+        return;
+      }
       applySnapshotToState(scoped);
       const storedLockout = readPinLockoutState(userStorageKey(uid, 'pinLockout'));
       setPinLockoutUntil(storedLockout.lockUntil > Date.now() ? storedLockout.lockUntil : 0);
-      const pendingReg = readJson<PendingRegistration | null>(
-        userStorageKey(uid, 'pendingRegistration'),
-        null,
-      );
       accountMetaRef.current = {
         phone: pendingReg?.phone ?? null,
         photoURL: user.photoURL ?? scoped.userPhotoUrl ?? null,
@@ -1392,6 +1706,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setAuthUser(user);
       setAuthLoading(false);
       setSyncStatus('syncing');
+
+      // Request persistent browser storage so IndexedDB is protected from eviction.
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.storage &&
+        typeof navigator.storage.persist === 'function'
+      ) {
+        void navigator.storage.persist().catch(() => {});
+      }
+
+      // Record once-per-day active client open in /dailyActive/{yyyy-MM-dd}_{uid}.
+      void recordDailyActiveClient(user);
 
       let resolveWorkspaceReady!: () => void;
       const readyPromise = new Promise<void>((resolve) => {
@@ -1444,32 +1770,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             pendingReg?.phone ?? null,
           );
           if (pendingReg) {
+            void idbDeleteScoped(uid, 'pendingRegistration');
             removeStorageKey(userStorageKey(uid, 'pendingRegistration'));
           }
         } else {
           const data = userSnap.data() as Record<string, unknown>;
-          const mergedFavs = Array.from(
-            new Set([
-              ...(Array.isArray(data.favorites) ? (data.favorites as string[]) : []),
-              ...local.favoritesArray,
-            ]),
-          ).slice(0, 200);
-          const mergedDismissed = Array.from(
-            new Set([
-              ...(Array.isArray(data.dismissedMissedIds)
-                ? (data.dismissedMissedIds as string[])
-                : []),
-              ...local.dismissedMissedArray,
-            ]),
-          ).slice(0, 500);
-          const mergedMuted = Array.from(
-            new Set([
-              ...(Array.isArray(data.mutedAlertKeys)
-                ? (data.mutedAlertKeys as string[])
-                : []),
-              ...local.mutedAlertKeys,
-            ]),
-          ).slice(0, 200);
 
           const rawTheme = data.theme;
           const nextTheme: ThemeMode =
@@ -1487,8 +1792,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             typeof data.notificationsEnabled === 'boolean'
               ? data.notificationsEnabled
               : local.notificationsEnabled;
-          const nextPrivacy =
-            typeof data.privacyMode === 'boolean' ? data.privacyMode : local.privacyMode;
+          const nextPrivacy = false;
           const nextTariffs =
             data.tariffs && typeof data.tariffs === 'object'
               ? sanitizeTariffs(data.tariffs as TariffConfig)
@@ -1523,7 +1827,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           const resolvedTermsAt =
             pendingReg?.termsAcceptedAt ??
             (typeof data.termsAcceptedAt === 'number' ? data.termsAcceptedAt : null);
-          const hasLegacyHintField = Object.prototype.hasOwnProperty.call(data, 'passwordHint');
+          const hasLegacyFields =
+            Object.prototype.hasOwnProperty.call(data, 'passwordHint') ||
+            Object.prototype.hasOwnProperty.call(data, 'favorites') ||
+            Object.prototype.hasOwnProperty.call(data, 'dismissedMissedIds') ||
+            Object.prototype.hasOwnProperty.call(data, 'mutedAlertKeys');
 
           accountMetaRef.current = {
             phone: resolvedPhone,
@@ -1545,21 +1853,24 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           setCalendarPrefsState(nextCalPrefs);
           setReminderPrefsState(nextRemPrefs);
           setVoiceBundlesState(nextBundles);
-          setFavoritesArray(mergedFavs);
-          setDismissedMissedArray(mergedDismissed);
-          setMutedAlertKeys(mergedMuted);
+          stateRef.current = {
+            ...stateRef.current,
+            tariffs: nextTariffs,
+            simLabels: nextSimLabels,
+            calendarPrefs: nextCalPrefs,
+            reminderPrefs: nextRemPrefs,
+            voiceBundles: nextBundles,
+            theme: themePreferenceRef.current !== 'system' ? nextTheme : stateRef.current.theme,
+            profileName: nextName || stateRef.current.profileName,
+            userPhotoUrl: resolvedPhotoURL,
+            notificationsEnabled: nextNotifs,
+            privacyMode: nextPrivacy,
+          };
 
-          if (
-            Boolean(pendingReg) ||
-            hasLegacyHintField ||
-            mergedFavs.length !== ((data.favorites as string[] | undefined)?.length ?? 0) ||
-            mergedDismissed.length !==
-              ((data.dismissedMissedIds as string[] | undefined)?.length ?? 0) ||
-            mergedMuted.length !== ((data.mutedAlertKeys as string[] | undefined)?.length ?? 0)
-          ) {
+          if (Boolean(pendingReg) || hasLegacyFields) {
             currentOp = OperationType.UPDATE;
             currentPath = `users/${uid}`;
-            if (hasLegacyHintField) {
+            if (Object.prototype.hasOwnProperty.call(data, 'passwordHint')) {
               await updateDoc(userDocRef, {
                 passwordHint: deleteField(),
                 syncedAt: serverTimestamp(),
@@ -1579,14 +1890,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               calendarPrefs: nextCalPrefs,
               reminderPrefs: nextRemPrefs,
               voiceBundles: nextBundles,
-              favoritesArray: mergedFavs,
-              dismissedMissedArray: mergedDismissed,
-              mutedAlertKeys: mergedMuted,
             });
           }
 
           await syncUserRegistry(user, nextName, resolvedPhone, resolvedPhotoURL);
           if (pendingReg) {
+            void idbDeleteScoped(uid, 'pendingRegistration');
             removeStorageKey(userStorageKey(uid, 'pendingRegistration'));
           }
         }
@@ -1595,80 +1904,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
         if (cancelled || myRun !== activeRun) return;
 
-        // Queries must explicitly constrain ownerUid == uid to satisfy Firestore list rules
-        const callsQuery = query(
-          collection(db, 'users', uid, 'calls'),
-          where('ownerUid', '==', uid),
-        );
-        const contactsQuery = query(
-          collection(db, 'users', uid, 'contacts'),
-          where('ownerUid', '==', uid),
-        );
-        const scheduledQuery = query(
-          collection(db, 'users', uid, 'scheduledCalls'),
-          where('ownerUid', '==', uid),
-        );
-
-        currentOp = OperationType.LIST;
-        currentPath = `users/${uid}/calls`;
-        const cloudCallsSnap = await getDocs(callsQuery);
-
-        currentPath = `users/${uid}/contacts`;
-        const cloudContactsSnap = await getDocs(contactsQuery);
-
-        currentPath = `users/${uid}/scheduledCalls`;
-        const cloudSchedSnap = await getDocs(scheduledQuery);
-
-        if (cancelled || myRun !== activeRun) return;
-
-        const existingCallIds = new Set(cloudCallsSnap.docs.map((d) => d.id));
-        const existingContactIds = new Set(cloudContactsSnap.docs.map((d) => d.id));
-        const existingSchedIds = new Set(cloudSchedSnap.docs.map((d) => d.id));
-
-        const pendingBatchWrites: Array<{
-          pathSegments: [string, string, string, string];
-          data: Record<string, unknown>;
-        }> = [];
-
-        local.calls.forEach((call) => {
-          const docId = toFirestoreDocId(call.id);
-          if (!existingCallIds.has(docId)) {
-            pendingBatchWrites.push({
-              pathSegments: ['users', uid, 'calls', docId],
-              data: serializeCallForFirestore(uid, call),
-            });
-          }
-        });
-
-        Object.values(local.contacts).forEach((profile) => {
-          const docId = toFirestoreDocId(profile.key || getContactKey(profile.number));
-          if (!existingContactIds.has(docId)) {
-            pendingBatchWrites.push({
-              pathSegments: ['users', uid, 'contacts', docId],
-              data: serializeContactForFirestore(uid, profile),
-            });
-          }
-        });
-
-        local.scheduledCalls.forEach((item) => {
-          const docId = toFirestoreDocId(item.id);
-          if (!existingSchedIds.has(docId)) {
-            pendingBatchWrites.push({
-              pathSegments: ['users', uid, 'scheduledCalls', docId],
-              data: serializeScheduledCallForFirestore(uid, item),
-            });
-          }
-        });
-
-        if (pendingBatchWrites.length > 0) {
-          currentOp = OperationType.WRITE;
-          currentPath = `users/${uid}`;
-          await commitBatchWrites(pendingBatchWrites);
-        }
-
-        if (cancelled || myRun !== activeRun) return;
-
-        // Attach real-time listeners
+        // Real-time listener for account settings only (calls, contacts & schedules stay local in IndexedDB)
         unsubWorkspace = onSnapshot(
           userDocRef,
           (snap) => {
@@ -1698,7 +1934,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             if (typeof data.notificationsEnabled === 'boolean') {
               setNotificationsEnabledState(data.notificationsEnabled);
             }
-            if (typeof data.privacyMode === 'boolean') setPrivacyModeState(data.privacyMode);
             if (data.tariffs && typeof data.tariffs === 'object') {
               setTariffsState(sanitizeTariffs(data.tariffs as TariffConfig));
             }
@@ -1714,151 +1949,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             if (data.voiceBundles && typeof data.voiceBundles === 'object') {
               setVoiceBundlesState(sanitizeVoiceBundles(data.voiceBundles as Partial<VoiceBundles>));
             }
-            if (Array.isArray(data.favorites)) setFavoritesArray(data.favorites as string[]);
-            if (Array.isArray(data.dismissedMissedIds)) {
-              setDismissedMissedArray(data.dismissedMissedIds as string[]);
-            }
-            if (Array.isArray(data.mutedAlertKeys)) {
-              setMutedAlertKeys(data.mutedAlertKeys as string[]);
-            }
             setSyncStatus('synced');
             setLastSyncedAt(Date.now());
           },
           (error) => {
             setSyncStatus('error');
             handleFirestoreError(error, OperationType.GET, `users/${uid}`);
-          },
-        );
-
-        unsubCalls = onSnapshot(
-          callsQuery,
-          (snap) => {
-            const repairs: Array<{
-              pathSegments: [string, string, string, string];
-              data: Record<string, unknown>;
-            }> = [];
-            const list: CallRecord[] = snap.docs
-              .map((d) => {
-                const raw = d.data() as Record<string, unknown>;
-                const initial: CallRecord = {
-                  id: String(raw.id || d.id),
-                  number: String(raw.number || ''),
-                  name: typeof raw.name === 'string' ? raw.name : null,
-                  direction: raw.direction as CallDirection,
-                  sim: (raw.sim === 'SIM 1' ? 'SIM 1' : raw.sim === 'SIM 2' ? 'SIM 2' : null) as SimSlot,
-                  timestamp: Number(raw.timestamp) || 0,
-                  duration: Number(raw.duration) || 0,
-                  note: typeof raw.note === 'string' ? raw.note : null,
-                  tag: typeof raw.tag === 'string' ? raw.tag : null,
-                };
-                const healed = healCallRecord(initial);
-                if (healed !== initial) {
-                  repairs.push({
-                    pathSegments: ['users', uid, 'calls', toFirestoreDocId(healed.id)],
-                    data: serializeCallForFirestore(uid, healed),
-                  });
-                }
-                return healed;
-              })
-              .sort((a, b) => b.timestamp - a.timestamp);
-            setCalls(list);
-            if (repairs.length > 0) {
-              void commitBatchWrites(repairs).catch(() => {});
-            }
-            setSyncStatus('synced');
-            setLastSyncedAt(Date.now());
-          },
-          (error) => {
-            setSyncStatus('error');
-            handleFirestoreError(error, OperationType.LIST, `users/${uid}/calls`);
-          },
-        );
-
-        unsubContacts = onSnapshot(
-          contactsQuery,
-          (snap) => {
-            const map: Record<string, ContactProfile> = {};
-            const repairs: Array<{
-              pathSegments: [string, string, string, string];
-              data: Record<string, unknown>;
-            }> = [];
-            snap.docs.forEach((d) => {
-              const raw = d.data() as Record<string, unknown>;
-              const number = String(raw.number || '');
-              const key = getContactKey(number) || String(raw.key || d.id);
-              const initial: ContactProfile = {
-                key,
-                number,
-                name: String(raw.name || number),
-                tag: String(raw.tag || ''),
-                birthday: (raw.birthday as ContactProfile['birthday']) ?? null,
-                events: Array.isArray(raw.events) ? (raw.events as ContactProfile['events']) : [],
-                notes: String(raw.notes || ''),
-                updatedAt: Number(raw.updatedAt) || Date.now(),
-              };
-              const healed = healContactProfile(initial);
-              if (healed !== initial) {
-                repairs.push({
-                  pathSegments: ['users', uid, 'contacts', toFirestoreDocId(key)],
-                  data: serializeContactForFirestore(uid, healed),
-                });
-              }
-              map[key] = healed;
-            });
-            setContacts(map);
-            if (repairs.length > 0) {
-              void commitBatchWrites(repairs).catch(() => {});
-            }
-            setSyncStatus('synced');
-            setLastSyncedAt(Date.now());
-          },
-          (error) => {
-            setSyncStatus('error');
-            handleFirestoreError(error, OperationType.LIST, `users/${uid}/contacts`);
-          },
-        );
-
-        unsubScheduled = onSnapshot(
-          scheduledQuery,
-          (snap) => {
-            const repairs: Array<{
-              pathSegments: [string, string, string, string];
-              data: Record<string, unknown>;
-            }> = [];
-            const list: ScheduledCall[] = snap.docs
-              .map((d) => {
-                const raw = d.data() as Record<string, unknown>;
-                const initial: ScheduledCall = {
-                  id: String(raw.id || d.id),
-                  number: String(raw.number || ''),
-                  name: typeof raw.name === 'string' ? raw.name : null,
-                  scheduledFor: Number(raw.scheduledFor) || 0,
-                  note: typeof raw.note === 'string' ? raw.note : null,
-                  sourceCallId: typeof raw.sourceCallId === 'string' ? raw.sourceCallId : null,
-                  status: (raw.status as ScheduledCall['status']) || 'pending',
-                  notifiedAt: typeof raw.notifiedAt === 'number' ? raw.notifiedAt : null,
-                  createdAt: Number(raw.createdAt) || Date.now(),
-                };
-                const healed = healScheduledCall(initial);
-                if (healed !== initial) {
-                  repairs.push({
-                    pathSegments: ['users', uid, 'scheduledCalls', toFirestoreDocId(healed.id)],
-                    data: serializeScheduledCallForFirestore(uid, healed),
-                  });
-                }
-                return healed;
-              })
-              .sort((a, b) => a.scheduledFor - b.scheduledFor);
-            setScheduledCalls(list);
-            if (repairs.length > 0) {
-              void commitBatchWrites(repairs).catch(() => {});
-            }
-            setSyncStatus('synced');
-            setLastSyncedAt(Date.now());
-          },
-          (error) => {
-            setSyncStatus('error');
-            handleFirestoreError(error, OperationType.LIST, `users/${uid}/scheduledCalls`);
           },
         );
       } catch (error) {
@@ -1876,7 +1972,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       cleanupListeners();
       unsubAuth();
     };
-  }, [applySnapshotToState, commitBatchWrites, persistWorkspaceToCloud, showNotice, syncUserRegistry, verifyRefreshKey]);
+  }, [applySnapshotToState, persistWorkspaceToCloud, recordDailyActiveClient, showNotice, syncUserRegistry, verifyRefreshKey]);
 
   const refreshNotificationPermission =
     useCallback(async (): Promise<NotificationPermissionStatus> => {
@@ -1931,7 +2027,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         if (st === 'granted') {
           setNotificationsEnabledState(true);
           const user = auth.currentUser;
-          if (user) void persistWorkspaceToCloud(user, { notificationsEnabled: true });
+          if (user && user.emailVerified) {
+            await ensureWorkspaceReady(user.uid);
+            void persistWorkspaceToCloud(user, { notificationsEnabled: true });
+          }
           showNotice('Phone notifications allowed.', 'success');
         } else if (st === 'denied') {
           showNotice(
@@ -1953,7 +2052,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         if (mapped === 'granted') {
           setNotificationsEnabledState(true);
           const user = auth.currentUser;
-          if (user) void persistWorkspaceToCloud(user, { notificationsEnabled: true });
+          if (user && user.emailVerified) {
+            await ensureWorkspaceReady(user.uid);
+            void persistWorkspaceToCloud(user, { notificationsEnabled: true });
+          }
           showNotice('Browser alerts allowed.', 'success');
         } else if (mapped === 'denied') {
           showNotice('Browser notification permission is blocked in browser settings.', 'warning');
@@ -1964,7 +2066,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setNotificationPermission('unsupported');
       showNotice('Notifications unavailable here; in-app alerts stay active.');
       return 'unsupported';
-    }, [persistWorkspaceToCloud, showNotice]);
+    }, [ensureWorkspaceReady, persistWorkspaceToCloud, showNotice]);
 
   const deliverSystemNotification = useCallback(
     async (
@@ -2028,19 +2130,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const updatedMap = new Map(updatedItems.map((i) => [i.id, i]));
       setScheduledCalls((prev) => prev.map((item) => updatedMap.get(item.id) ?? item));
 
-      const user = auth.currentUser;
-      if (user) {
-        updatedItems.forEach((item) => {
-          const docId = toFirestoreDocId(item.id);
-          void setDoc(
-            doc(db, 'users', user.uid, 'scheduledCalls', docId),
-            serializeScheduledCallForFirestore(user.uid, item),
-          ).catch((err) =>
-            handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/scheduledCalls/${docId}`),
-          );
-        });
-      }
-
       const first = dueUnnotified.find(
         (item) =>
           !mutedSet.has(`sched:${item.id}`) &&
@@ -2086,89 +2175,112 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
     if (!notificationsEnabled || isWithinQuietHours(reminderPrefs)) return;
 
+    const uid = authUser.uid;
+    let effectCancelled = false;
     const now = new Date();
     const todayIso = now.toISOString().slice(0, 10);
-    const dailyKey = `callanalyzer.u.${authUser.uid}.dailyAlerts.${todayIso}`;
-    const alreadySent = new Set(readJson<string[]>(dailyKey, []));
-    const mutedSet = new Set(mutedAlertKeys);
-    const newlySent: string[] = [];
+    const dailySuffix = `dailyAlerts.${todayIso}`;
+    const cacheKey = `${uid}:${todayIso}`;
 
-    // 1. Contact Birthdays / Special Events today
-    const todaysEvents = getUpcomingContactEvents(contacts, calls, 0).filter((e) => e.isToday);
-    for (const evt of todaysEvents.slice(0, 2)) {
-      const muteKey = `bday:${evt.contactKey}`;
-      const idKey = `daily-bday-${evt.id}-${todayIso}`;
-      if (mutedSet.has(muteKey) || alreadySent.has(idKey)) continue;
-      newlySent.push(idKey);
-      const wishText = buildBirthdayWish(evt.name, evt.title, evt.tag);
-      void deliverSystemNotification(
-        idKey,
-        `${evt.title} today: ${evt.name}`,
-        `Send a birthday wish or call ${evt.name} today.`,
-        {
-          category: 'birthday',
-          number: evt.number,
-          contactKey: evt.contactKey,
-          eventId: evt.id,
-          muteKey,
-          wishText,
-        },
-      );
-    }
+    const runDailyAlerts = async () => {
+      const stored = await getScopedWithLegacyMigration<string[]>(uid, dailySuffix, []);
+      if (effectCancelled || auth.currentUser?.uid !== uid || hydratedUidRef.current !== uid) {
+        return;
+      }
 
-    // 2. Ethiopian Holiday today
-    const todaysHoliday = getHolidaysInGregorianYearOrUpcoming(
-      now,
-      0,
-      calendarPrefs.defaultLang,
-    ).find((h) => h.isToday);
-    if (todaysHoliday) {
-      const muteKey = `holiday:${todaysHoliday.key}`;
-      const idKey = `daily-holiday-${todaysHoliday.key}-${todayIso}`;
-      if (!mutedSet.has(muteKey) && !alreadySent.has(idKey)) {
+      const cachedSet =
+        dailyAlertCacheRef.current?.key === cacheKey ? dailyAlertCacheRef.current.ids : null;
+      const alreadySent = new Set<string>([
+        ...(Array.isArray(stored) ? stored : []),
+        ...(cachedSet ? Array.from(cachedSet) : []),
+      ]);
+      const mutedSet = new Set(mutedAlertKeys);
+      const newlySent: string[] = [];
+
+      // 1. Contact Birthdays / Special Events today
+      const todaysEvents = getUpcomingContactEvents(contacts, calls, 0).filter((e) => e.isToday);
+      for (const evt of todaysEvents.slice(0, 2)) {
+        const muteKey = `bday:${evt.contactKey}`;
+        const idKey = `daily-bday-${evt.id}-${todayIso}`;
+        if (mutedSet.has(muteKey) || alreadySent.has(idKey)) continue;
         newlySent.push(idKey);
+        const wishText = buildBirthdayWish(evt.name, evt.title, evt.tag);
         void deliverSystemNotification(
           idKey,
-          `Happy ${todaysHoliday.name}!`,
-          todaysHoliday.description || 'Send Ethiopian holiday wishes to your contacts.',
+          `${evt.title} today: ${evt.name}`,
+          `Send a birthday wish or call ${evt.name} today.`,
           {
-            category: 'holiday',
-            eventId: todaysHoliday.key,
+            category: 'birthday',
+            number: evt.number,
+            contactKey: evt.contactKey,
+            eventId: evt.id,
             muteKey,
-            wishText: buildHolidayWish(todaysHoliday.name, 'friend'),
+            wishText,
           },
         );
       }
-    }
 
-    // 3. Top Quiet Contact (5+ calls in 30 days & gone quiet)
-    const quiet = quietContacts(calls, now, reminderPrefs.quietContactDays);
-    const topQuiet = quiet.find((q) => !mutedSet.has(`quiet:${getContactKey(q.number)}`));
-    if (topQuiet) {
-      const cKey = getContactKey(topQuiet.number);
-      const muteKey = `quiet:${cKey}`;
-      const idKey = `daily-quiet-${cKey}-${todayIso}`;
-      if (!alreadySent.has(idKey)) {
-        newlySent.push(idKey);
-        const privacy = stateRef.current.privacyMode;
-        const quietLabel = formatDisplayNameOrPhone(topQuiet.name, topQuiet.number, privacy);
-        void deliverSystemNotification(
-          idKey,
-          `Check in with ${quietLabel}`,
-          quietMessage(topQuiet, privacy),
-          {
-            category: 'other',
-            number: topQuiet.number,
-            contactKey: cKey,
-            muteKey,
-          },
-        );
+      // 2. Ethiopian Holiday today
+      const todaysHoliday = getHolidaysInGregorianYearOrUpcoming(
+        now,
+        0,
+        calendarPrefs.defaultLang,
+      ).find((h) => h.isToday);
+      if (todaysHoliday) {
+        const muteKey = `holiday:${todaysHoliday.key}`;
+        const idKey = `daily-holiday-${todaysHoliday.key}-${todayIso}`;
+        if (!mutedSet.has(muteKey) && !alreadySent.has(idKey)) {
+          newlySent.push(idKey);
+          void deliverSystemNotification(
+            idKey,
+            `Happy ${todaysHoliday.name}!`,
+            todaysHoliday.description || 'Send Ethiopian holiday wishes to your contacts.',
+            {
+              category: 'holiday',
+              eventId: todaysHoliday.key,
+              muteKey,
+              wishText: buildHolidayWish(todaysHoliday.name, 'friend'),
+            },
+          );
+        }
       }
-    }
 
-    if (newlySent.length > 0) {
-      writeJson(dailyKey, [...alreadySent, ...newlySent]);
-    }
+      // 3. Top Quiet Contact (5+ calls in 30 days & gone quiet)
+      const quiet = quietContacts(calls, now, reminderPrefs.quietContactDays);
+      const topQuiet = quiet.find((q) => !mutedSet.has(`quiet:${getContactKey(q.number)}`));
+      if (topQuiet) {
+        const cKey = getContactKey(topQuiet.number);
+        const muteKey = `quiet:${cKey}`;
+        const idKey = `daily-quiet-${cKey}-${todayIso}`;
+        if (!alreadySent.has(idKey)) {
+          newlySent.push(idKey);
+          const privacy = stateRef.current.privacyMode;
+          const quietLabel = formatDisplayNameOrPhone(topQuiet.name, topQuiet.number, privacy);
+          void deliverSystemNotification(
+            idKey,
+            `Check in with ${quietLabel}`,
+            quietMessage(topQuiet, privacy),
+            {
+              category: 'other',
+              number: topQuiet.number,
+              contactKey: cKey,
+              muteKey,
+            },
+          );
+        }
+      }
+
+      if (newlySent.length > 0) {
+        const merged = Array.from(new Set([...alreadySent, ...newlySent]));
+        dailyAlertCacheRef.current = { key: cacheKey, ids: new Set(merged) };
+        await idbSetScoped(uid, dailySuffix, merged);
+      }
+    };
+
+    void runDailyAlerts();
+    return () => {
+      effectCancelled = true;
+    };
   }, [
     authUser,
     hydratedUid,
@@ -2322,13 +2434,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
 
       try {
+        // Exit any Guest sample preview immediately so newly created accounts start completely fresh
+        setIsGuest(false);
+        applySnapshotToState(createEmptySnapshot());
+
         const cred = await createUserWithEmailAndPassword(auth, cleanEmail, input.password);
+        await idbClearUser(cred.user.uid);
+        clearLegacyUserLocalStorage(cred.user.uid);
+
         const pending: PendingRegistration = {
           phone: clampStr(cleanPhone, 40),
           termsAccepted: true,
           termsAcceptedAt: Date.now(),
         };
-        writeJson(userStorageKey(cred.user.uid, 'pendingRegistration'), pending);
+        await idbSetScoped(cred.user.uid, 'pendingRegistration', pending);
         try {
           await sendEmailVerification(cred.user);
           showNotice('Account created! Verification email sent.');
@@ -2342,7 +2461,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: msg };
       }
     },
-    [showNotice],
+    [applySnapshotToState, showNotice],
   );
 
   const resendVerificationEmail = useCallback(async (): Promise<AuthActionResult> => {
@@ -2400,7 +2519,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   );
 
   const signOutAccount = useCallback(async () => {
-    const prevUid = auth.currentUser?.uid;
     try {
       hydratedUidRef.current = null;
       setHydratedUid(null);
@@ -2420,60 +2538,39 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setAuthPromptReason(null);
       await signOut(auth);
       await runNativeSignOut();
-      if (prevUid) clearUserScopedStorage(prevUid);
+      dailyAlertCacheRef.current = null;
       clearLegacyUnscopedKeys();
       applySnapshotToState(createEmptySnapshot());
       setLastSyncedAt(null);
       setSyncStatus('signed-out');
-      showNotice('Signed out. Personal data cleared from this device.');
+      showNotice('Signed out. Your local data stays saved on this device for when you sign back in.');
     } catch {
       showNotice('Could not sign out right now.');
     }
   }, [applySnapshotToState, showNotice]);
 
+  const deleteAllLocalData = useCallback(async () => {
+    const user = requireSignedInUser();
+    if (!user) return;
+    try {
+      await clearUserScopedStorage(user.uid);
+      dailyAlertCacheRef.current = null;
+      setSessionNewCallIdsList([]);
+      setPinLockoutUntil(0);
+      applySnapshotToState(createEmptySnapshot());
+      showNotice('All local data on this device has been deleted.', 'warning');
+    } catch {
+      showNotice('Could not delete local data right now.', 'warning');
+    }
+  }, [applySnapshotToState, requireSignedInUser, showNotice]);
+
   const syncNow = useCallback(async () => {
     const user = requireSignedInUser();
     if (!user) return;
-    const s = stateRef.current;
     await persistWorkspaceToCloud(user);
-    const writes: Array<{
-      pathSegments: [string, string, string, string];
-      data: Record<string, unknown>;
-    }> = [];
-    s.calls.forEach((c) => {
-      const docId = toFirestoreDocId(c.id);
-      writes.push({
-        pathSegments: ['users', user.uid, 'calls', docId],
-        data: serializeCallForFirestore(user.uid, c),
-      });
-    });
-    Object.values(s.contacts).forEach((p) => {
-      const docId = toFirestoreDocId(p.key || getContactKey(p.number));
-      writes.push({
-        pathSegments: ['users', user.uid, 'contacts', docId],
-        data: serializeContactForFirestore(user.uid, p),
-      });
-    });
-    s.scheduledCalls.forEach((sc) => {
-      const docId = toFirestoreDocId(sc.id);
-      writes.push({
-        pathSegments: ['users', user.uid, 'scheduledCalls', docId],
-        data: serializeScheduledCallForFirestore(user.uid, sc),
-      });
-    });
-    if (writes.length > 0) {
-      try {
-        setSyncStatus('syncing');
-        await commitBatchWrites(writes);
-        setSyncStatus('synced');
-        setLastSyncedAt(Date.now());
-      } catch (err) {
-        setSyncStatus('error');
-        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
-      }
-    }
-    showNotice('Cloud workspace synced.');
-  }, [commitBatchWrites, persistWorkspaceToCloud, requireSignedInUser, showNotice]);
+    await syncUserRegistry(user, stateRef.current.profileName || user.displayName || '');
+    showNotice('Account settings synced. Calls & contacts stay local on this device.');
+  }, [persistWorkspaceToCloud, requireSignedInUser, showNotice, syncUserRegistry]);
 
   const fetchRegisteredUsers = useCallback(async (): Promise<RegisteredUserRecord[]> => {
     const user = auth.currentUser;
@@ -2513,6 +2610,40 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const fetchDailyActiveRecords = useCallback(async (): Promise<DailyActiveRecord[]> => {
+    const user = auth.currentUser;
+    if (!user || !user.emailVerified || !isAdminRef.current) {
+      return [];
+    }
+    const path = 'dailyActive';
+    try {
+      const snap = await getDocs(collection(db, 'dailyActive'));
+      const toMs = (val: unknown): number => {
+        if (val instanceof Timestamp) return val.toMillis();
+        if (val && typeof (val as { toMillis?: () => number }).toMillis === 'function') {
+          return (val as { toMillis: () => number }).toMillis();
+        }
+        return typeof val === 'number' ? val : 0;
+      };
+      return snap.docs
+        .map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          const date = typeof raw.date === 'string' ? raw.date : '';
+          const uid = typeof raw.uid === 'string' ? raw.uid : '';
+          return {
+            id: d.id,
+            uid,
+            date,
+            openedAtMs: toMs(raw.openedAt),
+          };
+        })
+        .filter((item) => Boolean(item.uid) && /^\d{4}-\d{2}-\d{2}$/.test(item.date))
+        .sort((a, b) => b.date.localeCompare(a.date) || b.openedAtMs - a.openedAtMs);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  }, []);
+
   const setAppPin = useCallback(
     async (pin: string) => {
       const user = requireSignedInUser();
@@ -2525,7 +2656,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       try {
         const hashed = await hashPin(clean);
         setPinHash(hashed);
-        writeJson(userStorageKey(user.uid, 'pinHash'), hashed);
+        await idbSetScoped(user.uid, 'pinHash', hashed);
+        removeStorageKey(userStorageKey(user.uid, 'pinHash'));
         clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
         setPinLockoutUntil(0);
         setIsLocked(false);
@@ -2546,7 +2678,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setPinHash('');
     setPinLockoutUntil(0);
     if (user) {
-      writeJson(userStorageKey(user.uid, 'pinHash'), '');
+      void idbSetScoped(user.uid, 'pinHash', '');
+      removeStorageKey(userStorageKey(user.uid, 'pinHash'));
       clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
     } else {
       clearPinLockoutState('callanalyzer.guest.pinLockout');
@@ -2604,75 +2737,109 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (isGuestRef.current && !auth.currentUser) {
         setPrivacyModeState(enabled);
         showNotice(
-          enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off.',
+          enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off — full numbers shown.',
         );
         return;
       }
       const user = requireSignedInUser();
       if (!user) return;
       setPrivacyModeState(enabled);
-      void persistWorkspaceToCloud(user, { privacyMode: enabled });
       showNotice(
-        enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off.',
+        enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off — full numbers shown.',
       );
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const togglePrivacyMode = useCallback(() => {
     setPrivacyMode(!stateRef.current.privacyMode);
   }, [setPrivacyMode]);
 
-  const importCalls = useCallback(
-    (records: CallRecord[]): ImportCounts => {
+  // Internal addCall workhorse used by both native Android sync and file/backup imports.
+  // Deduplicates by normalized number + timestamp + duration (and ID) and merges
+  // empty local tag/note/name/sim fields without overwriting non-empty local values.
+  const addCall = useCallback(
+    (input: CallRecord | CallRecord[]): ImportCounts => {
       const user = requireSignedInUser(
         'Login or create an account to import your own call history.',
       );
-      if (!user) return { added: 0, duplicates: 0 };
+      if (!user) return { added: 0, duplicates: 0, merged: 0 };
 
-      const existing = new Set(stateRef.current.calls.map((c) => c.id));
-      const contactsMap = stateRef.current.contacts;
-      const fresh: CallRecord[] = [];
-      let dupCount = 0;
-      records.forEach((rec) => {
-        if (existing.has(rec.id)) {
-          dupCount += 1;
-        } else {
-          existing.add(rec.id);
-          const contact = contactsMap[getContactKey(rec.number)];
-          const inheritedTag = rec.tag?.trim() || contact?.tag?.trim() || null;
-          const inheritedName =
-            rec.name?.trim() ||
-            (contact?.name?.trim() && contact.name.trim() !== contact.number
-              ? contact.name.trim()
-              : null);
-          fresh.push(
-            inheritedTag !== rec.tag || inheritedName !== rec.name
-              ? { ...rec, tag: inheritedTag, name: inheritedName }
-              : rec,
-          );
-        }
+      const records = Array.isArray(input) ? input : [input];
+      if (records.length === 0) return { added: 0, duplicates: 0, merged: 0 };
+
+      const nextCalls = [...stateRef.current.calls];
+      const indexById = new Map<string, number>();
+      const indexByDedup = new Map<string, number>();
+      nextCalls.forEach((c, idx) => {
+        indexById.set(c.id, idx);
+        indexByDedup.set(buildCallDedupKey(c), idx);
       });
 
-      if (fresh.length > 0) {
-        setCalls((prev) => [...fresh, ...prev]);
-        const writes = fresh.map((c) => {
-          const docId = toFirestoreDocId(c.id);
-          return {
-            pathSegments: ['users', user.uid, 'calls', docId] as [string, string, string, string],
-            data: serializeCallForFirestore(user.uid, c),
-          };
-        });
-        void ensureWorkspaceReady(user.uid)
-          .then(() => commitBatchWrites(writes))
-          .catch((err) =>
-            handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/calls`),
-          );
+      const contactsMap = stateRef.current.contacts;
+      const fresh: CallRecord[] = [];
+      const updatedExistingMap = new Map<string, CallRecord>();
+      let dupCount = 0;
+
+      records.forEach((rawRec) => {
+        const rec = healCallRecord(rawRec);
+        const dedupKey = buildCallDedupKey(rec);
+        const matchIdx = indexById.get(rec.id) ?? indexByDedup.get(dedupKey);
+
+        if (matchIdx !== undefined) {
+          dupCount += 1;
+          const currentRec = nextCalls[matchIdx];
+          const { merged, changed } = mergeCallWithoutOverwrite(currentRec, rec);
+          if (changed) {
+            nextCalls[matchIdx] = merged;
+            updatedExistingMap.set(merged.id, merged);
+          }
+          return;
+        }
+
+        const contact = contactsMap[getContactKey(rec.number)];
+        const inheritedTag = rec.tag?.trim() || contact?.tag?.trim() || null;
+        const inheritedName =
+          rec.name?.trim() ||
+          (contact?.name?.trim() && contact.name.trim() !== contact.number
+            ? contact.name.trim()
+            : null);
+        const cleanRec: CallRecord =
+          inheritedTag !== rec.tag || inheritedName !== rec.name
+            ? { ...rec, tag: inheritedTag, name: inheritedName }
+            : rec;
+
+        if (cleanRec.tag) {
+          addCustomTag(cleanRec.tag);
+        }
+
+        const insertIdx = nextCalls.length;
+        nextCalls.push(cleanRec);
+        indexById.set(cleanRec.id, insertIdx);
+        indexByDedup.set(dedupKey, insertIdx);
+        fresh.push(cleanRec);
+      });
+
+      const updatedExisting = Array.from(updatedExistingMap.values());
+      if (fresh.length > 0 || updatedExisting.length > 0) {
+        const orderedCalls = [...nextCalls].sort((a, b) => b.timestamp - a.timestamp);
+        stateRef.current = { ...stateRef.current, calls: orderedCalls };
+        setCalls(orderedCalls);
       }
 
-      return { added: fresh.length, duplicates: dupCount };
+      return {
+        added: fresh.length,
+        duplicates: dupCount,
+        merged: updatedExisting.length,
+        addedIds: fresh.map((c) => c.id),
+      };
     },
-    [commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
+    [addCustomTag, requireSignedInUser],
+  );
+
+  const importCalls = useCallback(
+    (records: CallRecord[]): ImportCounts => addCall(records),
+    [addCall],
   );
 
   const canSyncPhoneCalls = isNativeCapacitor() && hasNativeCallLogPlugin();
@@ -2692,10 +2859,98 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
       if (nativeSyncingRef.current) return;
       nativeSyncingRef.current = true;
-      const syncKey = `callanalyzer.u.${user.uid}.nativeLastCallSync`;
+      const syncSuffix = 'nativeLastCallSync';
 
       try {
-        const lastSince = fullResync ? 0 : readJson<number>(syncKey, 0);
+        if (hasNativeCallLogSyncPlugin()) {
+          const perm = await getCallLogSyncPermissionStatus();
+          if (perm && perm.callLog !== 'granted') {
+            if (manual) {
+              showNotice(
+                'Allow Call Log permission first to sync calls from your phone.',
+                'warning',
+              );
+            }
+            return;
+          }
+
+          const hasFullHistorySynced = await getScopedWithLegacyMigration<boolean>(
+            user.uid,
+            'fullHistorySyncedV2',
+            false,
+          );
+          const effectiveFullResync = fullResync || !hasFullHistorySynced;
+
+          const result = await syncNativeCallLogIncremental({
+            fullResync: effectiveFullResync,
+          });
+          let counts: ImportCounts = { added: 0, duplicates: 0, merged: 0 };
+          if (result.calls.length > 0) {
+            counts = addCall(result.calls);
+            if (result.maxCallId > 0) {
+              await acknowledgeNativeSyncedCalls(result.maxCallId);
+            }
+          }
+          if (!hasFullHistorySynced) {
+            await idbSetScoped(user.uid, 'fullHistorySyncedV2', true);
+          }
+
+          if (result.returnedCallIds.length > 0) {
+            const currentDismissed = stateRef.current.dismissedMissedArray;
+            const currentSet = new Set(currentDismissed);
+            const newlyReturned = result.returnedCallIds.filter((id) => !currentSet.has(id));
+            if (newlyReturned.length > 0) {
+              const merged = Array.from(new Set([...newlyReturned, ...currentDismissed])).slice(0, 500);
+              setDismissedMissedArray(merged);
+            }
+          }
+
+          if (counts.added > 0 && counts.addedIds && counts.addedIds.length > 0) {
+            const cutoff = prevCallsTabOpenedAtRef.current || stateRef.current.callsTabState.lastOpenedAt;
+            const fetchedIdSet = new Set(counts.addedIds);
+            const eligibleNewIds =
+              cutoff > 0
+                ? result.calls
+                    .filter((c) => fetchedIdSet.has(c.id) && c.timestamp > cutoff)
+                    .map((c) => c.id)
+                : !effectiveFullResync
+                  ? counts.addedIds
+                  : [];
+
+            if (eligibleNewIds.length > 0) {
+              setSessionNewCallIdsList((prev) =>
+                Array.from(new Set([...eligibleNewIds, ...prev])).slice(0, 500),
+              );
+              if (!callsTabActiveRef.current) {
+                setCallsTabState((prev) => ({
+                  ...prev,
+                  unseenCallIds: Array.from(
+                    new Set([...eligibleNewIds, ...prev.unseenCallIds]),
+                  ).slice(0, 500),
+                }));
+              }
+            }
+          }
+
+          if (counts.added > 0) {
+            showNotice(
+              `Synced ${counts.added} call${counts.added === 1 ? '' : 's'} from your phone.`,
+              'success',
+            );
+          } else if (manual) {
+            showNotice(
+              result.calls.length > 0
+                ? `Phone call logs up to date (${result.calls.length} checked).`
+                : 'Phone call logs are already up to date.',
+              'tap',
+            );
+          }
+          return;
+        }
+
+        const lastSince = fullResync
+          ? 0
+          : await getScopedWithLegacyMigration<number>(user.uid, syncSuffix, 0);
         const fetched = await fetchNativeRecentCalls(lastSince);
         if (fetched.length === 0) {
           if (manual) {
@@ -2707,8 +2962,33 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           return;
         }
         const maxTs = fetched.reduce((acc, item) => Math.max(acc, item.timestamp), lastSince);
-        const counts = importCalls(fetched);
-        writeJson(syncKey, maxTs);
+        const counts = addCall(fetched);
+        await idbSetScoped(user.uid, syncSuffix, maxTs);
+        if (counts.added > 0 && counts.addedIds && counts.addedIds.length > 0) {
+          const cutoff = prevCallsTabOpenedAtRef.current || stateRef.current.callsTabState.lastOpenedAt;
+          const fetchedIdSet = new Set(counts.addedIds);
+          const eligibleNewIds =
+            cutoff > 0
+              ? fetched
+                  .filter((c) => fetchedIdSet.has(c.id) && c.timestamp > cutoff)
+                  .map((c) => c.id)
+              : !fullResync
+                ? counts.addedIds
+                : [];
+          if (eligibleNewIds.length > 0) {
+            setSessionNewCallIdsList((prev) =>
+              Array.from(new Set([...eligibleNewIds, ...prev])).slice(0, 500),
+            );
+            if (!callsTabActiveRef.current) {
+              setCallsTabState((prev) => ({
+                ...prev,
+                unseenCallIds: Array.from(
+                  new Set([...eligibleNewIds, ...prev.unseenCallIds]),
+                ).slice(0, 500),
+              }));
+            }
+          }
+        }
         if (counts.added > 0) {
           showNotice(
             `Synced ${counts.added} call${counts.added === 1 ? '' : 's'} from your phone.`,
@@ -2753,8 +3033,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
     },
     [
+      addCall,
       deliverSystemNotification,
-      importCalls,
       notificationsEnabled,
       reminderPrefs,
       requireSignedInUser,
@@ -2769,7 +3049,26 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [runPhoneCallSync],
   );
 
-  // Auto-sync real-time Android call logs when running inside Capacitor with CallLogPlugin installed
+  // Sync missed-call reminder preferences (toggle, 5/10 min delay, quiet hours) to native Android CallLogSync
+  useEffect(() => {
+    if (!isNativeCapacitor() || !hasNativeCallLogSyncPlugin()) return;
+    void updateNativeMissedCallSettings({
+      enabled: notificationsEnabled && reminderPrefs.missedCallReminderEnabled,
+      delayMinutes: reminderPrefs.missedCallReminderDelayMinutes,
+      quietHoursEnabled: reminderPrefs.quietHoursEnabled,
+      quietStartHour: reminderPrefs.quietStartHour,
+      quietEndHour: reminderPrefs.quietEndHour,
+    });
+  }, [
+    notificationsEnabled,
+    reminderPrefs.missedCallReminderEnabled,
+    reminderPrefs.missedCallReminderDelayMinutes,
+    reminderPrefs.quietHoursEnabled,
+    reminderPrefs.quietStartHour,
+    reminderPrefs.quietEndHour,
+  ]);
+
+  // Auto-sync real-time Android call logs when running inside Capacitor with CallLogSync / CallLog installed
   useEffect(() => {
     if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
     if (!isNativeCapacitor() || !hasNativeCallLogPlugin()) return;
@@ -2851,48 +3150,365 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       setContacts(nextMap);
 
-      const updatedCalls: CallRecord[] = [];
       setCalls((prev) =>
         prev.map((call) => {
           const match = incomingByKey.get(getContactKey(call.number));
           if (!match) return call;
-          const nextCall = healCallRecord({
+          return healCallRecord({
             ...call,
             name: match.name && match.name !== match.number ? match.name : call.name,
             tag: match.tag || call.tag,
           });
-          updatedCalls.push(nextCall);
-          return nextCall;
         }),
       );
 
-      const writes = [
-        ...changedProfiles.map((p) => {
-          const docId = toFirestoreDocId(p.key || getContactKey(p.number));
-          return {
-            pathSegments: ['users', user.uid, 'contacts', docId] as [string, string, string, string],
-            data: serializeContactForFirestore(user.uid, p),
-          };
-        }),
-        ...updatedCalls.map((c) => {
-          const docId = toFirestoreDocId(c.id);
-          return {
-            pathSegments: ['users', user.uid, 'calls', docId] as [string, string, string, string],
-            data: serializeCallForFirestore(user.uid, c),
-          };
-        }),
-      ];
-      if (writes.length > 0) {
-        void ensureWorkspaceReady(user.uid)
-          .then(() => commitBatchWrites(writes))
-          .catch((err) =>
-            handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/contacts`),
-          );
-      }
-
       return { added, updated };
     },
-    [commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
+    [requireSignedInUser],
+  );
+
+  const importBackupPackage = useCallback(
+    (pkg: ParsedImportPackage): BackupRestoreCounts => {
+      const user = requireSignedInUser(
+        'Login or create an account to import calls and backups.',
+      );
+      if (!user) {
+        return {
+          callsAdded: 0,
+          callsDuplicates: 0,
+          callsMerged: 0,
+          contactsAdded: 0,
+          contactsUpdated: 0,
+          scheduledAdded: 0,
+          tagsAdded: 0,
+          restoredSections: [],
+        };
+      }
+
+      const restoredSections: string[] = [];
+      let tagsAdded = 0;
+
+      if (pkg.tags.length > 0) {
+        const existingLower = new Set(customTags.map((t) => t.trim().toLowerCase()));
+        pkg.tags.forEach((tag) => {
+          if (!existingLower.has(tag.trim().toLowerCase())) {
+            existingLower.add(tag.trim().toLowerCase());
+            tagsAdded += 1;
+          }
+          addCustomTag(tag);
+        });
+        if (tagsAdded > 0) restoredSections.push('Tags');
+      }
+
+      // Merge contacts without overwriting existing non-empty local values
+      let contactsAdded = 0;
+      let contactsUpdated = 0;
+      if (pkg.contacts.length > 0) {
+        const mergedContactsMap = { ...stateRef.current.contacts };
+        const changedContacts: ContactProfile[] = [];
+        pkg.contacts.forEach((rawItem) => {
+          const item = healContactProfile(rawItem);
+          const key = item.key || getContactKey(item.number);
+          const existing = mergedContactsMap[key];
+          if (!existing) {
+            contactsAdded += 1;
+            const created = { ...item, key };
+            mergedContactsMap[key] = created;
+            changedContacts.push(created);
+          } else {
+            const mergedEvents = [...existing.events];
+            item.events.forEach((evt) => {
+              if (
+                !mergedEvents.some(
+                  (e) => e.title === evt.title && e.month === evt.month && e.day === evt.day,
+                )
+              ) {
+                mergedEvents.push(evt);
+              }
+            });
+            const nextName =
+              existing.name.trim() && existing.name.trim() !== existing.number
+                ? existing.name
+                : item.name && item.name !== item.number
+                  ? item.name
+                  : existing.name;
+            const nextTag = existing.tag.trim() ? existing.tag : item.tag;
+            const nextNotes = existing.notes.trim() ? existing.notes : item.notes;
+            const nextBirthday = existing.birthday ?? item.birthday;
+
+            if (
+              nextName !== existing.name ||
+              nextTag !== existing.tag ||
+              nextNotes !== existing.notes ||
+              nextBirthday !== existing.birthday ||
+              mergedEvents.length !== existing.events.length
+            ) {
+              contactsUpdated += 1;
+              const updatedProfile = healContactProfile({
+                ...existing,
+                name: nextName,
+                tag: nextTag,
+                notes: nextNotes,
+                birthday: nextBirthday,
+                events: mergedEvents,
+                updatedAt: Date.now(),
+              });
+              mergedContactsMap[key] = updatedProfile;
+              changedContacts.push(updatedProfile);
+            }
+          }
+        });
+
+        if (changedContacts.length > 0) {
+          stateRef.current = { ...stateRef.current, contacts: mergedContactsMap };
+          setContacts(mergedContactsMap);
+          restoredSections.push('Contacts');
+        }
+      }
+
+      // Import calls (normalized dedup + non-overwriting merge)
+      const callCounts = addCall(pkg.calls);
+      if (callCounts.added > 0 || (callCounts.merged ?? 0) > 0) {
+        restoredSections.push('Calls');
+      }
+
+      // Merge scheduled calls (preserving status & deduplicating by contact + timestamp)
+      let scheduledAdded = 0;
+      if (pkg.scheduledCalls.length > 0) {
+        const existingSched = stateRef.current.scheduledCalls;
+        const existingKeys = new Set(
+          existingSched.map((s) => `${getContactKey(s.number)}|${Math.round(s.scheduledFor)}`),
+        );
+        const freshScheduled: ScheduledCall[] = [];
+        pkg.scheduledCalls.forEach((item) => {
+          const sKey = `${getContactKey(item.number)}|${Math.round(item.scheduledFor)}`;
+          if (existingKeys.has(sKey)) return;
+          existingKeys.add(sKey);
+          freshScheduled.push(healScheduledCall(item));
+        });
+        if (freshScheduled.length > 0) {
+          scheduledAdded = freshScheduled.length;
+          const nextScheduled = [...freshScheduled, ...existingSched].sort(
+            (a, b) => a.scheduledFor - b.scheduledFor,
+          );
+          stateRef.current = { ...stateRef.current, scheduledCalls: nextScheduled };
+          setScheduledCalls(nextScheduled);
+          restoredSections.push('Scheduled Calls');
+        }
+      }
+
+      // Merge local workspace sets (kept in IndexedDB only) & account settings
+      const workspaceOverrides: Record<string, unknown> = {};
+      if (pkg.favorites.length > 0) {
+        const mergedFavs = Array.from(
+          new Set([...stateRef.current.favoritesArray, ...pkg.favorites]),
+        ).slice(0, 200);
+        if (mergedFavs.length !== stateRef.current.favoritesArray.length) {
+          setFavoritesArray(mergedFavs);
+        }
+      }
+      if (pkg.dismissedMissedIds.length > 0) {
+        const mergedDismissed = Array.from(
+          new Set([...stateRef.current.dismissedMissedArray, ...pkg.dismissedMissedIds]),
+        ).slice(0, 500);
+        if (mergedDismissed.length !== stateRef.current.dismissedMissedArray.length) {
+          setDismissedMissedArray(mergedDismissed);
+        }
+      }
+      if (pkg.mutedAlertKeys.length > 0) {
+        const mergedMuted = Array.from(
+          new Set([...stateRef.current.mutedAlertKeys, ...pkg.mutedAlertKeys]),
+        ).slice(0, 200);
+        if (mergedMuted.length !== stateRef.current.mutedAlertKeys.length) {
+          setMutedAlertKeys(mergedMuted);
+        }
+      }
+
+      if (pkg.settings) {
+        if (pkg.settings.tariffs) {
+          const cleanTariffs = sanitizeTariffs(pkg.settings.tariffs);
+          setTariffsState(cleanTariffs);
+          workspaceOverrides.tariffs = cleanTariffs;
+        }
+        if (pkg.settings.simLabels) {
+          const cleanSimLabels = sanitizeSimLabels(pkg.settings.simLabels);
+          setSimLabelsState(cleanSimLabels);
+          workspaceOverrides.simLabels = cleanSimLabels;
+        }
+        if (pkg.settings.calendarPrefs) {
+          const cleanCal = sanitizeCalendarPrefs(pkg.settings.calendarPrefs);
+          setCalendarPrefsState(cleanCal);
+          workspaceOverrides.calendarPrefs = cleanCal;
+        }
+        if (pkg.settings.reminderPrefs) {
+          const cleanRem = sanitizeReminderPrefs(pkg.settings.reminderPrefs);
+          setReminderPrefsState(cleanRem);
+          workspaceOverrides.reminderPrefs = cleanRem;
+        }
+        if (pkg.settings.voiceBundles) {
+          const cleanBundles = sanitizeVoiceBundles(pkg.settings.voiceBundles);
+          setVoiceBundlesState(cleanBundles);
+          workspaceOverrides.voiceBundles = cleanBundles;
+        }
+        if (typeof pkg.settings.notificationsEnabled === 'boolean') {
+          setNotificationsEnabledState(pkg.settings.notificationsEnabled);
+          workspaceOverrides.notificationsEnabled = pkg.settings.notificationsEnabled;
+        }
+        if (typeof pkg.settings.privacyMode === 'boolean') {
+          setPrivacyModeState(pkg.settings.privacyMode);
+          workspaceOverrides.privacyMode = pkg.settings.privacyMode;
+        }
+        if (pkg.settings.themePreference) {
+          setThemePreferenceState(pkg.settings.themePreference);
+          const resolvedTheme: ThemeMode =
+            pkg.settings.themePreference === 'system'
+              ? systemIsDark
+                ? 'dark-gray'
+                : 'light'
+              : pkg.settings.themePreference;
+          workspaceOverrides.theme = resolvedTheme;
+        }
+        if (pkg.settings.fontSizeScale) {
+          setFontSizeScaleState(pkg.settings.fontSizeScale);
+        }
+        if (pkg.settings.profileName && !stateRef.current.profileName.trim()) {
+          setProfileNameState(pkg.settings.profileName);
+          workspaceOverrides.profileName = pkg.settings.profileName;
+        }
+        restoredSections.push('Settings');
+      }
+
+      if (Object.keys(workspaceOverrides).length > 0) {
+        void ensureWorkspaceReady(user.uid)
+          .then(() => persistWorkspaceToCloud(user, workspaceOverrides))
+          .catch(() => {});
+      }
+
+      let nextStreaksState = stateRef.current.streaks;
+      if (pkg.streaks) {
+        const current = stateRef.current.streaks;
+        const incomingLast = pkg.streaks.lastActiveDate;
+        const currentLast = current.lastActiveDate;
+        let newestLastDate = currentLast || incomingLast || null;
+        let mergedCurrentStreak = Math.max(current.currentStreak, pkg.streaks.currentStreak);
+        if (incomingLast && currentLast) {
+          const diff = eatDateDiffDays(currentLast, incomingLast);
+          if (Number.isFinite(diff) && diff > 0) {
+            newestLastDate = incomingLast;
+            mergedCurrentStreak = pkg.streaks.currentStreak;
+          } else if (Number.isFinite(diff) && diff < 0) {
+            newestLastDate = currentLast;
+            mergedCurrentStreak = current.currentStreak;
+          }
+        } else if (incomingLast && !currentLast) {
+          newestLastDate = incomingLast;
+          mergedCurrentStreak = pkg.streaks.currentStreak;
+        }
+
+        nextStreaksState = getEffectiveStreak({
+          currentStreak: mergedCurrentStreak,
+          longestStreak: Math.max(current.longestStreak, pkg.streaks.longestStreak),
+          lastActiveDate: newestLastDate,
+          totalActiveDays: Math.max(
+            current.totalActiveDays ?? 0,
+            pkg.streaks.totalActiveDays ?? 0,
+          ),
+        });
+        stateRef.current = { ...stateRef.current, streaks: nextStreaksState };
+        setStreaksState(nextStreaksState);
+        restoredSections.push('Streaks');
+      }
+
+      let nextHistoryState = stateRef.current.pointsHistory;
+      if (pkg.pointsHistory.length > 0) {
+        const merged = mergePointsHistory(stateRef.current.pointsHistory, pkg.pointsHistory);
+        nextHistoryState = merged.merged;
+        stateRef.current = { ...stateRef.current, pointsHistory: nextHistoryState };
+        setPointsHistoryState(nextHistoryState);
+        restoredSections.push('Score');
+      } else if (
+        pkg.importedScore !== null &&
+        pkg.importedScore > 0 &&
+        stateRef.current.pointsHistory.length === 0
+      ) {
+        const baselineEntry: PointsHistoryEntry = {
+          id: `restored_score:${pkg.importedScore}`,
+          reason: 'daily_open',
+          points: pkg.importedScore,
+          label: 'Restored backup score',
+          timestamp: Date.now(),
+          eatDate: toEatDateString(),
+        };
+        nextHistoryState = [baselineEntry];
+        stateRef.current = { ...stateRef.current, pointsHistory: nextHistoryState };
+        setPointsHistoryState(nextHistoryState);
+        restoredSections.push('Score');
+      }
+
+      const byBadgeId = new Map<string, BadgeRecord>();
+      stateRef.current.badges.forEach((b) => byBadgeId.set(b.id, b));
+      pkg.badges.forEach((b) => {
+        const existing = byBadgeId.get(b.id);
+        if (!existing || b.unlockedAt < existing.unlockedAt) {
+          byBadgeId.set(b.id, b);
+        }
+      });
+      const reconciled = reconcileBadges(
+        nextStreaksState,
+        nextHistoryState,
+        Array.from(byBadgeId.values()),
+      );
+      if (reconciled.badges.length > 0 || pkg.badges.length > 0) {
+        stateRef.current = { ...stateRef.current, badges: reconciled.badges };
+        setBadgesState(reconciled.badges);
+        if (pkg.badges.length > 0 || reconciled.newlyUnlocked.length > 0) {
+          restoredSections.push('Badges');
+        }
+      }
+
+      if (pkg.contactMilestones.length > 0) {
+        const byMilestoneId = new Map<string, ContactMilestoneRecord>();
+        stateRef.current.contactMilestones.forEach((m) => byMilestoneId.set(m.id, m));
+        pkg.contactMilestones.forEach((m) => {
+          const existing = byMilestoneId.get(m.id);
+          if (!existing) {
+            byMilestoneId.set(m.id, m);
+          } else {
+            byMilestoneId.set(m.id, {
+              ...existing,
+              awardedAt: Math.min(existing.awardedAt, m.awardedAt),
+              celebratedAt: existing.celebratedAt ?? m.celebratedAt,
+            });
+          }
+        });
+        const mergedMilestones = Array.from(byMilestoneId.values()).sort(
+          (a, b) => b.awardedAt - a.awardedAt || b.days - a.days,
+        );
+        stateRef.current = { ...stateRef.current, contactMilestones: mergedMilestones };
+        setContactMilestonesState(mergedMilestones);
+        restoredSections.push('Milestones');
+      }
+
+      return {
+        callsAdded: callCounts.added,
+        callsDuplicates: callCounts.duplicates,
+        callsMerged: callCounts.merged ?? 0,
+        contactsAdded,
+        contactsUpdated,
+        scheduledAdded,
+        tagsAdded,
+        restoredSections,
+      };
+    },
+    [
+      addCall,
+      addCustomTag,
+      customTags,
+      ensureWorkspaceReady,
+      persistWorkspaceToCloud,
+      requireSignedInUser,
+      systemIsDark,
+    ],
   );
 
   const loadSampleData = useCallback((): ImportCounts => {
@@ -2946,32 +3562,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setScheduledCalls((prev) => (prev.length > 0 ? prev : newSchedules));
     }
 
-    if (newProfiles.length > 0 || newSchedules.length > 0) {
-      const writes = [
-        ...newProfiles.map((p) => {
-          const docId = toFirestoreDocId(p.key);
-          return {
-            pathSegments: ['users', user.uid, 'contacts', docId] as [string, string, string, string],
-            data: serializeContactForFirestore(user.uid, p),
-          };
-        }),
-        ...newSchedules.map((sc) => {
-          const docId = toFirestoreDocId(sc.id);
-          return {
-            pathSegments: ['users', user.uid, 'scheduledCalls', docId] as [string, string, string, string],
-            data: serializeScheduledCallForFirestore(user.uid, sc),
-          };
-        }),
-      ];
-      void ensureWorkspaceReady(user.uid)
-        .then(() => commitBatchWrites(writes))
-        .catch((err) =>
-          handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`),
-        );
-    }
-
     return counts;
-  }, [commitBatchWrites, ensureWorkspaceReady, importCalls, requireSignedInUser]);
+  }, [importCalls, requireSignedInUser]);
 
   const patchCall = useCallback(
     (id: string, patch: CallPatch, options?: { applyTagToContact?: boolean }) => {
@@ -2988,35 +3580,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       const applyToContact = Boolean(options?.applyTagToContact && patch.tag !== undefined);
       const targetKey = getContactKey(existingCall.number);
-      const changedCalls: CallRecord[] = [];
 
       setCalls((prev) =>
         prev.map((call) => {
           if (call.id === id) {
-            const next = { ...call, ...patch, tag: cleanTag };
-            changedCalls.push(next);
-            return next;
+            return { ...call, ...patch, tag: cleanTag };
           }
           if (applyToContact && getContactKey(call.number) === targetKey) {
-            const next = {
+            return {
               ...call,
               tag: cleanTag,
               name: patch.name !== undefined ? patch.name || call.name : call.name,
             };
-            changedCalls.push(next);
-            return next;
           }
           return call;
         }),
       );
-
-      const writes: Array<{
-        pathSegments: [string, string, string, string];
-        data: Record<string, unknown>;
-      }> = changedCalls.map((c) => ({
-        pathSegments: ['users', user.uid, 'calls', toFirestoreDocId(c.id)],
-        data: serializeCallForFirestore(user.uid, c),
-      }));
 
       if (applyToContact) {
         const prevProfile = stateRef.current.contacts[targetKey];
@@ -3035,21 +3614,27 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           updatedAt: Date.now(),
         });
         setContacts((prev) => ({ ...prev, [targetKey]: nextProfile }));
-        writes.push({
-          pathSegments: ['users', user.uid, 'contacts', toFirestoreDocId(targetKey)],
-          data: serializeContactForFirestore(user.uid, nextProfile),
-        });
       }
 
-      if (writes.length > 0) {
-        void ensureWorkspaceReady(user.uid)
-          .then(() => commitBatchWrites(writes))
-          .catch((err) =>
-            handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/calls`),
-          );
+      const updatedCall = { ...existingCall, ...patch, tag: cleanTag };
+      const tagNotePoint = createTagOrNotePointEntry(updatedCall, stateRef.current.pointsHistory);
+      if (tagNotePoint) {
+        const mergedHistory = mergePointsHistory(stateRef.current.pointsHistory, [tagNotePoint]).merged;
+        stateRef.current = { ...stateRef.current, pointsHistory: mergedHistory };
+        setPointsHistoryState(mergedHistory);
+        const badgeResult = reconcileBadges(
+          stateRef.current.streaks,
+          mergedHistory,
+          stateRef.current.badges,
+        );
+        if (badgeResult.badges.length !== stateRef.current.badges.length || badgeResult.newlyUnlocked.length > 0) {
+          stateRef.current = { ...stateRef.current, badges: badgeResult.badges };
+          setBadgesState(badgeResult.badges);
+        }
+        showNotice(`+${POINTS_CONFIG.CALL_TAG_OR_NOTE} pts earned for tagging/noting a call`, 'success');
       }
     },
-    [addCustomTag, commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
+    [addCustomTag, requireSignedInUser, showNotice],
   );
 
   const removeCall = useCallback(
@@ -3058,39 +3643,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (!user) return;
       triggerHaptic('warning');
       setCalls((prev) => prev.filter((call) => call.id !== id));
-      const docId = toFirestoreDocId(id);
-      void ensureWorkspaceReady(user.uid)
-        .then(() => deleteDoc(doc(db, 'users', user.uid, 'calls', docId)))
-        .catch((err) =>
-          handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/calls/${docId}`),
-        );
     },
-    [ensureWorkspaceReady, requireSignedInUser],
+    [requireSignedInUser],
   );
 
   const clearCalls = useCallback(() => {
     const user = requireSignedInUser();
     if (!user) return;
-    const prevCalls = stateRef.current.calls;
     setCalls([]);
     setDismissedMissedArray([]);
     showNotice('Call history cleared.', 'warning');
-
-    void persistWorkspaceToCloud(user, { dismissedMissedArray: [] });
-    const CHUNK = 350;
-    void (async () => {
-      await ensureWorkspaceReady(user.uid);
-      for (let i = 0; i < prevCalls.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        prevCalls.slice(i, i + CHUNK).forEach((c) => {
-          batch.delete(doc(db, 'users', user.uid, 'calls', toFirestoreDocId(c.id)));
-        });
-        await batch.commit();
-      }
-    })().catch((err) =>
-      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/calls`),
-    );
-  }, [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice]);
+  }, [requireSignedInUser, showNotice]);
 
   const mergeContacts = useCallback(
     (sourceNumber: string, targetNumber: string, targetName: string) => {
@@ -3099,7 +3662,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const sourceNorm = normaliseEthPhone(sourceNumber);
       const cleanTargetNumber = targetNumber.trim();
       const cleanName = targetName.trim() || null;
-      const changedCalls: CallRecord[] = [];
 
       setCalls((prev) =>
         prev.map((call) => {
@@ -3107,43 +3669,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             call.number === sourceNumber ||
             normaliseEthPhone(call.number) === sourceNorm
           ) {
-            const next = {
+            return {
               ...call,
               number: cleanTargetNumber,
               name: cleanName ?? call.name,
             };
-            changedCalls.push(next);
-            return next;
           }
           if (call.number === cleanTargetNumber && cleanName && !call.name) {
-            const next = { ...call, name: cleanName };
-            changedCalls.push(next);
-            return next;
+            return { ...call, name: cleanName };
           }
           return call;
         }),
       );
 
-      if (changedCalls.length > 0) {
-        const writes = changedCalls.map((c) => ({
-          pathSegments: ['users', user.uid, 'calls', toFirestoreDocId(c.id)] as [
-            string,
-            string,
-            string,
-            string,
-          ],
-          data: serializeCallForFirestore(user.uid, c),
-        }));
-        void ensureWorkspaceReady(user.uid)
-          .then(() => commitBatchWrites(writes))
-          .catch((err) =>
-            handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/calls`),
-          );
-      }
-
       showNotice(`Merged into ${cleanName ?? cleanTargetNumber}.`, 'success');
     },
-    [commitBatchWrites, ensureWorkspaceReady, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const upsertContactProfile = useCallback(
@@ -3163,7 +3704,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setContacts((prev) => ({ ...prev, [key]: cleanProfile }));
 
       const nextTag = cleanProfile.tag.trim() || null;
-      const updatedCalls: CallRecord[] = [];
       setCalls((prev) =>
         prev.map((call) => {
           if (getContactKey(call.number) !== key) return call;
@@ -3172,47 +3712,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               ? cleanProfile.name.trim()
               : call.name;
           if (call.name === nextName && (call.tag || null) === nextTag) return call;
-          const next = {
+          return {
             ...call,
             name: nextName,
             tag: nextTag,
           };
-          updatedCalls.push(next);
-          return next;
         }),
       );
-
-      const contactDocId = toFirestoreDocId(key);
-      void ensureWorkspaceReady(user.uid)
-        .then(() =>
-          setDoc(
-            doc(db, 'users', user.uid, 'contacts', contactDocId),
-            serializeContactForFirestore(user.uid, cleanProfile),
-          ),
-        )
-        .catch((err) =>
-          handleFirestoreError(
-            err,
-            OperationType.WRITE,
-            `users/${user.uid}/contacts/${contactDocId}`,
-          ),
-        );
-      if (updatedCalls.length > 0) {
-        void ensureWorkspaceReady(user.uid)
-          .then(() =>
-            commitBatchWrites(
-              updatedCalls.map((c) => ({
-                pathSegments: ['users', user.uid, 'calls', toFirestoreDocId(c.id)],
-                data: serializeCallForFirestore(user.uid, c),
-              })),
-            ),
-          )
-          .catch((err) =>
-            handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/calls`),
-          );
-      }
     },
-    [addCustomTag, commitBatchWrites, ensureWorkspaceReady, requireSignedInUser],
+    [addCustomTag, requireSignedInUser],
   );
 
   const removeContactProfile = useCallback(
@@ -3229,20 +3737,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         delete next[key];
         return next;
       });
-
-      const contactDocId = toFirestoreDocId(key);
-      void ensureWorkspaceReady(user.uid)
-        .then(() => deleteDoc(doc(db, 'users', user.uid, 'contacts', contactDocId)))
-        .catch((err) =>
-          handleFirestoreError(
-            err,
-            OperationType.DELETE,
-            `users/${user.uid}/contacts/${contactDocId}`,
-          ),
-        );
       showNotice('Contact removed.', 'warning');
     },
-    [ensureWorkspaceReady, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const getContactProfile = useCallback(
@@ -3281,25 +3778,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         setDismissedMissedArray(nextDismissed);
       }
 
-      const docId = toFirestoreDocId(item.id);
-      void ensureWorkspaceReady(user.uid)
-        .then(() =>
-          setDoc(
-            doc(db, 'users', user.uid, 'scheduledCalls', docId),
-            serializeScheduledCallForFirestore(user.uid, item),
-          ),
-        )
-        .catch((err) =>
-          handleFirestoreError(
-            err,
-            OperationType.CREATE,
-            `users/${user.uid}/scheduledCalls/${docId}`,
-          ),
-        );
-      if (input.sourceCallId) {
-        void persistWorkspaceToCloud(user, { dismissedMissedArray: nextDismissed });
-      }
-
       const privacy = stateRef.current.privacyMode;
       const notifyLabel = formatDisplayNameOrPhone(resolvedName, number, privacy);
       const notifyNum = maskPhoneNumber(number, privacy);
@@ -3330,9 +3808,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     },
     [
       contacts,
-      ensureWorkspaceReady,
       notificationsEnabled,
-      persistWorkspaceToCloud,
       reminderPrefs,
       requireSignedInUser,
       showNotice,
@@ -3346,33 +3822,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (isNativeCapacitor() && hasNativeNotificationsPlugin()) {
         void cancelNativeNotification(id);
       }
-      const existingItem = stateRef.current.scheduledCalls.find((item) => item.id === id);
-      const updatedItem: ScheduledCall | null = existingItem
-        ? { ...existingItem, status: 'completed' }
-        : null;
       setScheduledCalls((prev) =>
         prev.map((item) => (item.id === id ? { ...item, status: 'completed' } : item)),
       );
-      if (updatedItem) {
-        const docId = toFirestoreDocId(id);
-        void ensureWorkspaceReady(user.uid)
-          .then(() =>
-            setDoc(
-              doc(db, 'users', user.uid, 'scheduledCalls', docId),
-              serializeScheduledCallForFirestore(user.uid, updatedItem),
-            ),
-          )
-          .catch((err) =>
-            handleFirestoreError(
-              err,
-              OperationType.UPDATE,
-              `users/${user.uid}/scheduledCalls/${docId}`,
-            ),
-          );
-      }
       showNotice('Scheduled call marked done.', 'success');
     },
-    [ensureWorkspaceReady, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const snoozeScheduledCall = useCallback(
@@ -3431,27 +3886,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           },
         );
       }
-      if (updatedItem) {
-        const docId = toFirestoreDocId(id);
-        void ensureWorkspaceReady(user.uid)
-          .then(() =>
-            setDoc(
-              doc(db, 'users', user.uid, 'scheduledCalls', docId),
-              serializeScheduledCallForFirestore(user.uid, updatedItem),
-            ),
-          )
-          .catch((err) =>
-            handleFirestoreError(
-              err,
-              OperationType.UPDATE,
-              `users/${user.uid}/scheduledCalls/${docId}`,
-            ),
-          );
-      }
       showNotice(`Snoozed reminder by ${minutes} minutes.`, 'tap');
     },
     [
-      ensureWorkspaceReady,
       notificationsEnabled,
       reminderPrefs,
       requireSignedInUser,
@@ -3467,19 +3904,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         void cancelNativeNotification(id);
       }
       setScheduledCalls((prev) => prev.filter((item) => item.id !== id));
-      const docId = toFirestoreDocId(id);
-      void ensureWorkspaceReady(user.uid)
-        .then(() => deleteDoc(doc(db, 'users', user.uid, 'scheduledCalls', docId)))
-        .catch((err) =>
-          handleFirestoreError(
-            err,
-            OperationType.DELETE,
-            `users/${user.uid}/scheduledCalls/${docId}`,
-          ),
-        );
       showNotice('Scheduled call removed.', 'warning');
     },
-    [ensureWorkspaceReady, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const dismissMissedCall = useCallback(
@@ -3491,9 +3918,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       triggerHaptic('tap');
       const next = [...current, id];
       setDismissedMissedArray(next);
-      void persistWorkspaceToCloud(user, { dismissedMissedArray: next });
     },
-    [persistWorkspaceToCloud, requireSignedInUser],
+    [requireSignedInUser],
   );
 
   const muteAlertKey = useCallback(
@@ -3507,10 +3933,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       triggerHaptic('tap');
       const next = [key, ...current].slice(0, 200);
       setMutedAlertKeys(next);
-      void persistWorkspaceToCloud(user, { mutedAlertKeys: next });
       showNotice('Muted alerts for this contact/event.');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const unmuteAlertKey = useCallback(
@@ -3522,10 +3947,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       triggerHaptic('tap');
       const next = stateRef.current.mutedAlertKeys.filter((item) => item !== key);
       setMutedAlertKeys(next);
-      void persistWorkspaceToCloud(user, { mutedAlertKeys: next });
       showNotice('Alerts unmuted.', 'success');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [requireSignedInUser, showNotice],
   );
 
   const updateUserProfile = useCallback(
@@ -3838,9 +4262,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           ? prev.filter((item) => item !== number && getContactKey(item) !== key)
           : [number, ...prev];
       setFavoritesArray(next);
-      void persistWorkspaceToCloud(user, { favoritesArray: next });
     },
-    [persistWorkspaceToCloud, requireSignedInUser],
+    [requireSignedInUser],
   );
 
   const setThemeMode = useCallback(
@@ -3850,9 +4273,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const resolvedNext: ThemeMode =
         mode === 'system' ? (systemIsDark ? 'dark-gray' : 'light') : mode;
       const user = auth.currentUser;
-      if (user) void persistWorkspaceToCloud(user, { theme: resolvedNext });
+      if (user && user.emailVerified) {
+        void ensureWorkspaceReady(user.uid).then(() =>
+          persistWorkspaceToCloud(user, { theme: resolvedNext }),
+        );
+      }
     },
-    [persistWorkspaceToCloud, systemIsDark],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, systemIsDark],
   );
 
   const toggleTheme = useCallback(() => {
@@ -3861,8 +4288,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     const next: ThemeMode = isCurrentlyDark ? 'light' : 'dark-gray';
     setThemePreferenceState(next);
     const user = auth.currentUser;
-    if (user) void persistWorkspaceToCloud(user, { theme: next });
-  }, [persistWorkspaceToCloud]);
+    if (user && user.emailVerified) {
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { theme: next }),
+      );
+    }
+  }, [ensureWorkspaceReady, persistWorkspaceToCloud]);
 
   const favorites = useMemo(() => new Set(favoritesArray), [favoritesArray]);
   const dismissedMissedIds = useMemo(
@@ -3872,6 +4303,275 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const mutedAlertSet = useMemo(() => new Set(mutedAlertKeys), [mutedAlertKeys]);
   const pinEnabled = Boolean(pinHash);
   const needsEmailVerification = Boolean(authUser && !authUser.emailVerified);
+  const recordDailyAppOpen = useCallback(() => {
+    if (!authUser?.emailVerified || hydratedUidRef.current !== authUser.uid || isGuestRef.current) {
+      return;
+    }
+    void recordDailyActiveClient(authUser);
+    const openResult = applyDailyAppOpen(stateRef.current.streaks, stateRef.current.pointsHistory);
+    let nextStreaks = stateRef.current.streaks;
+    let nextHistory = stateRef.current.pointsHistory;
+    if (openResult.changed) {
+      nextStreaks = openResult.streaks;
+      nextHistory = openResult.history;
+      stateRef.current = {
+        ...stateRef.current,
+        streaks: nextStreaks,
+        pointsHistory: nextHistory,
+      };
+      setStreaksState(nextStreaks);
+      setPointsHistoryState(nextHistory);
+    }
+
+    const badgeResult = reconcileBadges(nextStreaks, nextHistory, stateRef.current.badges);
+    if (
+      badgeResult.newlyUnlocked.length > 0 ||
+      badgeResult.badges.length !== stateRef.current.badges.length
+    ) {
+      stateRef.current = { ...stateRef.current, badges: badgeResult.badges };
+      setBadgesState(badgeResult.badges);
+    }
+  }, [authUser, recordDailyActiveClient]);
+
+  // Record EAT daily usage streak + daily open points when hydrated user enters the app
+  useEffect(() => {
+    if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid || isGuest || isLocked) {
+      return;
+    }
+    recordDailyAppOpen();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        recordDailyAppOpen();
+      }
+    };
+    const onFocus = () => {
+      recordDailyAppOpen();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [authUser, hydratedUid, isGuest, isLocked, recordDailyAppOpen]);
+
+  const contactStatuses = useMemo(
+    () =>
+      computeContactStatuses(
+        calls,
+        contacts,
+        reminderPrefs.missedCallReminderDelayMinutes,
+      ),
+    [calls, contacts, reminderPrefs.missedCallReminderDelayMinutes],
+  );
+
+  const topContactStatuses = useMemo(
+    () =>
+      Object.values(contactStatuses)
+        .filter((s) => s.totalConnectedDays > 0 || s.contactScore > 0)
+        .sort(
+          (a, b) =>
+            b.currentStreak - a.currentStreak ||
+            b.longestStreak - a.longestStreak ||
+            b.contactScore - a.contactScore,
+        ),
+    [contactStatuses],
+  );
+
+  // Automatically award points for quick missed callbacks and contact streak milestones
+  useEffect(() => {
+    if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid || isGuest) {
+      return;
+    }
+    const detectedQuick = detectQuickMissedCallbacks(
+      calls,
+      stateRef.current.pointsHistory,
+      reminderPrefs.missedCallReminderDelayMinutes,
+    );
+    const reconciledMilestones = reconcileContactMilestones(
+      contactStatuses,
+      stateRef.current.contactMilestones,
+      detectedQuick.history,
+    );
+
+    const hasNewPoints =
+      detectedQuick.addedPoints.length > 0 || reconciledMilestones.addedPoints.length > 0;
+    const hasNewMilestones = reconciledMilestones.newlyUnlocked.length > 0;
+
+    if (!hasNewPoints && !hasNewMilestones) {
+      return;
+    }
+
+    const nextHistory = reconciledMilestones.history;
+    const nextMilestones = reconciledMilestones.milestones;
+
+    stateRef.current = {
+      ...stateRef.current,
+      pointsHistory: nextHistory,
+      contactMilestones: nextMilestones,
+    };
+    if (hasNewPoints) {
+      setPointsHistoryState(nextHistory);
+    }
+    if (hasNewMilestones) {
+      setContactMilestonesState(nextMilestones);
+    }
+
+    const badgeResult = reconcileBadges(
+      stateRef.current.streaks,
+      nextHistory,
+      stateRef.current.badges,
+    );
+    if (
+      badgeResult.newlyUnlocked.length > 0 ||
+      badgeResult.badges.length !== stateRef.current.badges.length
+    ) {
+      stateRef.current = { ...stateRef.current, badges: badgeResult.badges };
+      setBadgesState(badgeResult.badges);
+    }
+  }, [authUser, hydratedUid, isGuest, calls, contactStatuses, reminderPrefs.missedCallReminderDelayMinutes]);
+
+  const pendingMilestoneCelebration = useMemo(() => {
+    if (isGuest || !authUser?.emailVerified || isLocked) return null;
+    const uncelebrated = contactMilestones.filter((m) => m.celebratedAt === null);
+    if (uncelebrated.length === 0) return null;
+    return [...uncelebrated].sort(
+      (a, b) => b.days - a.days || b.awardedAt - a.awardedAt,
+    )[0] ?? null;
+  }, [authUser?.emailVerified, contactMilestones, isGuest, isLocked]);
+
+  const markContactMilestoneCelebrated = useCallback((milestoneId: string) => {
+    if (!milestoneId) return;
+    const now = Date.now();
+    const next = stateRef.current.contactMilestones.map((m) =>
+      m.id === milestoneId && m.celebratedAt === null ? { ...m, celebratedAt: now } : m,
+    );
+    stateRef.current = { ...stateRef.current, contactMilestones: next };
+    setContactMilestonesState(next);
+  }, []);
+
+  const dismissAllPendingMilestones = useCallback(() => {
+    const now = Date.now();
+    const next = stateRef.current.contactMilestones.map((m) =>
+      m.celebratedAt === null ? { ...m, celebratedAt: now } : m,
+    );
+    stateRef.current = { ...stateRef.current, contactMilestones: next };
+    setContactMilestonesState(next);
+  }, []);
+
+  const score = useMemo(() => computeScoreFromHistory(pointsHistory), [pointsHistory]);
+  const effectiveStreaks = useMemo(() => getEffectiveStreak(streaks), [streaks]);
+
+  const rebuildScore = useCallback((): number => {
+    const detectedQuick = detectQuickMissedCallbacks(
+      stateRef.current.calls,
+      stateRef.current.pointsHistory,
+      stateRef.current.reminderPrefs.missedCallReminderDelayMinutes,
+    );
+    const freshStatuses = computeContactStatuses(
+      stateRef.current.calls,
+      stateRef.current.contacts,
+      stateRef.current.reminderPrefs.missedCallReminderDelayMinutes,
+    );
+    const reconciledMilestones = reconcileContactMilestones(
+      freshStatuses,
+      stateRef.current.contactMilestones,
+      detectedQuick.history,
+    );
+    const nextHistory = reconciledMilestones.history;
+    const nextMilestones = reconciledMilestones.milestones;
+    if (
+      detectedQuick.addedPoints.length > 0 ||
+      reconciledMilestones.addedPoints.length > 0 ||
+      reconciledMilestones.newlyUnlocked.length > 0
+    ) {
+      stateRef.current = {
+        ...stateRef.current,
+        pointsHistory: nextHistory,
+        contactMilestones: nextMilestones,
+      };
+      setPointsHistoryState(nextHistory);
+      if (reconciledMilestones.newlyUnlocked.length > 0) {
+        setContactMilestonesState(nextMilestones);
+      }
+    }
+    const badgeResult = reconcileBadges(
+      stateRef.current.streaks,
+      nextHistory,
+      stateRef.current.badges,
+    );
+    if (
+      badgeResult.newlyUnlocked.length > 0 ||
+      badgeResult.badges.length !== stateRef.current.badges.length
+    ) {
+      stateRef.current = { ...stateRef.current, badges: badgeResult.badges };
+      setBadgesState(badgeResult.badges);
+    }
+    return computeScoreFromHistory(nextHistory);
+  }, []);
+
+  const sessionNewCallIds = useMemo(
+    () => new Set(sessionNewCallIdsList),
+    [sessionNewCallIdsList],
+  );
+
+  const markCallsTabOpened = useCallback(() => {
+    callsTabActiveRef.current = true;
+    const activeUser = auth.currentUser;
+    if (
+      !activeUser?.emailVerified ||
+      hydratedUidRef.current !== activeUser.uid ||
+      isGuestRef.current
+    ) {
+      return;
+    }
+    const currentTabState = stateRef.current.callsTabState;
+    if (currentTabState.lastOpenedAt > 0 && prevCallsTabOpenedAtRef.current === 0) {
+      prevCallsTabOpenedAtRef.current = currentTabState.lastOpenedAt;
+    }
+    if (currentTabState.unseenCallIds.length > 0) {
+      setSessionNewCallIdsList((prev) =>
+        Array.from(new Set([...currentTabState.unseenCallIds, ...prev])).slice(0, 500),
+      );
+    }
+    const now = Date.now();
+    const nextTabState: CallsTabState = {
+      lastOpenedAt: now,
+      unseenCallIds: [],
+    };
+    stateRef.current = { ...stateRef.current, callsTabState: nextTabState };
+    setCallsTabState(nextTabState);
+  }, []);
+
+  useEffect(() => {
+    if (
+      authUser?.emailVerified &&
+      hydratedUid &&
+      hydratedUid === authUser.uid &&
+      !isGuest &&
+      !isLocked &&
+      callsTabActiveRef.current
+    ) {
+      markCallsTabOpened();
+    }
+  }, [authUser, hydratedUid, isGuest, isLocked, markCallsTabOpened]);
+
+  const markCallSeen = useCallback((callId: string) => {
+    setSessionNewCallIdsList((prev) => prev.filter((id) => id !== callId));
+    setCallsTabState((prev) => {
+      if (!prev.unseenCallIds.includes(callId)) return prev;
+      return {
+        ...prev,
+        unseenCallIds: prev.unseenCallIds.filter((id) => id !== callId),
+      };
+    });
+  }, []);
+
+  const clearSessionNewCalls = useCallback(() => {
+    callsTabActiveRef.current = false;
+    setSessionNewCallIdsList([]);
+  }, []);
+
   const authProvider = useMemo<AuthProviderType | null>(
     () => (authUser ? detectAuthProvider(authUser) : null),
     [authUser],
@@ -3933,10 +4633,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       checkEmailVerification,
       sendPasswordReset,
       signOutAccount,
+      deleteAllLocalData,
       syncNow,
       canSyncPhoneCalls,
       syncPhoneCalls,
       fetchRegisteredUsers,
+      fetchDailyActiveRecords,
       setAppPin,
       clearAppPin,
       unlockWithPin,
@@ -3944,8 +4646,27 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setPrivacyMode,
       togglePrivacyMode,
       availableTags,
+      customTags,
+      streaks,
+      effectiveStreaks,
+      badges,
+      pointsHistory,
+      score,
+      contactStatuses,
+      topContactStatuses,
+      contactMilestones,
+      pendingMilestoneCelebration,
+      markContactMilestoneCelebrated,
+      dismissAllPendingMilestones,
+      rebuildScore,
+      unseenNewCallIds: callsTabState.unseenCallIds,
+      sessionNewCallIds,
+      markCallsTabOpened,
+      markCallSeen,
+      clearSessionNewCalls,
       addCustomTag,
       importCalls,
+      importBackupPackage,
       loadSampleData,
       patchCall,
       removeCall,
@@ -4029,10 +4750,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       checkEmailVerification,
       sendPasswordReset,
       signOutAccount,
+      deleteAllLocalData,
       syncNow,
       canSyncPhoneCalls,
       syncPhoneCalls,
       fetchRegisteredUsers,
+      fetchDailyActiveRecords,
       setAppPin,
       clearAppPin,
       unlockWithPin,
@@ -4040,8 +4763,27 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setPrivacyMode,
       togglePrivacyMode,
       availableTags,
+      customTags,
+      streaks,
+      effectiveStreaks,
+      badges,
+      pointsHistory,
+      score,
+      contactStatuses,
+      topContactStatuses,
+      contactMilestones,
+      pendingMilestoneCelebration,
+      markContactMilestoneCelebrated,
+      dismissAllPendingMilestones,
+      rebuildScore,
+      callsTabState.unseenCallIds,
+      sessionNewCallIds,
+      markCallsTabOpened,
+      markCallSeen,
+      clearSessionNewCalls,
       addCustomTag,
       importCalls,
+      importBackupPackage,
       loadSampleData,
       patchCall,
       removeCall,

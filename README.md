@@ -1,101 +1,126 @@
 # Call Analyzer - ETH
 
-An Android-first (Capacitor) and web companion for analyzing call history, dual-SIM airtime usage, ETB spend, and contact follow-ups with built-in Ethiopian calendar support.
+An Android-first (Capacitor) and web companion for analyzing call history, dual-SIM airtime usage, ETB spend, contact milestones, and follow-ups with built-in Ethiopian calendar support.
+
+## Privacy-First Local Storage Architecture
+
+- **All call logs, contacts, scheduled callbacks, favorites, alerts, streaks, score, badges, and contact milestones stay strictly on your device** in per-user IndexedDB (`${uid}::*`).
+- **No call data, contact phone numbers, or contact names are ever sent to Firestore.**
+- Signing out and signing back in preserves your local IndexedDB data for your account while keeping data isolated between accounts.
+- You can erase all local data on a device anytime via **Settings → Backup → Delete all my data on this device**.
+- Cloud Firestore is used only for:
+  - `/users/{uid}` — private non-call account settings (theme, tariffs, SIM labels, calendar/reminder preferences, voice bundles)
+  - `/userRegistry/{uid}` — basic registered account summaries for admin total user counts
+  - `/dailyActive/{yyyy-MM-dd}_{uid}` — once-per-day active client ping (`uid`, `date` in East Africa Time, `openedAt`) readable only by verified admins
+  - `/admins/{uid}` — console-managed admin allowlist
 
 ## Features
 
-- **Automatic Android Call Sync & File Import**
-  - Reads Android call history via the native Capacitor `CallLog` bridge (or imports `.csv`, `.json`, and `.txt` records) grouped by day with search, direction filters (`Incoming`, `Outgoing`, `Missed`, `Unreturned`), SIM filters, tag filters, date range filtering, and sorting.
-  - Manage per-call notes, relationship tags, and scheduled follow-up reminders.
+- **Automatic Android Call Sync & Versioned Backups**
+  - Reads Android call history via the native Capacitor `CallLogSync` plugin (or imports `.csv`, `.json`, and `.txt` records with preview and duplicate-safe merging) grouped by day with search, direction filters, SIM filters, tag filters, and date range filtering.
+  - Export and import versioned JSON backups (`v3`) covering calls, contacts, scheduled calls, settings, streaks, score, badges, and contact milestones — importing the same backup twice creates zero duplicates.
 - **Dual-SIM Usage & Carrier Tools**
-  - Track call minutes, call counts, and estimated ETB spend across **SIM 1 (Ethio Telecom)** and **SIM 2 (Safaricom)** with per-second or per-minute billing presets and monthly budget tracking.
-  - Manage active voice minute bundles with expiry tracking and launch Ethiopian carrier USSD codes.
+  - Track call minutes, call counts, and estimated ETB spend across **SIM 1 (Ethio Telecom)** and **SIM 2 (Safaricom)** with per-second or per-minute billing presets, monthly budget tracking, voice minute bundles, and one-tap Ethiopian USSD codes.
+- **Streaks, Score, Badges & Shareable Milestone Cards**
+  - Track your general daily usage streak (East Africa Time), score, and unlockable badges alongside per-contact connection streaks (`3`, `7`, `14`, `30`, `60`, `100` days).
+  - Share milestone celebration cards as PNG images using the native Android share sheet (`@capacitor/share` + `@capacitor/filesystem`) or Web Share API — with phone numbers always omitted and contact names hidden by default unless opted in.
 - **Interactive Analytics & Exports**
-  - Explore call frequency, airtime spend trends, peak hours, top callers, and carrier/direction breakdowns with interactive tooltips.
-  - Export formatted **PDF**, **HTML**, **CSV**, and **JSON** statements.
-- **Saved Contacts Directory**
-  - Import contacts from `.vcf` / `.csv` files or the browser Contact Picker API.
-  - Filter by relationship tag, sort by `A–Z`, `Most Calls`, or `Recent`, and manage birthdays, custom events, notes, and per-contact call timelines.
+  - Explore call frequency, airtime spend trends, peak hours, top callers, and carrier/direction breakdowns, and export formatted **PDF**, **HTML**, **CSV**, and **JSON** statements.
 - **Ethiopian Calendar, Wishes & Follow-Up Alerts**
-  - Dual Ethiopian & Gregorian calendar views (powered by `kenat`) with optional Ge'ez numerals and Ethiopian holiday tracking.
-  - Quiet-contact reminders, unreturned missed call alerts, scheduled callback reminders, and quick wish message templates.
-- **Themes & Privacy**
-  - Follows your device/OS dark mode preference (`prefers-color-scheme`) with **System**, **Bright**, and **Dark Gray** theme options.
-  - Optional 4-digit screen lock PIN, privacy mode (number & note masking), and haptic feedback toggle.
+  - Dual Ethiopian & Gregorian calendar views (powered by `kenat`) with optional Ge'ez numerals, Ethiopian holidays, birthday/event alerts, quiet-contact reminders, and unreturned missed call reminders.
+- **Update Notices**
+  - Checks a fixed HTTPS `version.json` manifest on app start and once every 24 hours (failing silently offline), showing release notes and a manual browser download link when a newer APK is available (never downloading or installing automatically).
+- **Themes, PIN Lock & Privacy Mode**
+  - **System**, **Bright**, and **Dark Gray** themes, 4-digit screen lock PIN, and **Privacy Mode** masking phone numbers and private notes across all views.
 
 ## Tech Stack
 
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4
-- **Mobile Runtime:** Capacitor Android (`com.callanalyzer.eth`)
+- **Mobile Runtime:** Capacitor Android (`com.callanalyzer.eth`) with `CallLogSync`, `@capacitor/filesystem`, and `@capacitor/share`
 - **Charts & Animation:** Recharts, Motion (`motion/react`), Lucide Icons
 - **Calendar & Exports:** `kenat` (Ethiopian calendar), `jspdf` & `jspdf-autotable`
-- **Auth & Storage:** Firebase Authentication & Cloud Firestore (migrating local call/contact storage to IndexedDB)
+- **Auth & Storage:** Firebase Authentication, per-user IndexedDB (with `navigator.storage.persist()`), and minimal Cloud Firestore rules
 
 ## Getting Started
 
 ### Prerequisites
 
 - Node.js 20+
-- npm (or compatible package manager)
+- npm
 - Firebase project configured in `firebase-applet-config.json`
 
-### Installation
+### Installation & Development
 
 ```bash
 npm install
-```
-
-### Run Locally
-
-Starts the Vite development server on port `3000`:
-
-```bash
 npm run dev
 ```
 
-### Type Check, Rules Lint & Build
+### Verification & Build
 
 ```bash
-# Run TypeScript type checking
+# TypeScript check
 npm run lint
 
-# Lint Firestore security rules
+# Firestore security rules lint
 npm run lint:rules
 
-# Build production bundle
+# Production build
 npm run build
 
-# Preview production build
-npm run preview
+# Sync web build into Capacitor Android project
+npx cap sync android
 ```
 
-### Environment Variables
+### Hosting Update Manifest (`version.json`)
 
-See `.env.example` for optional environment variables (`APP_URL`). Do not commit real secrets or `.env` files.
+The app checks `UPDATE_VERSION_URL` (`https://youthful-limiter-kjk7s.web.app/version.json`, optionally overridden via `VITE_UPDATE_VERSION_URL`) against the installed `APP_VERSION_CODE` (`src/lib/appInfo.ts`, matching `android/app/build.gradle`). A template lives at `public/version.json`:
+
+```json
+{
+  "versionCode": 2,
+  "versionName": "2.6.0",
+  "apkUrl": "https://your-https-host/call-analyzer-eth-2.6.0.apk",
+  "notes": "Summary of changes in this release.",
+  "mandatory": false
+}
+```
+
+Set `"mandatory": true` only when an update must block dismissal until updated.
 
 ### Admin Setup (Firestore Console)
 
-Admin access is controlled through the Firestore `/admins/{uid}` collection and is never writable from client code:
+Admin access is controlled through `/admins/{uid}` and is never writable from client code:
 
-1. Open your project's Firestore database in the Firebase Console (`ai-studio-callanalyzereth-8a53901f-21ac-4a27-a39b-67c161032787`).
+1. Open your Firestore database (`ai-studio-callanalyzereth-8a53901f-21ac-4a27-a39b-67c161032787`) in the Firebase Console.
 2. Create a top-level collection named `admins` (if it does not exist yet).
-3. Add a document whose **Document ID** is the verified user's Firebase Authentication `uid` (for example, `{ "role": "admin" }`).
-4. Sign in with that verified account to unlock the **Admin** tab (`userRegistry` statistics only; customer call logs and contacts remain strictly private to each owner).
+3. Add a document whose **Document ID** is the verified admin user's Firebase Auth `uid` (e.g., `{ "role": "admin" }`).
+4. Sign in with that verified account to access the **Admin** tab (shows active clients for today, last 7 days, and last 30 days from `/dailyActive` plus total registered users from `/userRegistry`).
+
+### Android APK & Physical Phone Checklist
+
+The Capacitor Android project lives in `/android` with fixed application ID `com.callanalyzer.eth` and release signing docs in `android/SIGNING.md`.
+
+1. **Missed call reminders (app swiped away):** Confirm notifications fire after the configured 5/10 min delay, cancel when returned (`0911...` / `+251911...` / `251911...` / `07...`), dismiss after callback, and reschedule after device reboot.
+2. **Sign out & sign back in:** Confirm local calls, contacts, schedules, streaks, score, and badges remain intact on the device after signing out and signing back in.
+3. **Backup double-import:** Export a backup JSON and import the same file twice — confirm zero duplicate calls, contacts, schedules, points, or milestones.
+4. **Privacy Mode:** Toggle Privacy Mode on and verify phone numbers are masked across Calls, Analytics, Usage, Contacts, Calendar, Reminders, Contact Detail, and Share Cards.
+5. **Update notice:** Point `version.json` to a higher `versionCode` and verify the update dialog opens the APK link in the browser only when tapped, and blocks dismissal when `mandatory: true`.
+6. **Milestone card sharing:** Open a contact milestone card and share it via Android's native share sheet (WhatsApp / Telegram / Save image).
 
 ## Project Structure
 
 ```text
-├── index.html                 # HTML entry and pre-paint theme/font-scale script
-├── vite.config.ts             # Vite build configuration
-├── firestore.rules            # Firestore security rules
+├── android/                   # Capacitor Android native project & Kotlin CallLogSync plugin
+├── capacitor.config.ts        # Capacitor configuration (com.callanalyzer.eth)
+├── firestore.rules            # Firestore security rules (/users, /userRegistry, /dailyActive, /admins)
 ├── firebase-blueprint.json    # Firestore data schema blueprint
-├── eslint.config.js           # ESLint configuration for Firestore security rules
-├── public/                    # Static assets (logo)
+├── security_spec.md           # Security invariants & adversarial test scenarios
+├── public/                    # Static assets & version.json update manifest template
 └── src/
-    ├── App.tsx                # App shell, navigation, auth gate, and modals
-    ├── index.css              # Tailwind CSS v4 imports and theme CSS variables
-    ├── store/CallsContext.tsx # App state, Firebase sync, and theme state
-    ├── components/            # Feature tabs, charts, modals, and UI controls
-    ├── lib/                   # Ethiopian calendar, tariffs, import/export, haptics, Firebase
+    ├── App.tsx                # App shell, navigation, update check, auth gate, and modals
+    ├── store/CallsContext.tsx # Local IndexedDB state, Firebase Auth, /dailyActive & settings sync
+    ├── components/            # Feature tabs, charts, modals, milestone & update dialogs
+    ├── lib/                   # Ethiopian calendar, gamification, import/export, updateChecker, IndexedDB
     └── types/                 # TypeScript data models
 ```

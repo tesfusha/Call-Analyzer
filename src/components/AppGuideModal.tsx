@@ -33,11 +33,11 @@ const GUIDE_STEPS: GuideStep[] = [
     eyebrow: 'Step 1 of 4 · Auto-Synced Calls',
     title: 'Organize every call across both SIMs',
     description:
-      'Review incoming, outgoing, and unreturned missed calls in one clean timeline with Ethiopian & Gregorian dates, ETB call cost, and automatic phone sync.',
+      'Review incoming, outgoing, and unreturned missed calls in one clean timeline with Ethiopian & Gregorian dates, ETB call cost, and automatic Android call-log sync.',
     highlights: [
       'Instant search by name, number, tag, or note',
       'One-tap callback reminders & VIP priority contacts',
-      'CSV / JSON call import and sample preview mode',
+      'CSV / JSON / TXT import with preview & deduplication',
     ],
     icon: Phone,
   },

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Call Analyzer - ETH</title>
+    <meta name="description" content="Minimalist call-log companion with call history, analytics, dual-SIM usage breakdown, quiet-contact reminders, and CSV/JSON import/export." />
+    <meta property="og:title" content="Call Analyzer - ETH" />
+    <meta property="og:description" content="Minimalist call-log companion with call history, analytics, dual-SIM usage breakdown, quiet-contact reminders, and CSV/JSON import/export." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (function () {
+        try {
+          var pref = JSON.parse(localStorage.getItem('callanalyzer.theme.v3') || 'null');
+          var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+          var systemDark = Boolean(mql && mql.matches);
+          var hasManualOverride = pref === 'light' || pref === 'dark' || pref === 'dark-gray';
+          var isDark = hasManualOverride ? (pref === 'dark' || pref === 'dark-gray') : systemDark;
+          var root = document.documentElement;
+          root.classList.toggle('dark', isDark);
+          root.classList.toggle('dark-gray', isDark);
+          root.style.colorScheme = isDark ? 'dark' : 'light';
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          if (hasManualOverride) {
+            var activeColor = isDark ? '#111214' : '#FFFFFF';
+            for (var i = 0; i < metas.length; i++) {
+              metas[i].setAttribute('content', activeColor);
+            }
+          }
+          var fontScale = JSON.parse(localStorage.getItem('callanalyzer.fontSize.v1') || '"default"');
+          if (fontScale === 'large') {
+            root.dataset.fontScale = 'large';
+            root.style.fontSize = '17.5px';
+          } else if (fontScale === 'xlarge') {
+            root.dataset.fontScale = 'xlarge';
+            root.style.fontSize = '19px';
+          } else {
+            root.dataset.fontScale = 'default';
+            root.style.fontSize = '16px';
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-CzdZSycw.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-D0JSO2Z9.css">
+  </head>
+  <body class="bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white antialiased">
+    <div id="root"></div>
+  </body>
+</html>
+

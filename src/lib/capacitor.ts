@@ -30,12 +30,71 @@ type NativeAppPlugin = {
 
 export type NativeCallLogEntry = {
   id?: string | number;
+  rawId?: number;
   number?: string;
+  normalizedNumber?: string;
   name?: string | null;
   direction?: string;
   sim?: string | null;
   timestamp?: number;
   duration?: number;
+};
+
+export type NativeCallLogSyncPermissionStatus = {
+  callLog: 'granted' | 'denied' | 'prompt';
+  phoneState: 'granted' | 'denied' | 'prompt';
+  notifications: 'granted' | 'denied' | 'prompt';
+  exactAlarm: 'granted' | 'denied';
+  batteryOptimizationIgnored: boolean;
+  allCoreGranted: boolean;
+};
+
+export type NativeDeviceBrandInfo = {
+  manufacturer: string;
+  brand: string;
+  model: string;
+  oemFamily: string;
+  isAggressiveOem: boolean;
+  batteryOptimizationIgnored: boolean;
+};
+
+type NativeCallLogSyncPlugin = {
+  getPermissionStatus?: () => Promise<Partial<NativeCallLogSyncPermissionStatus>>;
+  requestPermissions?: () => Promise<Partial<NativeCallLogSyncPermissionStatus>>;
+  openExactAlarmSettings?: () => Promise<{ opened?: boolean }>;
+  openBatteryOptimizationSettings?: () => Promise<{ opened?: boolean }>;
+  openAutostartSettings?: () => Promise<{ opened?: boolean }>;
+  getDeviceBrandInfo?: () => Promise<Partial<NativeDeviceBrandInfo>>;
+  syncCallLog?: (opts?: {
+    sinceId?: number;
+    beforeId?: number;
+    limit?: number;
+    fullResync?: boolean;
+  }) => Promise<{
+    calls?: NativeCallLogEntry[];
+    returnedCallIds?: string[];
+    lastWebSyncedId?: number;
+    maxCallId?: number;
+    minCallId?: number;
+    hasMore?: boolean;
+  }>;
+  acknowledgeSyncedCalls?: (opts: { maxCallId?: number; reset?: boolean }) => Promise<{
+    lastWebSyncedId?: number;
+  }>;
+  updateMissedCallSettings?: (opts: {
+    enabled: boolean;
+    delayMinutes: 5 | 10;
+    quietHoursEnabled: boolean;
+    quietStartHour: number;
+    quietEndHour: number;
+  }) => Promise<{ saved?: boolean }>;
+  markMissedCallReturned?: (opts: { number: string }) => Promise<{ marked?: boolean }>;
+  startListening?: () => Promise<void>;
+  stopListening?: () => Promise<void>;
+  addListener?: (
+    eventName: 'callLogChanged',
+    listener: () => void,
+  ) => Promise<CapacitorPluginHandle> | CapacitorPluginHandle;
 };
 
 type NativeCallLogPlugin = {
@@ -128,6 +187,7 @@ type CapacitorGlobal = {
     SystemBars?: NativeSystemBarsPlugin;
     StatusBar?: NativeStatusBarPlugin;
     App?: NativeAppPlugin;
+    CallLogSync?: NativeCallLogSyncPlugin;
     CallLog?: NativeCallLogPlugin;
     AppNotifications?: NativeAppNotificationsPlugin;
     FileExport?: NativeFileExportPlugin;
@@ -248,10 +308,19 @@ export async function syncNativeStatusBar(isDark: boolean, backgroundColor: stri
   }
 }
 
+export function hasNativeCallLogSyncPlugin(): boolean {
+  const cap = getCapacitor();
+  if (!cap) return false;
+  return typeof cap.Plugins?.CallLogSync?.syncCallLog === 'function';
+}
+
 export function hasNativeCallLogPlugin(): boolean {
   const cap = getCapacitor();
   if (!cap) return false;
-  return typeof cap.Plugins?.CallLog?.getRecentCalls === 'function';
+  return (
+    typeof cap.Plugins?.CallLogSync?.syncCallLog === 'function' ||
+    typeof cap.Plugins?.CallLog?.getRecentCalls === 'function'
+  );
 }
 
 function normaliseNativeDirection(raw?: string): CallDirection {
@@ -266,40 +335,252 @@ function normaliseNativeSim(raw?: string | null): SimSlot {
   return null;
 }
 
+function mapNativeCallEntries(rawList: NativeCallLogEntry[]): CallRecord[] {
+  return rawList
+    .filter((item) => item && typeof item.number === 'string' && item.number.trim().length > 0)
+    .map((item) => {
+      const rawDir = (item.direction || '').toLowerCase();
+      return {
+        id: item.id ? String(item.id) : `android_${item.timestamp ?? Date.now()}_${item.number}`,
+        number: String(item.number).trim(),
+        name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : null,
+        direction: normaliseNativeDirection(rawDir),
+        sim: normaliseNativeSim(item.sim),
+        timestamp: Number(item.timestamp) || Date.now(),
+        duration: Math.max(0, Math.round(Number(item.duration) || 0)),
+        note: rawDir === 'rejected' ? 'Rejected call' : null,
+        tag: null,
+      };
+    });
+}
+
+export async function syncNativeCallLogIncremental(opts?: {
+  sinceId?: number;
+  fullResync?: boolean;
+  pageSize?: number;
+}): Promise<{
+  calls: CallRecord[];
+  returnedCallIds: string[];
+  lastWebSyncedId: number;
+  maxCallId: number;
+}> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.syncCallLog !== 'function') {
+    return { calls: [], returnedCallIds: [], lastWebSyncedId: 0, maxCallId: 0 };
+  }
+
+  const pageSize = Math.max(200, Math.min(5000, Math.round(opts?.pageSize ?? 2000)));
+  const maxPages = 250; // Up to 500,000 call logs without hitting WebView IPC limits
+  const allRawEntries: NativeCallLogEntry[] = [];
+  const returnedIdSet = new Set<string>();
+  let firstLastWebSyncedId = 0;
+  let highestCallId = 0;
+  let cursorBeforeId: number | undefined;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const res = await plugin.syncCallLog({
+      ...(typeof opts?.sinceId === 'number' ? { sinceId: opts.sinceId } : {}),
+      ...(typeof opts?.fullResync === 'boolean' ? { fullResync: opts.fullResync } : {}),
+      ...(typeof cursorBeforeId === 'number' ? { beforeId: cursorBeforeId } : {}),
+      limit: pageSize,
+    });
+
+    const rawList = Array.isArray(res?.calls) ? res.calls : [];
+    if (page === 0) {
+      firstLastWebSyncedId = Number(res?.lastWebSyncedId) || 0;
+      highestCallId = Number(res?.maxCallId) || 0;
+    } else {
+      highestCallId = Math.max(highestCallId, Number(res?.maxCallId) || 0);
+    }
+
+    if (Array.isArray(res?.returnedCallIds)) {
+      res.returnedCallIds.forEach((id) => {
+        const clean = String(id).trim();
+        if (clean) returnedIdSet.add(clean);
+      });
+    }
+
+    if (rawList.length > 0) {
+      allRawEntries.push(...rawList);
+    }
+
+    const hasMore = Boolean(res?.hasMore);
+    const minCallId = Number(res?.minCallId) || 0;
+    if (!hasMore || rawList.length === 0 || minCallId <= 0) {
+      break;
+    }
+    if (typeof cursorBeforeId === 'number' && minCallId >= cursorBeforeId) {
+      break;
+    }
+    cursorBeforeId = minCallId;
+  }
+
+  return {
+    calls: mapNativeCallEntries(allRawEntries),
+    returnedCallIds: Array.from(returnedIdSet),
+    lastWebSyncedId: firstLastWebSyncedId,
+    maxCallId: highestCallId,
+  };
+}
+
+export async function acknowledgeNativeSyncedCalls(
+  maxCallId: number,
+  reset = false,
+): Promise<void> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.acknowledgeSyncedCalls !== 'function') return;
+  try {
+    await plugin.acknowledgeSyncedCalls({ maxCallId, reset });
+  } catch {
+    // ignore native ack error
+  }
+}
+
+export async function getCallLogSyncPermissionStatus(): Promise<NativeCallLogSyncPermissionStatus | null> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.getPermissionStatus !== 'function') return null;
+  try {
+    const res = await plugin.getPermissionStatus();
+    const toState = (v?: string): 'granted' | 'denied' | 'prompt' =>
+      v === 'granted' ? 'granted' : v === 'denied' ? 'denied' : 'prompt';
+    return {
+      callLog: toState(res?.callLog),
+      phoneState: toState(res?.phoneState),
+      notifications: toState(res?.notifications),
+      exactAlarm: res?.exactAlarm === 'granted' ? 'granted' : 'denied',
+      batteryOptimizationIgnored: Boolean(res?.batteryOptimizationIgnored),
+      allCoreGranted: Boolean(res?.allCoreGranted),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function requestCallLogSyncPermissions(): Promise<NativeCallLogSyncPermissionStatus | null> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.requestPermissions !== 'function') return null;
+  try {
+    const res = await plugin.requestPermissions();
+    const toState = (v?: string): 'granted' | 'denied' | 'prompt' =>
+      v === 'granted' ? 'granted' : v === 'denied' ? 'denied' : 'prompt';
+    return {
+      callLog: toState(res?.callLog),
+      phoneState: toState(res?.phoneState),
+      notifications: toState(res?.notifications),
+      exactAlarm: res?.exactAlarm === 'granted' ? 'granted' : 'denied',
+      batteryOptimizationIgnored: Boolean(res?.batteryOptimizationIgnored),
+      allCoreGranted: Boolean(res?.allCoreGranted),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function openExactAlarmSettings(): Promise<boolean> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.openExactAlarmSettings !== 'function') return false;
+  try {
+    const res = await plugin.openExactAlarmSettings();
+    return Boolean(res?.opened);
+  } catch {
+    return false;
+  }
+}
+
+export async function openBatteryOptimizationSettings(): Promise<boolean> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.openBatteryOptimizationSettings !== 'function') return false;
+  try {
+    const res = await plugin.openBatteryOptimizationSettings();
+    return Boolean(res?.opened);
+  } catch {
+    return false;
+  }
+}
+
+export async function openAutostartSettings(): Promise<boolean> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.openAutostartSettings !== 'function') return false;
+  try {
+    const res = await plugin.openAutostartSettings();
+    return Boolean(res?.opened);
+  } catch {
+    return false;
+  }
+}
+
+export async function getNativeDeviceBrandInfo(): Promise<NativeDeviceBrandInfo | null> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.getDeviceBrandInfo !== 'function') return null;
+  try {
+    const res = await plugin.getDeviceBrandInfo();
+    return {
+      manufacturer: String(res?.manufacturer || ''),
+      brand: String(res?.brand || ''),
+      model: String(res?.model || ''),
+      oemFamily: String(res?.oemFamily || 'Android'),
+      isAggressiveOem: Boolean(res?.isAggressiveOem),
+      batteryOptimizationIgnored: Boolean(res?.batteryOptimizationIgnored),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function updateNativeMissedCallSettings(opts: {
+  enabled: boolean;
+  delayMinutes: 5 | 10;
+  quietHoursEnabled: boolean;
+  quietStartHour: number;
+  quietEndHour: number;
+}): Promise<void> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.updateMissedCallSettings !== 'function') return;
+  try {
+    await plugin.updateMissedCallSettings(opts);
+  } catch {
+    // ignore native settings sync error
+  }
+}
+
+export async function markNativeMissedCallReturned(number: string): Promise<void> {
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.markMissedCallReturned !== 'function') return;
+  try {
+    await plugin.markMissedCallReturned({ number });
+  } catch {
+    // ignore
+  }
+}
+
 export async function fetchNativeRecentCalls(sinceMs = 0): Promise<CallRecord[]> {
+  if (hasNativeCallLogSyncPlugin()) {
+    const res = await syncNativeCallLogIncremental({ fullResync: sinceMs <= 0 });
+    return res.calls;
+  }
   const plugin = getCapacitor()?.Plugins?.CallLog;
   if (!plugin || typeof plugin.getRecentCalls !== 'function') return [];
   const res = await plugin.getRecentCalls({ since: sinceMs });
   const rawList = Array.isArray(res?.calls) ? res.calls : [];
-  return rawList
-    .filter((item) => item && typeof item.number === 'string' && item.number.trim().length > 0)
-    .map((item) => ({
-      id: item.id ? String(item.id) : `android_${item.timestamp ?? Date.now()}_${item.number}`,
-      number: String(item.number).trim(),
-      name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : null,
-      direction: normaliseNativeDirection(item.direction),
-      sim: normaliseNativeSim(item.sim),
-      timestamp: Number(item.timestamp) || Date.now(),
-      duration: Math.max(0, Math.round(Number(item.duration) || 0)),
-      note: null,
-      tag: null,
-    }));
+  return mapNativeCallEntries(rawList);
 }
 
 export async function subscribeNativeCallLog(
   onChanged: () => void,
 ): Promise<() => void> {
   const cap = getCapacitor();
+  const callLogSync = cap?.Plugins?.CallLogSync;
   const callLog = cap?.Plugins?.CallLog;
-  if (!callLog) return () => {};
+  const activePlugin = callLogSync || callLog;
+  if (!activePlugin) return () => {};
 
   const handles: CapacitorPluginHandle[] = [];
   try {
-    if (typeof callLog.startListening === 'function') {
-      await callLog.startListening().catch(() => {});
+    if (typeof activePlugin.startListening === 'function') {
+      await activePlugin.startListening().catch(() => {});
     }
-    if (typeof callLog.addListener === 'function') {
-      const h = await callLog.addListener('callLogChanged', onChanged);
+    if (typeof activePlugin.addListener === 'function') {
+      const h = await activePlugin.addListener('callLogChanged', onChanged);
       if (h) handles.push(h);
     }
     const appPlugin = cap?.Plugins?.App;
@@ -322,7 +603,7 @@ export async function subscribeNativeCallLog(
       }
     });
     try {
-      void callLog.stopListening?.();
+      void activePlugin.stopListening?.();
     } catch {
       // ignore
     }

@@ -2,7 +2,7 @@
   "entities": {
     "UserWorkspace": {
       "title": "UserWorkspace",
-      "description": "Private user workspace storing preferences, tariffs, SIM labels, calendar defaults, and reminder settings.",
+      "description": "Private user account preferences (theme, tariffs, SIM labels, calendar defaults, reminder settings, voice bundles). Contains NO call logs, contact phone numbers, or scheduled calls.",
       "type": "object",
       "properties": {
         "uid": {
@@ -54,15 +54,6 @@
         "reminderPrefs": {
           "type": "object"
         },
-        "favorites": {
-          "type": "array"
-        },
-        "dismissedMissedIds": {
-          "type": "array"
-        },
-        "mutedAlertKeys": {
-          "type": "array"
-        },
         "voiceBundles": {
           "type": "object"
         },
@@ -82,190 +73,12 @@
         "simLabels",
         "calendarPrefs",
         "reminderPrefs",
-        "favorites",
-        "dismissedMissedIds",
-        "syncedAt"
-      ]
-    },
-    "CallRecord": {
-      "title": "CallRecord",
-      "description": "A single call log entry owned by an authenticated user.",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "ownerUid": {
-          "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "number": {
-          "type": "string",
-          "maxLength": 40
-        },
-        "name": {
-          "type": "string",
-          "maxLength": 120
-        },
-        "direction": {
-          "type": "string",
-          "enum": ["incoming", "outgoing", "missed"]
-        },
-        "sim": {
-          "type": "string",
-          "maxLength": 24
-        },
-        "timestamp": {
-          "type": "integer"
-        },
-        "duration": {
-          "type": "integer"
-        },
-        "note": {
-          "type": "string",
-          "maxLength": 500
-        },
-        "tag": {
-          "type": "string",
-          "maxLength": 48
-        },
-        "syncedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "ownerUid",
-        "number",
-        "direction",
-        "timestamp",
-        "duration",
-        "syncedAt"
-      ]
-    },
-    "ContactProfile": {
-      "title": "ContactProfile",
-      "description": "Contact details, relationship tag, birthday, events, and notes owned by an authenticated user.",
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "ownerUid": {
-          "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "number": {
-          "type": "string",
-          "maxLength": 40
-        },
-        "name": {
-          "type": "string",
-          "maxLength": 120
-        },
-        "tag": {
-          "type": "string",
-          "maxLength": 48
-        },
-        "birthday": {
-          "type": "object"
-        },
-        "events": {
-          "type": "array"
-        },
-        "notes": {
-          "type": "string",
-          "maxLength": 1000
-        },
-        "updatedAt": {
-          "type": "integer"
-        },
-        "syncedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "key",
-        "ownerUid",
-        "number",
-        "name",
-        "tag",
-        "events",
-        "notes",
-        "updatedAt",
-        "syncedAt"
-      ]
-    },
-    "ScheduledCall": {
-      "title": "ScheduledCall",
-      "description": "Scheduled callback or planned call reminder owned by an authenticated user.",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "ownerUid": {
-          "type": "string",
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "number": {
-          "type": "string",
-          "maxLength": 40
-        },
-        "name": {
-          "type": "string",
-          "maxLength": 120
-        },
-        "scheduledFor": {
-          "type": "integer"
-        },
-        "note": {
-          "type": "string",
-          "maxLength": 500
-        },
-        "sourceCallId": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "status": {
-          "type": "string",
-          "enum": ["pending", "completed", "dismissed"]
-        },
-        "notifiedAt": {
-          "type": "integer"
-        },
-        "createdAt": {
-          "type": "integer"
-        },
-        "syncedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "ownerUid",
-        "number",
-        "scheduledFor",
-        "status",
-        "createdAt",
         "syncedAt"
       ]
     },
     "RegisteredUser": {
       "title": "RegisteredUser",
-      "description": "Basic registered user account summary (name, email, avatar, registration & activity timestamps) for admin analytics without customer or call-log PII.",
+      "description": "Basic registered user account summary (name, email, avatar, registration & activity timestamps) for admin totals without customer or call-log PII.",
       "type": "object",
       "properties": {
         "uid": {
@@ -311,6 +124,33 @@
         "lastActiveAt"
       ]
     },
+    "DailyActive": {
+      "title": "DailyActive",
+      "description": "Once-per-day active client ping written on app open by a verified signed-in user at /dailyActive/{yyyy-MM-dd}_{uid}. Readable only by admins; immutable after creation.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "openedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "date",
+        "openedAt"
+      ]
+    },
     "AdminRole": {
       "title": "AdminRole",
       "description": "Console-managed admin allowlist document keyed by verified user UID.",
@@ -332,31 +172,19 @@
       "schema": {
         "$ref": "#/entities/UserWorkspace"
       },
-      "description": "User workspace preferences, tariffs, SIM labels, calendar defaults, and reminder controls."
-    },
-    "/users/{userId}/calls/{callId}": {
-      "schema": {
-        "$ref": "#/entities/CallRecord"
-      },
-      "description": "User's synced call log records."
-    },
-    "/users/{userId}/contacts/{contactId}": {
-      "schema": {
-        "$ref": "#/entities/ContactProfile"
-      },
-      "description": "User's synced contact profiles, birthdays, events, and tags."
-    },
-    "/users/{userId}/scheduledCalls/{scheduleId}": {
-      "schema": {
-        "$ref": "#/entities/ScheduledCall"
-      },
-      "description": "User's synced callback reminders and scheduled calls."
+      "description": "User workspace preferences (tariffs, SIM labels, calendar defaults, reminder controls, theme). Call logs, contacts, and scheduled calls are never stored in Firestore."
     },
     "/userRegistry/{userId}": {
       "schema": {
         "$ref": "#/entities/RegisteredUser"
       },
-      "description": "Basic registered user account summaries for admin daily/weekly/monthly stats; excludes all customer contacts and call data."
+      "description": "Basic registered user account summaries for admin total user counts; excludes all customer contacts and call data."
+    },
+    "/dailyActive/{activityId}": {
+      "schema": {
+        "$ref": "#/entities/DailyActive"
+      },
+      "description": "Minimal daily active client pings keyed by {yyyy-MM-dd}_{uid}. Owner create-only; nobody can update or delete; admin read-only."
     },
     "/admins/{adminUid}": {
       "schema": {
