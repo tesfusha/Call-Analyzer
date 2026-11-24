@@ -4,7 +4,9 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Award,
   Cake,
+  CalendarHeart,
   Check,
+  ChevronDown,
   Clock,
   Copy,
   Download,
@@ -225,6 +227,24 @@ export function ContactDetailModal({
   );
   const [scheduleNote, setScheduleNote] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [statusCardOpen, setStatusCardOpen] = useState(false);
+  const [profileSectionsOpen, setProfileSectionsOpen] = useState({
+    profile: true,
+    birthday: false,
+    events: false,
+    social: false,
+  });
+
+  useEffect(() => {
+    if (!contactNumber) return;
+    setStatusCardOpen(false);
+    setProfileSectionsOpen({
+      profile: true,
+      birthday: false,
+      events: false,
+      social: false,
+    });
+  }, [contactNumber]);
 
   useEffect(() => {
     if (!contactNumber) return;
@@ -815,10 +835,15 @@ export function ContactDetailModal({
           </div>
         </div>
 
-        {/* Status with Contact: Streak, Score & Badges */}
-        <div className="rounded-2xl bg-[#EEF2F6]/80 dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
-          <div className="flex flex-wrap items-start justify-between gap-2.5">
-            <div className="flex items-center gap-2.5 min-w-0">
+        {/* Status with Contact: Streak, Score & Badges (Collapsible) */}
+        <div className="rounded-2xl bg-[#EEF2F6]/80 dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+          <button
+            type="button"
+            aria-expanded={statusCardOpen}
+            onClick={() => setStatusCardOpen((prev) => !prev)}
+            className="w-full p-4 flex items-center justify-between gap-2.5 text-left hover:bg-[#DDE4EA]/40 dark:hover:bg-[var(--dark-elevated)]/40 transition-colors"
+          >
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div
                 className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                   contactStatus.currentStreak >= 3
@@ -832,419 +857,646 @@ export function ContactDetailModal({
                 <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
                   Status with {displayName}: {contactStatus.statusHeadline}
                 </p>
-                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  {contactStatus.statusSubtext}
+                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                  {statusCardOpen
+                    ? contactStatus.statusSubtext
+                    : `${contactStatus.currentStreak}d streak · Best ${contactStatus.longestStreak}d · ${contactStatus.totalConnectedDays}d connected`}
                 </p>
               </div>
             </div>
 
-            <div className="text-right shrink-0">
-              <p className="text-sm font-mono font-bold tabular-nums text-[#FF6A00] flex items-center justify-end gap-1">
-                <Trophy size={13} />
-                <span>{contactStatus.contactScore} pts</span>
-              </p>
-              <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                {contactStatus.earnedBadgesCount}/{contactStatus.badges.length} badges
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[#DDE4EA]/80 dark:border-[var(--dark-border)] text-center">
-            <div className="py-1.5">
-              <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                {contactStatus.currentStreak}d
-              </p>
-              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Current Streak
-              </p>
-            </div>
-            <div className="py-1.5 border-x border-[#DDE4EA]/80 dark:border-[var(--dark-border)]">
-              <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                {contactStatus.longestStreak}d
-              </p>
-              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Best Streak
-              </p>
-            </div>
-            <div className="py-1.5">
-              <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                {contactStatus.totalConnectedDays}d
-              </p>
-              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Connected Days
-              </p>
-            </div>
-          </div>
-
-          {contactStatus.nextMilestoneDays !== null && (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
-                <span>
-                  Next goal: {contactStatus.nextMilestoneDays}-Day Badge
-                </span>
-                <span className="font-mono font-semibold text-[#08246B] dark:text-white">
-                  {Math.min(contactStatus.currentStreak, contactStatus.nextMilestoneDays)}/{contactStatus.nextMilestoneDays}d
-                </span>
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div className="text-right">
+                <p className="text-sm font-mono font-bold tabular-nums text-[#FF6A00] flex items-center justify-end gap-1">
+                  <Trophy size={13} />
+                  <span>{contactStatus.contactScore} pts</span>
+                </p>
+                <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  {contactStatus.earnedBadgesCount}/{contactStatus.badges.length} badges
+                </p>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-white dark:bg-[var(--dark-surface)] overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      Math.round(
-                        (contactStatus.currentStreak / contactStatus.nextMilestoneDays) * 100,
-                      ),
-                    )}%`,
-                  }}
-                />
-              </div>
+              <ChevronDown
+                size={16}
+                className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                  statusCardOpen ? 'rotate-180' : ''
+                }`}
+              />
             </div>
-          )}
+          </button>
 
-          <div className="space-y-2 pt-1">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
-                <Award size={13} className="text-[#FF6A00]" />
-                Contact Badges ({contactStatus.earnedBadgesCount}/{contactStatus.badges.length})
-              </p>
-              {onShareMilestone && contactStatus.earnedBadgesCount > 0 && (() => {
-                const highestBadge = [...contactStatus.badges].reverse().find((b) => b.earned);
-                if (!highestBadge) return null;
-                const openBadgeShare = (badge: ContactBadgeItem) => {
-                  const existing = contactMilestones.find(
-                    (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
-                  );
-                  const reachedDate =
-                    existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
-                  onShareMilestone(
-                    existing ?? {
-                      id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
-                      contactKey: contactStatus.contactKey,
-                      days: badge.days,
-                      streakStartDate: reachedDate,
-                      reachedDate,
-                      badgeId: badge.id,
-                      badgeTitle: badge.title,
-                      points: badge.points,
-                      awardedAt: Date.now(),
-                      celebratedAt: Date.now(),
-                    },
-                  );
-                };
-                return (
-                  <button
-                    type="button"
-                    onClick={() => openBadgeShare(highestBadge)}
-                    className="min-h-[30px] px-2.5 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-[11px] font-semibold text-white flex items-center gap-1 whitespace-nowrap transition-colors"
-                  >
-                    <Share2 size={11} />
-                    <span>Share Milestone</span>
-                  </button>
-                );
-              })()}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {contactStatus.badges.map((badge) => {
-                const handleBadgeClick = () => {
-                  if (!badge.earned || !onShareMilestone) return;
-                  const existing = contactMilestones.find(
-                    (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
-                  );
-                  const reachedDate =
-                    existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
-                  onShareMilestone(
-                    existing ?? {
-                      id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
-                      contactKey: contactStatus.contactKey,
-                      days: badge.days,
-                      streakStartDate: reachedDate,
-                      reachedDate,
-                      badgeId: badge.id,
-                      badgeTitle: badge.title,
-                      points: badge.points,
-                      awardedAt: Date.now(),
-                      celebratedAt: Date.now(),
-                    },
-                  );
-                };
-                const isInteractive = badge.earned && Boolean(onShareMilestone);
-                return (
-                  <button
-                    key={badge.id}
-                    type="button"
-                    disabled={!isInteractive}
-                    onClick={handleBadgeClick}
-                    className={`text-left rounded-xl border px-2.5 py-2 space-y-0.5 transition-colors ${
-                      badge.earned
-                        ? 'bg-white dark:bg-[var(--dark-surface)] border-[#FF6A00]/45 hover:border-[#FF6A00]'
-                        : 'bg-white/50 dark:bg-[var(--dark-surface)]/50 border-[#DDE4EA] dark:border-[var(--dark-border)] opacity-70 cursor-default'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                        {badge.days}d
-                      </span>
-                      {badge.earned ? (
-                        <Check size={12} className="text-[#10B981] shrink-0" />
-                      ) : (
-                        <Lock size={11} className="text-[#8A93A0] shrink-0" />
-                      )}
+          <AnimatePresence initial={false}>
+            {statusCardOpen && (
+              <motion.div
+                initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                transition={{ duration: prefersReducedMotion ? 0.1 : 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="px-4 pb-4 pt-3 border-t border-[#DDE4EA]/80 dark:border-[var(--dark-border)] space-y-3.5">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="py-1.5">
+                      <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                        {contactStatus.currentStreak}d
+                      </p>
+                      <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Current Streak
+                      </p>
                     </div>
-                    <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
-                      {badge.title}
-                    </p>
-                    <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                      {badge.earned
-                        ? `+${badge.points} pts${badge.unlockedEatDate ? ` · ${badge.unlockedEatDate}` : ''}`
-                        : `+${badge.points} pts goal`}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                    <div className="py-1.5 border-x border-[#DDE4EA]/80 dark:border-[var(--dark-border)]">
+                      <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                        {contactStatus.longestStreak}d
+                      </p>
+                      <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Best Streak
+                      </p>
+                    </div>
+                    <div className="py-1.5">
+                      <p className="text-sm font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                        {contactStatus.totalConnectedDays}d
+                      </p>
+                      <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Connected Days
+                      </p>
+                    </div>
+                  </div>
 
-          <p className="text-[10px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
-            Score breakdown: {contactStatus.totalConnectedDays} connected day{contactStatus.totalConnectedDays === 1 ? '' : 's'} · {contactStatus.quickCallbacksCount} quick callback{contactStatus.quickCallbacksCount === 1 ? '' : 's'} · {contactStatus.taggedOrNotedCallsCount} tagged/noted call{contactStatus.taggedOrNotedCallsCount === 1 ? '' : 's'} · EAT (UTC+3)
-          </p>
+                  {contactStatus.nextMilestoneDays !== null && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+                        <span>
+                          Next goal: {contactStatus.nextMilestoneDays}-Day Badge
+                        </span>
+                        <span className="font-mono font-semibold text-[#08246B] dark:text-white">
+                          {Math.min(contactStatus.currentStreak, contactStatus.nextMilestoneDays)}/{contactStatus.nextMilestoneDays}d
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-white dark:bg-[var(--dark-surface)] overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              Math.round(
+                                (contactStatus.currentStreak / contactStatus.nextMilestoneDays) * 100,
+                              ),
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
+                        <Award size={13} className="text-[#FF6A00]" />
+                        Contact Badges ({contactStatus.earnedBadgesCount}/{contactStatus.badges.length})
+                      </p>
+                      {onShareMilestone && contactStatus.earnedBadgesCount > 0 && (() => {
+                        const highestBadge = [...contactStatus.badges].reverse().find((b) => b.earned);
+                        if (!highestBadge) return null;
+                        const openBadgeShare = (badge: ContactBadgeItem) => {
+                          const existing = contactMilestones.find(
+                            (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
+                          );
+                          const reachedDate =
+                            existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
+                          onShareMilestone(
+                            existing ?? {
+                              id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
+                              contactKey: contactStatus.contactKey,
+                              days: badge.days,
+                              streakStartDate: reachedDate,
+                              reachedDate,
+                              badgeId: badge.id,
+                              badgeTitle: badge.title,
+                              points: badge.points,
+                              awardedAt: Date.now(),
+                              celebratedAt: Date.now(),
+                            },
+                          );
+                        };
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => openBadgeShare(highestBadge)}
+                            className="min-h-[30px] px-2.5 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-[11px] font-semibold text-white flex items-center gap-1 whitespace-nowrap transition-colors"
+                          >
+                            <Share2 size={11} />
+                            <span>Share Milestone</span>
+                          </button>
+                        );
+                      })()}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {contactStatus.badges.map((badge) => {
+                        const handleBadgeClick = () => {
+                          if (!badge.earned || !onShareMilestone) return;
+                          const existing = contactMilestones.find(
+                            (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
+                          );
+                          const reachedDate =
+                            existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
+                          onShareMilestone(
+                            existing ?? {
+                              id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
+                              contactKey: contactStatus.contactKey,
+                              days: badge.days,
+                              streakStartDate: reachedDate,
+                              reachedDate,
+                              badgeId: badge.id,
+                              badgeTitle: badge.title,
+                              points: badge.points,
+                              awardedAt: Date.now(),
+                              celebratedAt: Date.now(),
+                            },
+                          );
+                        };
+                        const isInteractive = badge.earned && Boolean(onShareMilestone);
+                        return (
+                          <button
+                            key={badge.id}
+                            type="button"
+                            disabled={!isInteractive}
+                            onClick={handleBadgeClick}
+                            className={`text-left rounded-xl border px-2.5 py-2 space-y-0.5 transition-colors ${
+                              badge.earned
+                                ? 'bg-white dark:bg-[var(--dark-surface)] border-[#FF6A00]/45 hover:border-[#FF6A00]'
+                                : 'bg-white/50 dark:bg-[var(--dark-surface)]/50 border-[#DDE4EA] dark:border-[var(--dark-border)] opacity-70 cursor-default'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                                {badge.days}d
+                              </span>
+                              {badge.earned ? (
+                                <Check size={12} className="text-[#10B981] shrink-0" />
+                              ) : (
+                                <Lock size={11} className="text-[#8A93A0] shrink-0" />
+                              )}
+                            </div>
+                            <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
+                              {badge.title}
+                            </p>
+                            <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                              {badge.earned
+                                ? `+${badge.points} pts${badge.unlockedEatDate ? ` · ${badge.unlockedEatDate}` : ''}`
+                                : `+${badge.points} pts goal`}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] tabular-nums">
+                    Score breakdown: {contactStatus.totalConnectedDays} connected day{contactStatus.totalConnectedDays === 1 ? '' : 's'} · {contactStatus.quickCallbacksCount} quick callback{contactStatus.quickCallbacksCount === 1 ? '' : 's'} · {contactStatus.taggedOrNotedCallsCount} tagged/noted call{contactStatus.taggedOrNotedCallsCount === 1 ? '' : 's'} · EAT (UTC+3)
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
           </div>
         )}
 
-        {/* Profile, Tags, Birthday & Events Editor */}
-        {activeCategory === 'profile' && (
-        <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Display name
-              </span>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Contact name"
-                className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-              />
-            </label>
+        {/* Profile, Tags, Birthday & Events Editor (Collapsible Accordion Sections) */}
+        {activeCategory === 'profile' && (() => {
+          const allProfileOpen =
+            profileSectionsOpen.profile &&
+            profileSectionsOpen.birthday &&
+            profileSectionsOpen.events &&
+            profileSectionsOpen.social;
+          const toggleProfileSection = (key: keyof typeof profileSectionsOpen) =>
+            setProfileSectionsOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+          const bdaySummary = hasBirthday
+            ? `${bdayCalendar === 'ethiopian' ? getEthiopianMonthName(bdayMonth, 'english') : GREGORIAN_MONTHS[bdayMonth - 1]} ${bdayDay}${bdayCountdown !== null ? (bdayCountdown === 0 ? ' · Today!' : ` · In ${bdayCountdown}d`) : ''}`
+            : 'Not set';
+          const socialParts = [
+            sanitizeSocialUsername(telegramUsername) ? `@${sanitizeSocialUsername(telegramUsername)}` : '',
+            sanitizeSocialUsername(instagramUsername) ? `IG @${sanitizeSocialUsername(instagramUsername)}` : '',
+            notes.trim() ? 'Notes added' : '',
+          ].filter(Boolean);
+          const socialSummary = socialParts.length > 0 ? socialParts.join(' · ') : 'Optional';
 
-            <div className="space-y-2 sm:col-span-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Relationship / role tag
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Tap any section below to expand or collapse
                 </span>
-                {tag.trim() ? (
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00]">
-                    <Tag size={12} className="shrink-0" />
-                    <span>Selected: {tag.trim()}</span>
-                    <button
-                      type="button"
-                      onClick={() => setTag('')}
-                      aria-label="Clear selected tag"
-                      className="ml-0.5 p-0.5 rounded hover:bg-[#FF6A00]/15"
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
-                    No tag selected
-                  </span>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                {displayedTagChips.map((preset) => {
-                  const selected = tag.trim().toLowerCase() === preset.toLowerCase();
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setTag(selected ? '' : preset)}
-                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
-                        selected
-                          ? 'bg-[#FF6A00] text-white'
-                          : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
-                      }`}
-                    >
-                      <Tag size={11} className="shrink-0" />
-                      <span>{preset}</span>
-                      {selected && <Check size={12} className="shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && tag.trim()) {
-                      e.preventDefault();
-                      const saved = addCustomTag(tag);
-                      if (saved) setTag(saved);
-                    }
-                  }}
-                  placeholder="Type custom tag (e.g. Graphics Designer)..."
-                  className="flex-1 min-w-0 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-                />
                 <button
                   type="button"
-                  disabled={!tag.trim()}
-                  onClick={() => {
-                    const saved = addCustomTag(tag);
-                    if (saved) {
-                      setTag(saved);
-                      showNotice(`Tag "${saved}" added. Tap Save to apply.`);
-                    }
-                  }}
-                  className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] disabled:opacity-45 text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0"
+                  onClick={() =>
+                    setProfileSectionsOpen({
+                      profile: !allProfileOpen,
+                      birthday: !allProfileOpen,
+                      events: !allProfileOpen,
+                      social: !allProfileOpen,
+                    })
+                  }
+                  className="min-h-[28px] px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] transition-colors shrink-0"
                 >
-                  <Plus size={13} />
-                  Add tag
+                  {allProfileOpen ? 'Collapse all' : 'Expand all'}
                 </button>
               </div>
-            </div>
-          </div>
 
-          {/* Birthday */}
-          <div className="space-y-2 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Cake size={15} className="text-[#FF6A00]" />
-                <span className="text-xs font-semibold text-[#08246B] dark:text-white">
-                  Birthday
-                </span>
-                {bdayCountdown !== null && (
-                  <span className="text-xs font-medium text-[#FF6A00] tabular-nums">
-                    {bdayCountdown === 0 ? 'Today!' : `In ${bdayCountdown} days`}
-                  </span>
-                )}
+              {/* Section 1: Profile & Relationship Tag */}
+              <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={profileSectionsOpen.profile}
+                  onClick={() => toggleProfileSection('profile')}
+                  className="w-full px-4 py-3 flex items-center justify-between gap-2.5 text-left hover:bg-[#DDE4EA]/45 dark:hover:bg-[var(--dark-elevated)]/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <User size={15} className="text-[#FF6A00] shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                        Profile &amp; Relationship Tag
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        {displayName}
+                        {tag.trim() ? ` · ${tag.trim()}` : ' · No tag'}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                      profileSectionsOpen.profile ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {profileSectionsOpen.profile && (
+                    <motion.div
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="block space-y-1">
+                          <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                            Display name
+                          </span>
+                          <input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Contact name"
+                            className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-sm text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                          />
+                        </label>
+
+                        <div className="space-y-2 sm:col-span-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              Relationship / role tag
+                            </span>
+                            {tag.trim() ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00]">
+                                <Tag size={12} className="shrink-0" />
+                                <span>Selected: {tag.trim()}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setTag('')}
+                                  aria-label="Clear selected tag"
+                                  className="ml-0.5 p-0.5 rounded hover:bg-[#FF6A00]/15"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
+                                No tag selected
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {displayedTagChips.map((preset) => {
+                              const selected = tag.trim().toLowerCase() === preset.toLowerCase();
+                              return (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => setTag(selected ? '' : preset)}
+                                  className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                                    selected
+                                      ? 'bg-[#FF6A00] text-white'
+                                      : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
+                                  }`}
+                                >
+                                  <Tag size={11} className="shrink-0" />
+                                  <span>{preset}</span>
+                                  {selected && <Check size={12} className="shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={tag}
+                              onChange={(e) => setTag(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && tag.trim()) {
+                                  e.preventDefault();
+                                  const saved = addCustomTag(tag);
+                                  if (saved) setTag(saved);
+                                }
+                              }}
+                              placeholder="Type custom tag (e.g. Graphics Designer)..."
+                              className="flex-1 min-w-0 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                            />
+                            <button
+                              type="button"
+                              disabled={!tag.trim()}
+                              onClick={() => {
+                                const saved = addCustomTag(tag);
+                                if (saved) {
+                                  setTag(saved);
+                                  showNotice(`Tag "${saved}" added. Tap Save to apply.`);
+                                }
+                              }}
+                              className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] disabled:opacity-45 text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0"
+                            >
+                              <Plus size={13} />
+                              Add tag
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-              <button
-                type="button"
-                onClick={() => setHasBirthday((prev) => !prev)}
-                className="min-h-[34px] px-3 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white"
-              >
-                {hasBirthday ? 'Remove birthday' : 'Set birthday'}
-              </button>
-            </div>
 
-            {hasBirthday && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <CustomSelect
-                  ariaLabel="Birthday calendar system"
-                  value={bdayCalendar}
-                  variant="surface"
-                  fullWidth
-                  compact
-                  options={[
-                    { value: 'gregorian', label: 'Gregorian' },
-                    { value: 'ethiopian', label: 'Ethiopian' },
-                  ]}
-                  onChange={(val) => {
-                    const nextCal = val as CalendarKind;
-                    setBdayCalendar(nextCal);
-                    if (nextCal === 'gregorian' && bdayMonth > 12) setBdayMonth(12);
-                  }}
-                />
-                <CustomSelect
-                  ariaLabel="Birthday month"
-                  value={String(bdayMonth)}
-                  variant="surface"
-                  fullWidth
-                  compact
-                  options={Array.from({ length: maxBdayMonth }, (_, idx) => idx + 1).map((m) => ({
-                    value: String(m),
-                    label:
-                      bdayCalendar === 'ethiopian'
-                        ? getEthiopianMonthName(m, 'english')
-                        : GREGORIAN_MONTHS[m - 1],
-                  }))}
-                  onChange={(val) => setBdayMonth(Number(val))}
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={bdayCalendar === 'ethiopian' ? 30 : 31}
-                  value={bdayDay}
-                  onChange={(e) => setBdayDay(Math.max(1, Number(e.target.value) || 1))}
-                  aria-label="Birthday day"
-                  placeholder="Day"
-                  className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
-                />
-                <input
-                  type="number"
-                  value={bdayYear}
-                  onChange={(e) => setBdayYear(e.target.value)}
-                  aria-label="Birth year optional"
-                  placeholder="Year (opt.)"
-                  className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
-                />
+              {/* Section 2: Birthday */}
+              <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={profileSectionsOpen.birthday}
+                  onClick={() => toggleProfileSection('birthday')}
+                  className="w-full px-4 py-3 flex items-center justify-between gap-2.5 text-left hover:bg-[#DDE4EA]/45 dark:hover:bg-[var(--dark-elevated)]/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Cake size={15} className="text-[#FF6A00] shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                        Birthday
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate tabular-nums">
+                        {bdaySummary}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                      profileSectionsOpen.birthday ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {profileSectionsOpen.birthday && (
+                    <motion.div
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          {bdayCountdown !== null ? (
+                            <span className="text-xs font-medium text-[#FF6A00] tabular-nums">
+                              {bdayCountdown === 0 ? 'Today!' : `In ${bdayCountdown} days`}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              No birthday saved yet
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setHasBirthday((prev) => !prev)}
+                            className="min-h-[34px] px-3 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white"
+                          >
+                            {hasBirthday ? 'Remove birthday' : 'Set birthday'}
+                          </button>
+                        </div>
+
+                        {hasBirthday && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <CustomSelect
+                              ariaLabel="Birthday calendar system"
+                              value={bdayCalendar}
+                              variant="surface"
+                              fullWidth
+                              compact
+                              options={[
+                                { value: 'gregorian', label: 'Gregorian' },
+                                { value: 'ethiopian', label: 'Ethiopian' },
+                              ]}
+                              onChange={(val) => {
+                                const nextCal = val as CalendarKind;
+                                setBdayCalendar(nextCal);
+                                if (nextCal === 'gregorian' && bdayMonth > 12) setBdayMonth(12);
+                              }}
+                            />
+                            <CustomSelect
+                              ariaLabel="Birthday month"
+                              value={String(bdayMonth)}
+                              variant="surface"
+                              fullWidth
+                              compact
+                              options={Array.from({ length: maxBdayMonth }, (_, idx) => idx + 1).map((m) => ({
+                                value: String(m),
+                                label:
+                                  bdayCalendar === 'ethiopian'
+                                    ? getEthiopianMonthName(m, 'english')
+                                    : GREGORIAN_MONTHS[m - 1],
+                              }))}
+                              onChange={(val) => setBdayMonth(Number(val))}
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              max={bdayCalendar === 'ethiopian' ? 30 : 31}
+                              value={bdayDay}
+                              onChange={(e) => setBdayDay(Math.max(1, Number(e.target.value) || 1))}
+                              aria-label="Birthday day"
+                              placeholder="Day"
+                              className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
+                            />
+                            <input
+                              type="number"
+                              value={bdayYear}
+                              onChange={(e) => setBdayYear(e.target.value)}
+                              aria-label="Birth year optional"
+                              placeholder="Year (opt.)"
+                              className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-            )}
-          </div>
 
-          <SpecialEventsEditor
-            events={events}
-            onRemoveEvent={(id) => setEvents((prev) => prev.filter((item) => item.id !== id))}
-            newTitle={newEvtTitle}
-            onNewTitleChange={setNewEvtTitle}
-            newCalendar={newEvtCalendar}
-            onNewCalendarChange={setNewEvtCalendar}
-            newMonth={newEvtMonth}
-            onNewMonthChange={setNewEvtMonth}
-            newDay={newEvtDay}
-            onNewDayChange={setNewEvtDay}
-            onAddEvent={handleAddEvent}
-            variant="surface"
-          />
+              {/* Section 3: Special Events & Anniversaries */}
+              <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={profileSectionsOpen.events}
+                  onClick={() => toggleProfileSection('events')}
+                  className="w-full px-4 py-3 flex items-center justify-between gap-2.5 text-left hover:bg-[#DDE4EA]/45 dark:hover:bg-[var(--dark-elevated)]/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <CalendarHeart size={15} className="text-[#FF6A00] shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                        Special Events &amp; Anniversaries
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate tabular-nums">
+                        {events.length === 0
+                          ? 'No special events yet'
+                          : `${events.length} event${events.length === 1 ? '' : 's'} saved`}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                      profileSectionsOpen.events ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Telegram username (optional)
-              </span>
-              <input
-                type="text"
-                value={telegramUsername}
-                onChange={(e) => setTelegramUsername(e.target.value)}
-                placeholder="@username"
-                className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Instagram username (optional)
-              </span>
-              <input
-                type="text"
-                value={instagramUsername}
-                onChange={(e) => setInstagramUsername(e.target.value)}
-                placeholder="@username"
-                className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-              />
-            </label>
-          </div>
+                <AnimatePresence initial={false}>
+                  {profileSectionsOpen.events && (
+                    <motion.div
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                        <SpecialEventsEditor
+                          events={events}
+                          onRemoveEvent={(id) => setEvents((prev) => prev.filter((item) => item.id !== id))}
+                          newTitle={newEvtTitle}
+                          onNewTitleChange={setNewEvtTitle}
+                          newCalendar={newEvtCalendar}
+                          onNewCalendarChange={setNewEvtCalendar}
+                          newMonth={newEvtMonth}
+                          onNewMonthChange={setNewEvtMonth}
+                          newDay={newEvtDay}
+                          onNewDayChange={setNewEvtDay}
+                          onAddEvent={handleAddEvent}
+                          variant="surface"
+                          hideHeader
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Contact notes
-            </span>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Personal or work context..."
-              className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white resize-none focus:outline-none focus:border-[#FF6A00]"
-            />
-          </label>
+              {/* Section 4: Social & Contact Notes */}
+              <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={profileSectionsOpen.social}
+                  onClick={() => toggleProfileSection('social')}
+                  className="w-full px-4 py-3 flex items-center justify-between gap-2.5 text-left hover:bg-[#DDE4EA]/45 dark:hover:bg-[var(--dark-elevated)]/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <MessageSquare size={15} className="text-[#FF6A00] shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                        Social &amp; Contact Notes
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        {socialSummary}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                      profileSectionsOpen.social ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
 
-        </div>
-        )}
+                <AnimatePresence initial={false}>
+                  {profileSectionsOpen.social && (
+                    <motion.div
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                      exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <label className="block space-y-1">
+                            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              Telegram username (optional)
+                            </span>
+                            <input
+                              type="text"
+                              value={telegramUsername}
+                              onChange={(e) => setTelegramUsername(e.target.value)}
+                              placeholder="@username"
+                              className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                            />
+                          </label>
+                          <label className="block space-y-1">
+                            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              Instagram username (optional)
+                            </span>
+                            <input
+                              type="text"
+                              value={instagramUsername}
+                              onChange={(e) => setInstagramUsername(e.target.value)}
+                              placeholder="@username"
+                              className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                            />
+                          </label>
+                        </div>
+
+                        <label className="block space-y-1">
+                          <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                            Contact notes
+                          </span>
+                          <textarea
+                            rows={2}
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="Personal or work context..."
+                            className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white resize-none focus:outline-none focus:border-[#FF6A00]"
+                          />
+                        </label>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Contact's Call History */}
         {activeCategory === 'history' && (

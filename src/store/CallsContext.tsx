@@ -804,15 +804,37 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (e?: MediaQueryListEvent) => {
-      setSystemIsDark(e ? e.matches : mql.matches);
+      const nextSystemDark = e ? e.matches : mql.matches;
+      setSystemIsDark(nextSystemDark);
+      if (themePreferenceRef.current === 'system') {
+        stateRef.current = {
+          ...stateRef.current,
+          theme: nextSystemDark ? 'dark-gray' : 'light',
+        };
+      }
+    };
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        handleChange();
+      }
     };
     handleChange();
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     if (typeof mql.addEventListener === 'function') {
       mql.addEventListener('change', handleChange);
-      return () => mql.removeEventListener('change', handleChange);
+      return () => {
+        mql.removeEventListener('change', handleChange);
+        window.removeEventListener('focus', handleVisibilityOrFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      };
     }
     mql.addListener(handleChange);
-    return () => mql.removeListener(handleChange);
+    return () => {
+      mql.removeListener(handleChange);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
   }, []);
 
   useEffect(() => {
@@ -867,6 +889,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     return themePreference;
   }, [themePreference, systemIsDark]);
   const themePreferenceRef = useRef<ThemePreference>(themePreference);
+  const lastLocalThemeChangeAtRef = useRef<number>(0);
   useEffect(() => {
     themePreferenceRef.current = themePreference;
   }, [themePreference]);
@@ -890,10 +913,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const isGuestRef = useRef<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const isAdminRef = useRef<boolean>(false);
-  const updateAdminState = useCallback((next: boolean) => {
-    isAdminRef.current = next;
-    setIsAdmin(next);
-  }, []);
   const [verifyRefreshKey, setVerifyRefreshKey] = useState<number>(0);
   const [userPhone, setUserPhone] = useState<string | null>(null);
   const accountMetaRef = useRef<{
@@ -906,6 +925,21 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     photoURL: null,
     termsAccepted: null,
     termsAcceptedAt: null,
+  });
+  const userDocDiagRef = useRef<{
+    exists: boolean;
+    hasUid: boolean;
+    uidMatches: boolean;
+    emailMatches: boolean;
+    existingKeys: string[];
+    hasLegacyKeys: boolean;
+  }>({
+    exists: false,
+    hasUid: false,
+    uidMatches: false,
+    emailMatches: false,
+    existingKeys: [],
+    hasLegacyKeys: false,
   });
   const [authPromptMode, setAuthPromptMode] = useState<AuthPromptMode>('closed');
   const [authPromptReason, setAuthPromptReason] = useState<string | null>(null);
@@ -1042,7 +1076,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           meta.setAttribute('content', activeColor);
         }
       });
-      removeStorageKey(THEME_KEY);
+      writeJson(THEME_KEY, 'system');
     } else {
       metas.forEach((meta) => {
         meta.setAttribute('content', activeColor);
@@ -1478,38 +1512,122 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const rawDisplayName = overrides?.profileName ?? (s.profileName || user.displayName || '');
       const rawTheme = overrides?.theme ?? s.theme;
       const safeTheme: ThemeMode = rawTheme === 'light' ? 'light' : 'dark-gray';
+      const cleanEmail = clampStr((user.email || '').trim(), 254);
+      const cleanDisplayName = clampStr(
+        typeof rawDisplayName === 'string' ? rawDisplayName : '',
+        120,
+      );
+      const cleanPhone =
+        typeof nextPhone === 'string' && nextPhone.trim().length > 0
+          ? clampStr(nextPhone.trim(), 40)
+          : undefined;
+      const cleanPhotoURL =
+        typeof nextPhotoURL === 'string' && nextPhotoURL.trim().length > 0
+          ? clampStr(nextPhotoURL.trim(), 500)
+          : undefined;
+      const cleanTermsAccepted =
+        typeof nextTermsAccepted === 'boolean' ? nextTermsAccepted : undefined;
+      const cleanTermsAcceptedAt =
+        typeof nextTermsAcceptedAt === 'number' &&
+        Number.isFinite(nextTermsAcceptedAt) &&
+        nextTermsAcceptedAt >= 0
+          ? Math.round(nextTermsAcceptedAt)
+          : undefined;
+      const cleanTariffs = sanitizeTariffs(overrides?.tariffs ?? s.tariffs);
+      const cleanSimLabels = sanitizeSimLabels(overrides?.simLabels ?? s.simLabels);
+      const cleanCalendarPrefs = sanitizeCalendarPrefs(overrides?.calendarPrefs ?? s.calendarPrefs);
+      const cleanReminderPrefs = sanitizeReminderPrefs(overrides?.reminderPrefs ?? s.reminderPrefs);
+      const cleanVoiceBundles = sanitizeVoiceBundles(overrides?.voiceBundles ?? s.voiceBundles);
+      const cleanNotificationsEnabled = Boolean(
+        overrides?.notificationsEnabled ?? s.notificationsEnabled,
+      );
+
+      const payload = {
+        uid: user.uid,
+        displayName: cleanDisplayName,
+        email: cleanEmail,
+        ...(cleanPhone !== undefined ? { phone: cleanPhone } : {}),
+        ...(cleanPhotoURL !== undefined ? { photoURL: cleanPhotoURL } : {}),
+        ...(cleanTermsAccepted !== undefined ? { termsAccepted: cleanTermsAccepted } : {}),
+        ...(cleanTermsAcceptedAt !== undefined ? { termsAcceptedAt: cleanTermsAcceptedAt } : {}),
+        theme: safeTheme,
+        notificationsEnabled: cleanNotificationsEnabled,
+        tariffs: cleanTariffs,
+        simLabels: cleanSimLabels,
+        calendarPrefs: cleanCalendarPrefs,
+        reminderPrefs: cleanReminderPrefs,
+        voiceBundles: cleanVoiceBundles,
+        syncedAt: serverTimestamp(),
+      };
 
       const path = `users/${user.uid}`;
+      const userDocRef = doc(db, 'users', user.uid);
+      const diag = userDocDiagRef.current;
+      const useUpdateDoc = diag.exists && !diag.hasLegacyKeys && diag.hasUid && diag.uidMatches;
+      let writeMode: 'updateDoc' | 'setDoc' = useUpdateDoc ? 'updateDoc' : 'setDoc';
+
       try {
         setSyncStatus('syncing');
-        await setDoc(doc(db, 'users', user.uid), {
-          uid: user.uid,
-          displayName: clampStr(typeof rawDisplayName === 'string' ? rawDisplayName : '', 120),
-          email: clampStr(user.email || '', 254),
-          ...(typeof nextPhone === 'string' && nextPhone.trim().length > 0
-            ? { phone: clampStr(nextPhone.trim(), 40) }
-            : {}),
-          ...(typeof nextPhotoURL === 'string' && nextPhotoURL.trim().length > 0
-            ? { photoURL: clampStr(nextPhotoURL.trim(), 500) }
-            : {}),
-          ...(typeof nextTermsAccepted === 'boolean' ? { termsAccepted: nextTermsAccepted } : {}),
-          ...(typeof nextTermsAcceptedAt === 'number' &&
-          Number.isFinite(nextTermsAcceptedAt) &&
-          nextTermsAcceptedAt >= 0
-            ? { termsAcceptedAt: Math.round(nextTermsAcceptedAt) }
-            : {}),
-          theme: safeTheme,
-          notificationsEnabled: Boolean(overrides?.notificationsEnabled ?? s.notificationsEnabled),
-          tariffs: sanitizeTariffs(overrides?.tariffs ?? s.tariffs),
-          simLabels: sanitizeSimLabels(overrides?.simLabels ?? s.simLabels),
-          calendarPrefs: sanitizeCalendarPrefs(overrides?.calendarPrefs ?? s.calendarPrefs),
-          reminderPrefs: sanitizeReminderPrefs(overrides?.reminderPrefs ?? s.reminderPrefs),
-          voiceBundles: sanitizeVoiceBundles(overrides?.voiceBundles ?? s.voiceBundles),
-          syncedAt: serverTimestamp(),
-        });
+        if (useUpdateDoc) {
+          try {
+            await updateDoc(userDocRef, payload);
+          } catch (updateErr) {
+            const code = (updateErr as { code?: string })?.code ?? '';
+            if (code === 'not-found') {
+              writeMode = 'setDoc';
+              await setDoc(userDocRef, payload);
+            } else {
+              throw updateErr;
+            }
+          }
+        } else {
+          await setDoc(userDocRef, payload);
+        }
+        userDocDiagRef.current = {
+          exists: true,
+          hasUid: true,
+          uidMatches: true,
+          emailMatches: true,
+          existingKeys: Object.keys(payload),
+          hasLegacyKeys: false,
+        };
         setSyncStatus('synced');
         setLastSyncedAt(Date.now());
       } catch (error) {
+        const preflightFailures: string[] = [];
+        if (!/^[a-zA-Z0-9_-]{1,128}$/.test(user.uid)) preflightFailures.push('uidPattern');
+        if (auth.currentUser?.uid !== user.uid) preflightFailures.push('authUidMismatch');
+        if (!user.emailVerified) preflightFailures.push('emailNotVerified');
+        if (!cleanSimLabels.sim1Label || cleanSimLabels.sim1Label.length > 40) {
+          preflightFailures.push('sim1Label');
+        }
+        if (!cleanSimLabels.sim2Label || cleanSimLabels.sim2Label.length > 40) {
+          preflightFailures.push('sim2Label');
+        }
+        if (![5, 7, 10].includes(cleanReminderPrefs.missedCallReminderDelayMinutes)) {
+          preflightFailures.push('missedCallReminderDelayMinutes');
+        }
+        console.error(
+          'Workspace write diagnostic:',
+          JSON.stringify({
+            writeMode,
+            docDiag: userDocDiagRef.current,
+            payloadKeys: Object.keys(payload),
+            preflightFailures,
+            theme: safeTheme,
+            emailLen: cleanEmail.length,
+            displayNameLen: cleanDisplayName.length,
+            hasPhone: cleanPhone !== undefined,
+            hasPhoto: cleanPhotoURL !== undefined,
+            hasTerms: cleanTermsAccepted !== undefined,
+            hasTermsAt: cleanTermsAcceptedAt !== undefined,
+            tariffs: cleanTariffs,
+            simLabelsLens: [cleanSimLabels.sim1Label.length, cleanSimLabels.sim2Label.length],
+            calendarPrefs: cleanCalendarPrefs,
+            reminderPrefs: cleanReminderPrefs,
+            voiceBundleEnabled: [cleanVoiceBundles.sim1.enabled, cleanVoiceBundles.sim2.enabled],
+          }),
+        );
         setSyncStatus('error');
         handleFirestoreError(error, OperationType.WRITE, path);
       }
@@ -1538,13 +1656,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     hydratedUidRef.current = null;
     setHydratedUid(null);
     workspaceReadyRef.current = null;
-    updateAdminState(false);
+    isAdminRef.current = false;
+    setIsAdmin(false);
     setPinLockoutUntil(0);
     accountMetaRef.current = {
       phone: null,
       photoURL: null,
       termsAccepted: null,
       termsAcceptedAt: null,
+    };
+    userDocDiagRef.current = {
+      exists: false,
+      hasUid: false,
+      uidMatches: false,
+      emailMatches: false,
+      existingKeys: [],
+      hasLegacyKeys: false,
     };
     setUserPhone(null);
 
@@ -1625,12 +1752,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   // Firebase Auth listener + strictly isolated UID-scoped IndexedDB hydration + account settings sync
   useEffect(() => {
     let unsubWorkspace: (() => void) | null = null;
+    let unsubAdmin: (() => void) | null = null;
     let cancelled = false;
     let activeRun = 0;
 
     const cleanupListeners = () => {
       unsubWorkspace?.();
       unsubWorkspace = null;
+      unsubAdmin?.();
+      unsubAdmin = null;
     };
 
     clearLegacyUnscopedKeys();
@@ -1643,13 +1773,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         hydratedUidRef.current = null;
         setHydratedUid(null);
         workspaceReadyRef.current = null;
-        updateAdminState(false);
+        isAdminRef.current = false;
+        setIsAdmin(false);
         setPinLockoutUntil(0);
         accountMetaRef.current = {
           phone: null,
           photoURL: null,
           termsAccepted: null,
           termsAcceptedAt: null,
+        };
+        userDocDiagRef.current = {
+          exists: false,
+          hasUid: false,
+          uidMatches: false,
+          emailMatches: false,
+          existingKeys: [],
+          hasLegacyKeys: false,
         };
         setUserPhone(null);
         setUserPhotoUrlState(null);
@@ -1668,7 +1807,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         hydratedUidRef.current = null;
         setHydratedUid(null);
         workspaceReadyRef.current = null;
-        updateAdminState(false);
+        isAdminRef.current = false;
+        setIsAdmin(false);
         setPinLockoutUntil(0);
         setIsGuest(false);
         setAuthPromptMode('closed');
@@ -1683,7 +1823,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const uid = user.uid;
       hydratedUidRef.current = null;
       setHydratedUid(null);
-      updateAdminState(false);
+      isAdminRef.current = false;
+      setIsAdmin(false);
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -1731,20 +1872,36 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       });
       workspaceReadyRef.current = { uid, promise: readyPromise };
 
-      // Verify /admins/{uid} allowlist from Firestore server
+      // Verify /admins/{uid} allowlist from Firestore server & keep synced live
       const adminDocRef = doc(db, 'admins', uid);
       void getDocFromServer(adminDocRef)
         .catch(() => getDoc(adminDocRef))
         .then((adminSnap) => {
           if (!cancelled && myRun === activeRun) {
-            updateAdminState(adminSnap.exists());
+            const exists = adminSnap.exists();
+            isAdminRef.current = exists;
+            setIsAdmin(exists);
           }
         })
         .catch(() => {
           if (!cancelled && myRun === activeRun) {
-            updateAdminState(false);
+            isAdminRef.current = false;
+            setIsAdmin(false);
           }
         });
+
+      unsubAdmin = onSnapshot(
+        adminDocRef,
+        (adminSnap) => {
+          if (cancelled || myRun !== activeRun) return;
+          const exists = adminSnap.exists();
+          isAdminRef.current = exists;
+          setIsAdmin(exists);
+        },
+        () => {
+          // Ignore snapshot listener error if offline or denied; getDocFromServer handles initial check.
+        },
+      );
 
       let currentOp: OperationType = OperationType.GET;
       let currentPath = `users/${uid}`;
@@ -1785,7 +1942,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           const data = userSnap.data() as Record<string, unknown>;
 
           const rawTheme = data.theme;
+          const recentlyChangedThemeLocally = Date.now() - lastLocalThemeChangeAtRef.current < 5000;
           const nextTheme: ThemeMode =
+            !recentlyChangedThemeLocally &&
             themePreferenceRef.current !== 'system' &&
             (rawTheme === 'dark' || rawTheme === 'dark-gray' || rawTheme === 'light')
               ? rawTheme === 'light'
@@ -1834,12 +1993,36 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           const resolvedTermsAt =
             pendingReg?.termsAcceptedAt ??
             (typeof data.termsAcceptedAt === 'number' ? data.termsAcceptedAt : null);
-          const hasLegacyFields =
-            Object.prototype.hasOwnProperty.call(data, 'passwordHint') ||
-            Object.prototype.hasOwnProperty.call(data, 'privacyMode') ||
-            Object.prototype.hasOwnProperty.call(data, 'favorites') ||
-            Object.prototype.hasOwnProperty.call(data, 'dismissedMissedIds') ||
-            Object.prototype.hasOwnProperty.call(data, 'mutedAlertKeys');
+          const allowedWorkspaceKeys = new Set([
+            'uid',
+            'displayName',
+            'email',
+            'phone',
+            'photoURL',
+            'termsAccepted',
+            'termsAcceptedAt',
+            'theme',
+            'notificationsEnabled',
+            'tariffs',
+            'simLabels',
+            'calendarPrefs',
+            'reminderPrefs',
+            'voiceBundles',
+            'syncedAt',
+          ]);
+          const existingKeys = Object.keys(data);
+          const hasLegacyFields = existingKeys.some((k) => !allowedWorkspaceKeys.has(k));
+          userDocDiagRef.current = {
+            exists: true,
+            hasUid: Object.prototype.hasOwnProperty.call(data, 'uid'),
+            uidMatches: data.uid === uid,
+            emailMatches:
+              typeof data.email === 'string' &&
+              typeof user.email === 'string' &&
+              data.email.toLowerCase() === user.email.toLowerCase(),
+            existingKeys,
+            hasLegacyKeys: hasLegacyFields,
+          };
 
           accountMetaRef.current = {
             phone: resolvedPhone,
@@ -1850,7 +2033,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           setUserPhone(resolvedPhone);
           setUserPhotoUrlState(resolvedPhotoURL);
 
-          if (themePreferenceRef.current !== 'system') {
+          if (themePreferenceRef.current !== 'system' && Date.now() - lastLocalThemeChangeAtRef.current >= 5000) {
             setThemePreferenceState(nextTheme);
           }
           if (nextName) setProfileNameState(nextName);
@@ -1867,7 +2050,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             calendarPrefs: nextCalPrefs,
             reminderPrefs: nextRemPrefs,
             voiceBundles: nextBundles,
-            theme: themePreferenceRef.current !== 'system' ? nextTheme : stateRef.current.theme,
+            theme:
+              themePreferenceRef.current !== 'system' && Date.now() - lastLocalThemeChangeAtRef.current >= 5000
+                ? nextTheme
+                : stateRef.current.theme,
             profileName: nextName || stateRef.current.profileName,
             userPhotoUrl: resolvedPhotoURL,
             notificationsEnabled: nextNotifs,
@@ -1909,11 +2095,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           (snap) => {
             if (!snap.exists()) return;
             const data = snap.data() as Record<string, unknown>;
+            const recentlyChangedThemeLocally = Date.now() - lastLocalThemeChangeAtRef.current < 5000;
             if (
+              !snap.metadata.hasPendingWrites &&
+              !recentlyChangedThemeLocally &&
               themePreferenceRef.current !== 'system' &&
               (data.theme === 'dark' || data.theme === 'dark-gray' || data.theme === 'light')
             ) {
-              setThemePreferenceState(data.theme === 'light' ? 'light' : 'dark-gray');
+              const incomingTheme: ThemeMode = data.theme === 'light' ? 'light' : 'dark-gray';
+              themePreferenceRef.current = incomingTheme;
+              stateRef.current = { ...stateRef.current, theme: incomingTheme };
+              setThemePreferenceState(incomingTheme);
             }
             if (typeof data.displayName === 'string') setProfileNameState(data.displayName);
             if (typeof data.phone === 'string') {
@@ -4487,9 +4679,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const setThemeMode = useCallback(
     (mode: ThemePreference) => {
       triggerHaptic('tap');
-      setThemePreferenceState(mode);
+      const liveSystemDark =
+        typeof window !== 'undefined' && window.matchMedia
+          ? window.matchMedia('(prefers-color-scheme: dark)').matches
+          : systemIsDark;
       const resolvedNext: ThemeMode =
-        mode === 'system' ? (systemIsDark ? 'dark-gray' : 'light') : mode;
+        mode === 'system' ? (liveSystemDark ? 'dark-gray' : 'light') : mode;
+      lastLocalThemeChangeAtRef.current = Date.now();
+      themePreferenceRef.current = mode;
+      stateRef.current = { ...stateRef.current, theme: resolvedNext };
+      setSystemIsDark(liveSystemDark);
+      setThemePreferenceState(mode);
       const user = auth.currentUser;
       if (user && user.emailVerified) {
         void ensureWorkspaceReady(user.uid).then(() =>
@@ -4504,6 +4704,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     triggerHaptic('tap');
     const isCurrentlyDark = stateRef.current.theme === 'dark-gray';
     const next: ThemeMode = isCurrentlyDark ? 'light' : 'dark-gray';
+    lastLocalThemeChangeAtRef.current = Date.now();
+    themePreferenceRef.current = next;
+    stateRef.current = { ...stateRef.current, theme: next };
     setThemePreferenceState(next);
     const user = auth.currentUser;
     if (user && user.emailVerified) {

@@ -154,6 +154,20 @@ function buildBuckets(
   return buckets;
 }
 
+function parseFirestoreReason(reason: unknown): string {
+  const raw = reason instanceof Error ? reason.message : String(reason || '');
+  try {
+    const parsed = JSON.parse(raw) as { error?: string; path?: string; operationType?: string };
+    if (parsed?.error) {
+      const target = parsed.path ? ` (${parsed.operationType || 'read'} ${parsed.path})` : '';
+      return `${parsed.error}${target}`;
+    }
+  } catch {
+    // not JSON
+  }
+  return raw || 'Unknown error';
+}
+
 export function AdminTab() {
   const {
     isAdmin,
@@ -189,15 +203,21 @@ export function AdminTab() {
         setDailyActive(activeRes.value);
       }
       if (usersRes.status === 'rejected' || activeRes.status === 'rejected') {
-        const msg =
-          'Could not load full admin analytics. Check your connection and Firestore permissions, then tap Refresh.';
+        const parts: string[] = [];
+        if (usersRes.status === 'rejected') {
+          parts.push(`userRegistry: ${parseFirestoreReason(usersRes.reason)}`);
+        }
+        if (activeRes.status === 'rejected') {
+          parts.push(`dailyActive: ${parseFirestoreReason(activeRes.reason)}`);
+        }
+        const msg = `Could not load full admin analytics (${parts.join('; ')}).`;
         setLoadError(msg);
-        showNotice('Could not load admin analytics right now.');
+        showNotice('Some admin analytics failed to load.');
       }
-    } catch {
-      const msg = 'Could not load admin analytics right now.';
+    } catch (err) {
+      const msg = `Could not load admin analytics: ${parseFirestoreReason(err)}`;
       setLoadError(msg);
-      showNotice(msg);
+      showNotice('Could not load admin analytics right now.');
     } finally {
       setLoading(false);
     }
@@ -322,13 +342,13 @@ export function AdminTab() {
       </div>
 
       {loadError && (
-        <div className="rounded-2xl bg-[#FEF2F2] dark:bg-[#EF4444]/10 border border-[#EF4444]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#B91C1C] dark:text-[#FCA5A5]">
-          <span>{loadError}</span>
+        <div className="rounded-2xl bg-[#FEF2F2] dark:bg-[#EF4444]/10 border border-[#EF4444]/35 px-4 py-3 flex items-center justify-between gap-2 text-xs text-[#B91C1C] dark:text-[#FCA5A5]">
+          <span className="break-words">{loadError}</span>
           <button
             type="button"
             disabled={loading}
             onClick={() => void loadAdminData()}
-            className="min-h-[32px] px-3 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] disabled:opacity-50 text-white font-semibold whitespace-nowrap transition-colors"
+            className="min-h-[32px] px-3 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] disabled:opacity-50 text-white font-semibold whitespace-nowrap shrink-0 transition-colors"
           >
             Retry
           </button>

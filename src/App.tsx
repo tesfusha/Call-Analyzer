@@ -96,6 +96,7 @@ function AppShell() {
     markWhatsNewSeen,
     theme,
     themePreference,
+    setThemeMode,
     toggleTheme,
     pinEnabled,
     isLocked,
@@ -731,7 +732,7 @@ function AppShell() {
               Call Analyzer - ETH
             </span>
           </div>
-          <DarkModeToggle isDark={isDark} onToggle={toggleTheme} compact />
+          <DarkModeToggle isDark={isDark} mode={themePreference} onToggle={toggleTheme} compact />
         </header>
 
         <main className="flex-1 flex items-center justify-center px-4 pb-10">
@@ -841,7 +842,7 @@ function AppShell() {
               <HelpCircle size={15} className="text-[#FF6A00]" />
               Guide
             </button>
-            <DarkModeToggle isDark={isDark} onToggle={toggleTheme} compact />
+            <DarkModeToggle isDark={isDark} mode={themePreference} onToggle={toggleTheme} compact />
           </div>
         </header>
 
@@ -933,7 +934,9 @@ function AppShell() {
         <div className="space-y-2">
           <DarkModeToggle
             isDark={isDark}
+            mode={themePreference}
             onToggle={toggleTheme}
+            onSelectAuto={() => setThemeMode('system')}
             label={
               themePreference === 'system'
                 ? isDark
@@ -1051,7 +1054,7 @@ function AppShell() {
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <DarkModeToggle isDark={isDark} onToggle={toggleTheme} compact />
+          <DarkModeToggle isDark={isDark} mode={themePreference} onToggle={toggleTheme} compact />
           <button
             type="button"
             onClick={() => setGuideOpen(true)}

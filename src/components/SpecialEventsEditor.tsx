@@ -55,6 +55,7 @@ export function SpecialEventsEditor({
   onNewDayChange,
   onAddEvent,
   variant = 'surface',
+  hideHeader = false,
 }: {
   events: ContactEvent[];
   onRemoveEvent: (id: string) => void;
@@ -68,6 +69,7 @@ export function SpecialEventsEditor({
   onNewDayChange: (day: number) => void;
   onAddEvent: () => void;
   variant?: 'surface' | 'inset';
+  hideHeader?: boolean;
 }) {
   const maxMonth = newCalendar === 'ethiopian' ? 13 : 12;
   const maxDay =
@@ -107,25 +109,27 @@ export function SpecialEventsEditor({
       : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)]';
 
   return (
-    <div className="space-y-3 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-            <CalendarPlus size={14} />
+    <div className={hideHeader ? 'space-y-3' : 'space-y-3 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]'}>
+      {!hideHeader && (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+              <CalendarPlus size={14} />
+            </div>
+            <div>
+              <span className="block text-xs font-bold text-[#08246B] dark:text-white">
+                Special Events &amp; Anniversaries
+              </span>
+              <span className="block text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Tap a preset or pick any Ethiopian / Gregorian annual date
+              </span>
+            </div>
           </div>
-          <div>
-            <span className="block text-xs font-bold text-[#08246B] dark:text-white">
-              Special Events &amp; Anniversaries
-            </span>
-            <span className="block text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Tap a preset or pick any Ethiopian / Gregorian annual date
-            </span>
-          </div>
+          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] tabular-nums shrink-0">
+            {events.length}
+          </span>
         </div>
-        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] tabular-nums shrink-0">
-          {events.length}
-        </span>
-      </div>
+      )}
 
       {/* Saved Events Cards */}
       {events.length > 0 && (

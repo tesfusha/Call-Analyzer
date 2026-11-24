@@ -247,6 +247,7 @@ export type ReconnectProgressRecord = {
 };
 
 export type SettingsSectionId =
+  | 'score_badges'
   | 'appearance'
   | 'security'
   | 'sim_tariffs'

@@ -476,6 +476,7 @@ export function SettingsTab({
 
   const sectionSummaries: Record<SettingsSectionId, string> = useMemo(
     () => ({
+      score_badges: `${score} pts · ${effectiveStreaks.currentStreak}d streak · ${badges.length}/${BADGE_DEFINITIONS.length} badges`,
       appearance: `${
         themePreference === 'system' ? 'Auto' : isDark ? 'Dark' : 'Bright'
       } · ${
@@ -499,6 +500,9 @@ export function SettingsTab({
       about: `v${APP_VERSION} · build ${APP_VERSION_CODE}`,
     }),
     [
+      score,
+      effectiveStreaks.currentStreak,
+      badges.length,
       themePreference,
       isDark,
       fontSizeScale,
@@ -569,7 +573,9 @@ export function SettingsTab({
 
               <DarkModeToggle
                 isDark={isDark}
+                mode={themePreference}
                 onToggle={toggleTheme}
+                onSelectAuto={() => setThemeMode('system')}
                 label={
                   themePreference === 'system'
                     ? systemIsDark
@@ -586,11 +592,11 @@ export function SettingsTab({
                   <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     Theme Style
                   </span>
-                  {themePreference === 'system' && (
-                    <span className="text-[11px] font-medium text-[#FF6A00]">
-                      Following device ({systemIsDark ? 'Dark' : 'Bright'})
-                    </span>
-                  )}
+                  <span className="text-[11px] font-medium text-[#FF6A00]">
+                    {themePreference === 'system'
+                      ? `Following device (${systemIsDark ? 'Dark' : 'Bright'})`
+                      : `Manual (${isDark ? 'Dark' : 'Bright'})`}
+                  </span>
                 </div>
                 <div className="grid grid-cols-3 items-center gap-1 p-1 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
                   {(
@@ -614,6 +620,9 @@ export function SettingsTab({
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Use Auto to match your device or tap Bright / Dark anytime to switch manually.
+                </p>
               </div>
 
               <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3">
@@ -1844,6 +1853,8 @@ export function SettingsTab({
             </div>
           </div>
         );
+      case 'score_badges':
+        return null;
     }
   };
 
@@ -2000,7 +2011,7 @@ export function SettingsTab({
         </div>
       </div>
 
-      {/* Pinned Card 2: General Score & Badges */}
+      {/* Collapsible Card 2: General Score & Badges */}
       {!isGuest && authUser && (() => {
         const topContact = topContactStatuses[0] ?? null;
         const activeContactCount = topContactStatuses.filter((c) => c.currentStreak > 0).length;
@@ -2008,148 +2019,201 @@ export function SettingsTab({
         const topContactName = topContact
           ? formatDisplayNameOrPhone(topContact.displayName, topContact.number)
           : '';
+        const scoreMatchesSearch =
+          isSearching &&
+          ('general score & badges streaks points badges'.includes(normalizedQuery) ||
+            sectionSummaries.score_badges.toLowerCase().includes(normalizedQuery));
+        const isScoreOpen = scoreMatchesSearch || expandedSettingsSections.includes('score_badges');
+
+        if (isSearching && !scoreMatchesSearch) return null;
+
         return (
-          <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 min-w-0">
+          <section className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => {
+                if (isSearching) {
+                  setSettingsQuery('');
+                  if (!expandedSettingsSections.includes('score_badges')) {
+                    setExpandedSettingsSections([...expandedSettingsSections, 'score_badges']);
+                  }
+                  return;
+                }
+                toggleSection('score_badges');
+              }}
+              aria-expanded={isScoreOpen}
+              aria-controls="settings-section-score_badges"
+              className="w-full min-h-[60px] px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[#F8FAFC] dark:hover:bg-[var(--dark-elevated-60)] transition-colors"
+            >
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
                   <Trophy size={18} />
                 </div>
-                <div className="min-w-0">
-                  <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
                     General Score &amp; Badges
                   </h2>
-                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Stored locally in IndexedDB · East Africa Time (UTC+3)
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate tabular-nums">
+                    {sectionSummaries.score_badges}
                   </p>
                 </div>
               </div>
+              <ChevronDown
+                size={17}
+                className={`text-[#4B5563] dark:text-[var(--dark-text-secondary)] shrink-0 transition-transform duration-200 ${
+                  isScoreOpen ? 'rotate-180 text-[#FF6A00]' : ''
+                }`}
+              />
+            </button>
 
-              <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic('tap');
-                    const rebuilt = rebuildScore();
-                    showNotice(`Score rebuilt: ${rebuilt} pts.`, 'success');
+            <AnimatePresence initial={false}>
+              {isScoreOpen && (
+                <motion.div
+                  id="settings-section-score_badges"
+                  key="section-body-score_badges"
+                  initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                  animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                  transition={{
+                    duration: prefersReducedMotion ? 0.1 : 0.2,
+                    ease: [0.22, 1, 0.36, 1],
                   }}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  className="overflow-hidden"
                 >
-                  <RefreshCw size={13} className="text-[#FF6A00]" />
-                  Rebuild
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic('tap');
-                    setAchievementsTab('general');
-                    setAchievementsOpen(true);
-                  }}
-                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap transition-colors"
-                >
-                  <Award size={14} />
-                  View History &amp; Badges
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5">
-              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
-                <p className="text-lg font-mono font-bold tabular-nums text-[#FF6A00]">
-                  {score}
-                </p>
-                <p className="text-[11px] font-semibold text-[#08246B] dark:text-white">
-                  General Score (pts)
-                </p>
-              </div>
-              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
-                <p className="text-lg font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-center gap-1">
-                  <Flame size={15} className="text-[#FF6A00]" />
-                  <span>{effectiveStreaks.currentStreak}d</span>
-                </p>
-                <p className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Daily Streak (Best {effectiveStreaks.longestStreak}d)
-                </p>
-              </div>
-              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
-                <p className="text-lg font-mono font-bold tabular-nums text-[#10B981]">
-                  {badges.length}/{BADGE_DEFINITIONS.length}
-                </p>
-                <p className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  General Badges
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {BADGE_DEFINITIONS.map((def) => {
-                const earned = badges.some((b) => b.id === def.id);
-                return (
-                  <div
-                    key={def.id}
-                    className={`rounded-xl border px-3 py-2 flex items-center gap-2 min-w-0 ${
-                      earned
-                        ? 'bg-[#FFF0E6]/65 dark:bg-[#FF6A00]/12 border-[#FF6A00]/40 text-[#08246B] dark:text-white'
-                        : 'bg-[#EEF2F6]/60 dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] opacity-75'
-                    }`}
-                  >
-                    {earned ? (
-                      <Award size={14} className="text-[#FF6A00] shrink-0" />
-                    ) : (
-                      <Lock size={13} className="text-[#8A93A0] shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold truncate">{def.title}</p>
-                      <p className="text-[10px] truncate opacity-80">{def.requirementLabel}</p>
+                  <div className="px-4 sm:px-5 pb-5 pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Stored locally in IndexedDB · East Africa Time (UTC+3)
+                      </p>
+                      <div className="w-full sm:w-auto min-w-0 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tap');
+                            const rebuilt = rebuildScore();
+                            showNotice(`Score rebuilt: ${rebuilt} pts.`, 'success');
+                          }}
+                          className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                        >
+                          <RefreshCw size={13} className="text-[#FF6A00]" />
+                          Rebuild
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tap');
+                            setAchievementsTab('general');
+                            setAchievementsOpen(true);
+                          }}
+                          className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                        >
+                          <Award size={14} />
+                          View History &amp; Badges
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
 
-            <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                <div className="w-8 h-8 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#FF6A00] flex items-center justify-center shrink-0 mt-0.5">
-                  <Users size={15} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-[#08246B] dark:text-white">
-                    Contact Streaks &amp; Badges
-                  </p>
-                  {topContact ? (
-                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
-                      Status with {topContactName}:{' '}
-                      <span className="font-semibold text-[#FF6A00]">
-                        {topContact.statusHeadline}
-                      </span>{' '}
-                      · {topContact.contactScore} pts · {activeContactCount} active ·{' '}
-                      {milestoneContactsCount} reached 3d+
-                    </p>
-                  ) : (
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
+                        <p className="text-lg font-mono font-bold tabular-nums text-[#FF6A00]">
+                          {score}
+                        </p>
+                        <p className="text-[11px] font-semibold text-[#08246B] dark:text-white">
+                          General Score (pts)
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
+                        <p className="text-lg font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-center gap-1">
+                          <Flame size={15} className="text-[#FF6A00]" />
+                          <span>{effectiveStreaks.currentStreak}d</span>
+                        </p>
+                        <p className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                          Daily Streak (Best {effectiveStreaks.longestStreak}d)
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 text-center">
+                        <p className="text-lg font-mono font-bold tabular-nums text-[#10B981]">
+                          {badges.length}/{BADGE_DEFINITIONS.length}
+                        </p>
+                        <p className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                          General Badges
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {BADGE_DEFINITIONS.map((def) => {
+                        const earned = badges.some((b) => b.id === def.id);
+                        return (
+                          <div
+                            key={def.id}
+                            className={`rounded-xl border px-3 py-2 flex items-center gap-2 min-w-0 ${
+                              earned
+                                ? 'bg-[#FFF0E6]/65 dark:bg-[#FF6A00]/12 border-[#FF6A00]/40 text-[#08246B] dark:text-white'
+                                : 'bg-[#EEF2F6]/60 dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] opacity-75'
+                            }`}
+                          >
+                            {earned ? (
+                              <Award size={14} className="text-[#FF6A00] shrink-0" />
+                            ) : (
+                              <Lock size={13} className="text-[#8A93A0] shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold truncate">{def.title}</p>
+                              <p className="text-[10px] truncate opacity-80">{def.requirementLabel}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#FF6A00] flex items-center justify-center shrink-0 mt-0.5">
+                          <Users size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                            Contact Streaks &amp; Badges
+                          </p>
+                          {topContact ? (
+                            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
+                              Status with {topContactName}:{' '}
+                              <span className="font-semibold text-[#FF6A00]">
+                                {topContact.statusHeadline}
+                              </span>{' '}
+                              · {topContact.contactScore} pts · {activeContactCount} active ·{' '}
+                              {milestoneContactsCount} reached 3d+
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              Connect with any contact on consecutive EAT days to unlock 3d–365d badges.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic('tap');
+                          setAchievementsTab('contacts');
+                          setAchievementsOpen(true);
+                        }}
+                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors tabular-nums"
+                      >
+                        <Users size={13} className="text-[#FF6A00]" />
+                        <span>Contact Streaks ({topContactStatuses.length})</span>
+                      </button>
+                    </div>
+
                     <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      Connect with any contact on consecutive EAT days to unlock 3d–365d badges.
+                      Points: +{POINTS_CONFIG.DAILY_FIRST_OPEN} daily open · +{POINTS_CONFIG.QUICK_MISSED_CALLBACK} quick callback (&le;{reminderPrefs.missedCallReminderDelayMinutes}m) · +{POINTS_CONFIG.CALL_TAG_OR_NOTE} tag/note · +{POINTS_CONFIG.STREAK_MILESTONE_BONUS} at 7/30/100d streaks + contact 3d–365d milestones.
                     </p>
-                  )}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('tap');
-                  setAchievementsTab('contacts');
-                  setAchievementsOpen(true);
-                }}
-                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors tabular-nums"
-              >
-                <Users size={13} className="text-[#FF6A00]" />
-                <span>Contact Streaks ({topContactStatuses.length})</span>
-              </button>
-            </div>
-
-            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Points: +{POINTS_CONFIG.DAILY_FIRST_OPEN} daily open · +{POINTS_CONFIG.QUICK_MISSED_CALLBACK} quick callback (&le;{reminderPrefs.missedCallReminderDelayMinutes}m) · +{POINTS_CONFIG.CALL_TAG_OR_NOTE} tag/note · +{POINTS_CONFIG.STREAK_MILESTONE_BONUS} at 7/30/100d streaks + contact 3d–365d milestones.
-            </p>
-          </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
         );
       })()}
 

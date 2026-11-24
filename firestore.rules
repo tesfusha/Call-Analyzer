@@ -97,7 +97,8 @@ service cloud.firestore {
         ])
         && r.callbackDelayMinutes is number && r.callbackDelayMinutes >= 5 && r.callbackDelayMinutes <= 1440
         && r.missedCallReminderEnabled is bool
-        && r.missedCallReminderDelayMinutes is number && r.missedCallReminderDelayMinutes in [5, 7, 10]
+        && r.missedCallReminderDelayMinutes is number
+        && (r.missedCallReminderDelayMinutes == 5 || r.missedCallReminderDelayMinutes == 7 || r.missedCallReminderDelayMinutes == 10)
         && (!('onlySavedContactsReminder' in r) || r.onlySavedContactsReminder is bool)
         && (!('weeklyReconnectGoal' in r) || (r.weeklyReconnectGoal is number && r.weeklyReconnectGoal >= 1 && r.weeklyReconnectGoal <= 14))
         && r.eventLeadDays is number && r.eventLeadDays >= 0 && r.eventLeadDays <= 60
@@ -157,6 +158,7 @@ service cloud.firestore {
           'voiceBundles',
           'syncedAt'
         ])
+        && isValidId(data.uid)
         && data.uid == request.auth.uid
         && data.uid == userId
         && isBoundedString(data.displayName, 0, 120)
@@ -173,7 +175,7 @@ service cloud.firestore {
         && isValidCalendarPrefs(data.calendarPrefs)
         && isValidReminderPrefs(data.reminderPrefs)
         && (!('voiceBundles' in data) || isValidVoiceBundles(data.voiceBundles))
-        && data.syncedAt == request.time;
+        && data.syncedAt is timestamp;
     }
 
     function isValidRegisteredUser(data, userId) {
@@ -270,31 +272,16 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isValidId(userId)
         && isOwner(userId)
-        && isValidUserWorkspace(incoming(), userId);
+        && isValidUserWorkspace(incoming(), userId)
+        && incoming().syncedAt == request.time;
       allow update: if isValidId(userId)
         && isOwner(userId)
         && isValidUserWorkspace(incoming(), userId)
         && (!('uid' in existing()) || existing().uid == null || existing().uid == '' || existing().uid == request.auth.uid)
         && incoming().uid == request.auth.uid
-        && incoming().diff(existing()).addedKeys().hasOnly([
-          'uid',
-          'displayName',
-          'email',
-          'phone',
-          'photoURL',
-          'termsAccepted',
-          'termsAcceptedAt',
-          'theme',
-          'notificationsEnabled',
-          'tariffs',
-          'simLabels',
-          'calendarPrefs',
-          'reminderPrefs',
-          'voiceBundles',
-          'syncedAt'
-        ])
+        && incoming().syncedAt == request.time
         && (
-          incoming().diff(existing()).changedKeys().hasOnly([
+          incoming().diff(existing()).affectedKeys().hasOnly([
             'displayName',
             'email',
             'phone',
@@ -308,11 +295,38 @@ service cloud.firestore {
             'calendarPrefs',
             'reminderPrefs',
             'voiceBundles',
-            'syncedAt'
+            'syncedAt',
+            'passwordHint',
+            'privacyMode',
+            'favorites',
+            'dismissedMissedIds',
+            'mutedAlertKeys',
+            'calls',
+            'contacts',
+            'scheduledCalls',
+            'createdAt',
+            'updatedAt',
+            'profileName',
+            'userPhotoUrl',
+            'pinHash',
+            'streaks',
+            'badges',
+            'pointsHistory',
+            'contactMilestones',
+            'callsTabState',
+            'wishTemplates',
+            'sentWishes',
+            'snoozedQuietUntil',
+            'reconnectProgress',
+            'alertTypePrefs',
+            'alertSnoozedDate',
+            'readAlertKeys',
+            'fontSizeScale',
+            'expandedSettingsSections'
           ])
           || (
             (!('uid' in existing()) || existing().uid == null || existing().uid == '')
-            && incoming().diff(existing()).changedKeys().hasOnly([
+            && incoming().diff(existing()).affectedKeys().hasOnly([
               'uid',
               'displayName',
               'email',
@@ -327,7 +341,34 @@ service cloud.firestore {
               'calendarPrefs',
               'reminderPrefs',
               'voiceBundles',
-              'syncedAt'
+              'syncedAt',
+              'passwordHint',
+              'privacyMode',
+              'favorites',
+              'dismissedMissedIds',
+              'mutedAlertKeys',
+              'calls',
+              'contacts',
+              'scheduledCalls',
+              'createdAt',
+              'updatedAt',
+              'profileName',
+              'userPhotoUrl',
+              'pinHash',
+              'streaks',
+              'badges',
+              'pointsHistory',
+              'contactMilestones',
+              'callsTabState',
+              'wishTemplates',
+              'sentWishes',
+              'snoozedQuietUntil',
+              'reconnectProgress',
+              'alertTypePrefs',
+              'alertSnoozedDate',
+              'readAlertKeys',
+              'fontSizeScale',
+              'expandedSettingsSections'
             ])
           )
         );

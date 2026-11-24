@@ -37,6 +37,7 @@ import type {
 } from '@/src/types/call';
 
 const VALID_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
+  'score_badges',
   'appearance',
   'security',
   'sim_tariffs',

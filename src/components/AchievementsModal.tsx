@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Award,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Crown,
   Flame,
@@ -87,12 +88,16 @@ const LIST_PAGE_STEP = 12;
   const [tab, setTab] = useState<'general' | 'contacts'>(initialTab);
   const [pointsLimit, setPointsLimit] = useState(INITIAL_LIST_LIMIT);
   const [contactsLimit, setContactsLimit] = useState(INITIAL_LIST_LIMIT);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (open) {
       setTab(initialTab);
       setPointsLimit(INITIAL_LIST_LIMIT);
       setContactsLimit(INITIAL_LIST_LIMIT);
+      setHowItWorksOpen(false);
+      setExpandedContacts({});
     }
   }, [open, initialTab]);
 
@@ -515,18 +520,55 @@ const LIST_PAGE_STEP = 12;
                     </div>
                   </div>
 
-                  {/* Contact Milestone Badges Legend */}
-                  <div className="rounded-2xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-2">
-                    <h3 className="text-xs font-bold text-[#08246B] dark:text-white">
-                      How Per-Contact Streaks &amp; Badges Work
-                    </h3>
-                    <p className="text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      A day counts with a contact when you have at least one incoming or outgoing call (East Africa Time UTC+3). Milestones unlock at{' '}
-                      <span className="font-mono font-semibold text-[#08246B] dark:text-white">
-                        {CONTACT_BADGE_DEFINITIONS.map((b) => `${b.days}d`).join(' · ')}
-                      </span>
-                      .
-                    </p>
+                  {/* Contact Milestone Badges Legend (Collapsible) */}
+                  <div className="rounded-2xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                    <button
+                      type="button"
+                      aria-expanded={howItWorksOpen}
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        setHowItWorksOpen((prev) => !prev);
+                      }}
+                      className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated)]/40 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <h3 className="text-xs font-bold text-[#08246B] dark:text-white">
+                          How Per-Contact Streaks &amp; Badges Work
+                        </h3>
+                        {!howItWorksOpen && (
+                          <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                            Daily EAT calls · Milestones: {CONTACT_BADGE_DEFINITIONS.map((b) => `${b.days}d`).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                      <ChevronDown
+                        size={15}
+                        className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                          howItWorksOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {howItWorksOpen && (
+                        <motion.div
+                          initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                          animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                          transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="px-4 pb-3.5 pt-1 border-t border-[#DDE4EA]/70 dark:border-[var(--dark-border)]">
+                            <p className="text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              A day counts with a contact when you have at least one incoming or outgoing call (East Africa Time UTC+3). Milestones unlock at{' '}
+                              <span className="font-mono font-semibold text-[#08246B] dark:text-white">
+                                {CONTACT_BADGE_DEFINITIONS.map((b) => `${b.days}d`).join(' · ')}
+                              </span>
+                              .
+                            </p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
 
                   {/* Contact Status List */}
@@ -534,10 +576,39 @@ const LIST_PAGE_STEP = 12;
                     <div className="rounded-xl bg-[#EEF2F6]/70 dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 text-center text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                       No contact streaks yet. Incoming or outgoing calls will start building streaks, scores, and badges for each contact.
                     </div>
-                  ) : (
-                    <div className="space-y-2">
+                  ) : (() => {
+                    const visibleStatuses = topContactStatuses.slice(0, contactsLimit);
+                    const allVisibleExpanded =
+                      visibleStatuses.length > 0 &&
+                      visibleStatuses.every((s) => Boolean(expandedContacts[s.contactKey]));
+                    return (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-2 px-1">
+                        <h3 className="text-xs font-bold text-[#08246B] dark:text-white">
+                          Individual Contact Status ({topContactStatuses.length})
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tap');
+                            if (allVisibleExpanded) {
+                              setExpandedContacts({});
+                            } else {
+                              const next: Record<string, boolean> = {};
+                              visibleStatuses.forEach((s) => {
+                                next[s.contactKey] = true;
+                              });
+                              setExpandedContacts(next);
+                            }
+                          }}
+                          className="min-h-[28px] px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] transition-colors"
+                        >
+                          {allVisibleExpanded ? 'Collapse all' : 'Expand all'}
+                        </button>
+                      </div>
+
                       <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden bg-white dark:bg-[var(--dark-canvas)]">
-                        {topContactStatuses.slice(0, contactsLimit).map((status) => {
+                        {visibleStatuses.map((status) => {
                           const shownName = formatDisplayNameOrPhone(
                             status.displayName,
                             status.number,
@@ -545,78 +616,193 @@ const LIST_PAGE_STEP = 12;
                           const shownNumber = status.number;
                           const earnedBadges = status.badges.filter((b) => b.earned);
                           const canOpen = Boolean(onSelectContact);
+                          const isExpanded = Boolean(expandedContacts[status.contactKey]);
                           return (
-                            <button
-                              key={status.contactKey}
-                              type="button"
-                              disabled={!canOpen}
-                              onClick={() => {
-                                if (!onSelectContact) return;
-                                triggerHaptic('tap');
-                                onClose();
-                                onSelectContact(status.number);
-                              }}
-                              className={`w-full px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors ${
-                                canOpen
-                                  ? 'hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] cursor-pointer'
-                                  : 'cursor-default'
-                              }`}
-                            >
-                              <div className="flex items-center gap-3 min-w-0 flex-1">
-                                <div
-                                  className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                                  style={{ backgroundColor: avatarColor(status.number) }}
-                                >
-                                  {initials(shownName, status.number)}
-                                </div>
-                                <div className="min-w-0 flex-1 space-y-0.5">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
-                                      {shownName}
-                                    </p>
-                                    {status.tag && (
-                                      <span className="text-[10px] font-semibold text-[#FF6A00] shrink-0">
-                                        · {status.tag}
-                                      </span>
-                                    )}
+                            <div key={status.contactKey} className="bg-white dark:bg-[var(--dark-canvas)]">
+                              <button
+                                type="button"
+                                aria-expanded={isExpanded}
+                                onClick={() => {
+                                  triggerHaptic('tap');
+                                  setExpandedContacts((prev) => ({
+                                    ...prev,
+                                    [status.contactKey]: !prev[status.contactKey],
+                                  }));
+                                }}
+                                className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
+                              >
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  <div
+                                    className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                                    style={{ backgroundColor: avatarColor(status.number) }}
+                                  >
+                                    {initials(shownName, status.number)}
                                   </div>
-                                  <p className="text-[11px] font-medium text-[#FF6A00] truncate">
-                                    {status.statusHeadline}
-                                  </p>
-                                  <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                                    {shownNumber} · Best {status.longestStreak}d ·{' '}
-                                    {earnedBadges.length > 0
-                                      ? `Badges: ${earnedBadges.map((b) => `${b.days}d`).join(', ')}`
-                                      : `${status.totalConnectedDays} connected day${status.totalConnectedDays === 1 ? '' : 's'}`}
-                                  </p>
+                                  <div className="min-w-0 flex-1 space-y-0.5">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                                        {shownName}
+                                      </p>
+                                      {status.tag && (
+                                        <span className="text-[10px] font-semibold text-[#FF6A00] shrink-0">
+                                          · {status.tag}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[11px] font-medium text-[#FF6A00] truncate">
+                                      {status.statusHeadline}
+                                    </p>
+                                    <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                                      {earnedBadges.length}/{status.badges.length} badges · {status.totalConnectedDays} connected day{status.totalConnectedDays === 1 ? '' : 's'}
+                                    </p>
+                                  </div>
                                 </div>
-                              </div>
 
-                              <div className="flex items-center gap-2 shrink-0">
-                                <div className="text-right">
-                                  <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-end gap-1">
-                                    <Flame
-                                      size={12}
-                                      className={
-                                        status.currentStreak >= 3
-                                          ? 'text-[#FF6A00]'
-                                          : 'text-[#8A93A0]'
-                                      }
-                                    />
-                                    <span>{status.currentStreak}d</span>
-                                  </p>
-                                  <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00]">
-                                    {status.contactScore} pts
-                                  </p>
-                                </div>
-                                {canOpen && (
-                                  <ChevronRight
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="text-right">
+                                    <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white flex items-center justify-end gap-1">
+                                      <Flame
+                                        size={12}
+                                        className={
+                                          status.currentStreak >= 3
+                                            ? 'text-[#FF6A00]'
+                                            : 'text-[#8A93A0]'
+                                        }
+                                      />
+                                      <span>{status.currentStreak}d</span>
+                                    </p>
+                                    <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00]">
+                                      {status.contactScore} pts
+                                    </p>
+                                  </div>
+                                  <ChevronDown
                                     size={15}
-                                    className="text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0"
+                                    className={`text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0 transition-transform duration-200 ${
+                                      isExpanded ? 'rotate-180' : ''
+                                    }`}
                                   />
+                                </div>
+                              </button>
+
+                              <AnimatePresence initial={false}>
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                                    transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="px-4 pb-3.5 pt-2.5 border-t border-[#DDE4EA]/70 dark:border-[var(--dark-border)] bg-[#F5F7FA]/65 dark:bg-[var(--dark-surface)]/45 space-y-3">
+                                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                        <span className="font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                          {shownNumber}
+                                        </span>
+                                        <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                                          {status.statusSubtext}
+                                        </span>
+                                      </div>
+
+                                      <div className="grid grid-cols-3 gap-2 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] py-2 text-center">
+                                        <div>
+                                          <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                                            {status.currentStreak}d
+                                          </p>
+                                          <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                            Current Streak
+                                          </p>
+                                        </div>
+                                        <div className="border-x border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                                          <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                                            {status.longestStreak}d
+                                          </p>
+                                          <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                            Best Streak
+                                          </p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                                            {status.totalConnectedDays}d
+                                          </p>
+                                          <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                            Connected Days
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      {status.nextMilestoneDays !== null && (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center justify-between text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+                                            <span>Next goal: {status.nextMilestoneDays}-Day Badge</span>
+                                            <span className="font-mono font-semibold text-[#08246B] dark:text-white">
+                                              {Math.min(status.currentStreak, status.nextMilestoneDays)}/{status.nextMilestoneDays}d
+                                            </span>
+                                          </div>
+                                          <div className="h-1.5 w-full rounded-full bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA]/60 dark:border-[var(--dark-border)] overflow-hidden">
+                                            <div
+                                              className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
+                                              style={{
+                                                width: `${Math.min(
+                                                  100,
+                                                  Math.round(
+                                                    (status.currentStreak / status.nextMilestoneDays) * 100,
+                                                  ),
+                                                )}%`,
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      <div className="grid grid-cols-4 gap-1.5">
+                                        {status.badges.map((badge) => (
+                                          <div
+                                            key={badge.id}
+                                            className={`rounded-lg border px-2 py-1.5 text-center ${
+                                              badge.earned
+                                                ? 'bg-white dark:bg-[var(--dark-surface)] border-[#FF6A00]/45'
+                                                : 'bg-white/50 dark:bg-[var(--dark-surface)]/40 border-[#DDE4EA] dark:border-[var(--dark-border)] opacity-65'
+                                            }`}
+                                          >
+                                            <div className="flex items-center justify-center gap-1">
+                                              <span className="text-[11px] font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                                                {badge.days}d
+                                              </span>
+                                              {badge.earned ? (
+                                                <CheckCircle2 size={10} className="text-[#10B981] shrink-0" />
+                                              ) : (
+                                                <Lock size={9} className="text-[#8A93A0] shrink-0" />
+                                              )}
+                                            </div>
+                                            <p className="text-[9px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                                              {badge.title}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      </div>
+
+                                      {canOpen && (
+                                        <div className="flex justify-end pt-0.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (!onSelectContact) return;
+                                              triggerHaptic('tap');
+                                              onClose();
+                                              onSelectContact(status.number);
+                                            }}
+                                            className="min-h-[34px] px-3 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                                          >
+                                            <span>Open Contact</span>
+                                            <ChevronRight size={14} />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </motion.div>
                                 )}
-                              </div>
-                            </button>
+                              </AnimatePresence>
+                            </div>
                           );
                         })}
                       </div>
@@ -671,7 +857,8 @@ const LIST_PAGE_STEP = 12;
                         </div>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
                 </>
               )}
             </div>
