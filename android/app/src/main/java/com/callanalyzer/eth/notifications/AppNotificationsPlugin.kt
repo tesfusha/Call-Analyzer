@@ -101,7 +101,9 @@ class AppNotificationsPlugin : Plugin() {
             contactKey = call.getString("contactKey")?.takeIf { it.isNotBlank() },
             eventId = call.getString("eventId")?.takeIf { it.isNotBlank() },
             muteKey = call.getString("muteKey")?.takeIf { it.isNotBlank() },
-            wishText = call.getString("wishText")?.takeIf { it.isNotBlank() }
+            wishText = call.getString("wishText")?.takeIf { it.isNotBlank() },
+            occasionType = call.getString("occasionType")?.takeIf { it.isNotBlank() },
+            occasionKey = call.getString("occasionKey")?.takeIf { it.isNotBlank() }
         )
 
         if (shown) {
@@ -135,7 +137,9 @@ class AppNotificationsPlugin : Plugin() {
             contactKey = call.getString("contactKey")?.takeIf { it.isNotBlank() },
             eventId = call.getString("eventId")?.takeIf { it.isNotBlank() },
             muteKey = call.getString("muteKey")?.takeIf { it.isNotBlank() },
-            wishText = call.getString("wishText")?.takeIf { it.isNotBlank() }
+            wishText = call.getString("wishText")?.takeIf { it.isNotBlank() },
+            occasionType = call.getString("occasionType")?.takeIf { it.isNotBlank() },
+            occasionKey = call.getString("occasionKey")?.takeIf { it.isNotBlank() }
         )
 
         AppNotificationDisplay.scheduleAlarm(context, record)

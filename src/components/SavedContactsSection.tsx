@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
-import { QuickWishModal } from '@/src/components/QuickWishModal';
 import { SavedContactFormModal } from '@/src/components/SavedContactFormModal';
 import {
   daysUntilAnnualDate,
@@ -27,10 +26,10 @@ import {
   readUploadedTextFile,
 } from '@/src/lib/contacts';
 import { detectCarrier } from '@/src/lib/ethiopia';
-import { getEthiopianMonthName } from '@/src/lib/ethiopianCalendar';
+import { getEthiopianMonthName, getHolidaysInGregorianYearOrUpcoming } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDuration, initials } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactProfile } from '@/src/types/call';
 
@@ -53,7 +52,8 @@ export function SavedContactsSection({
     authUser,
     isGuest,
     openAuthPrompt,
-    privacyMode,
+    calendarPrefs,
+    openWishComposer,
     importContactProfiles,
     showNotice,
   } = useCalls();
@@ -63,12 +63,15 @@ export function SavedContactsSection({
   const [sortBy, setSortBy] = useState<ContactSort>('name');
   const [visibleCount, setVisibleCount] = useState(CONTACTS_PAGE_SIZE);
   const [addOpen, setAddOpen] = useState(false);
-  const [wishTarget, setWishTarget] = useState<ContactProfile | null>(null);
   const [scheduleTarget, setScheduleTarget] = useState<ContactProfile | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const pickerAvailable = useMemo(() => isContactPickerSupported(), []);
+  const upcomingHoliday = useMemo(
+    () => getHolidaysInGregorianYearOrUpcoming(new Date(), 366, calendarPrefs.defaultLang)[0] ?? null,
+    [calendarPrefs.defaultLang],
+  );
 
   const callSummaryByKey = useMemo(() => {
     const map = new Map<string, { count: number; duration: number }>();
@@ -400,7 +403,7 @@ export function SavedContactsSection({
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
-                          {formatDisplayNameOrPhone(profile.name, profile.number, privacyMode)}
+                          {formatDisplayNameOrPhone(profile.name, profile.number)}
                         </span>
                         {profile.tag && (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-[#FF6A00] shrink-0">
@@ -411,7 +414,7 @@ export function SavedContactsSection({
                       </div>
 
                       <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] break-all">
-                        {maskPhoneNumber(profile.number, privacyMode)} · {detectCarrier(profile.number)}
+                        {profile.number} · {detectCarrier(profile.number)}
                       </p>
 
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
@@ -458,7 +461,7 @@ export function SavedContactsSection({
 
                       {profile.notes && (
                         <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
-                          {maskPrivateText(profile.notes, privacyMode)}
+                          {profile.notes}
                         </p>
                       )}
                     </div>
@@ -475,7 +478,32 @@ export function SavedContactsSection({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setWishTarget(profile)}
+                      onClick={() => {
+                        const isBirthdaySoon = bdayDays !== null && bdayDays <= 7;
+                        openWishComposer({
+                          contactKey: profile.key,
+                          contactName: profile.name || profile.number,
+                          contactNumber: profile.number,
+                          tag: profile.tag,
+                          telegramUsername: profile.telegramUsername,
+                          instagramUsername: profile.instagramUsername,
+                          occasionType: isBirthdaySoon
+                            ? 'birthday'
+                            : upcomingHoliday
+                              ? 'holiday'
+                              : 'reconnect',
+                          occasionKey: isBirthdaySoon
+                            ? 'birthday'
+                            : upcomingHoliday
+                              ? upcomingHoliday.key
+                              : 'reconnect',
+                          occasionName: isBirthdaySoon
+                            ? 'Birthday'
+                            : upcomingHoliday
+                              ? upcomingHoliday.name
+                              : 'Check-in',
+                        });
+                      }}
                       className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
                     >
                       <Sparkles size={13} className="text-[#FF6A00]" />
@@ -513,7 +541,6 @@ export function SavedContactsSection({
       )}
 
       <SavedContactFormModal open={addOpen} onClose={() => setAddOpen(false)} />
-      <QuickWishModal contact={wishTarget} onClose={() => setWishTarget(null)} />
       <QuickScheduleModal contact={scheduleTarget} onClose={() => setScheduleTarget(null)} />
     </div>
   );

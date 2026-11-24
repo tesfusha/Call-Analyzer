@@ -19,7 +19,7 @@ data class NativeCallEntry(
     val number: String,
     val normalizedNumber: String,
     val name: String?,
-    val direction: String, // incoming | outgoing | missed | rejected
+    val direction: String, // incoming | outgoing | missed | rejected | blocked | voicemail
     val sim: String?, // SIM 1 | SIM 2 | null
     val timestamp: Long,
     val duration: Long
@@ -235,6 +235,8 @@ object CallLogReader {
             CallLog.Calls.OUTGOING_TYPE -> "outgoing"
             CallLog.Calls.MISSED_TYPE -> "missed"
             CallLog.Calls.REJECTED_TYPE -> "rejected"
+            CallLog.Calls.BLOCKED_TYPE -> "blocked"
+            CallLog.Calls.VOICEMAIL_TYPE -> "voicemail"
             else -> "incoming"
         }
     }

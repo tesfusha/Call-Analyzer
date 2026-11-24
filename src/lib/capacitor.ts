@@ -58,6 +58,12 @@ export type NativeDeviceBrandInfo = {
   batteryOptimizationIgnored: boolean;
 };
 
+export type InstalledMessagingApps = {
+  whatsapp: boolean;
+  telegram: boolean;
+  instagram: boolean;
+};
+
 type NativeCallLogSyncPlugin = {
   getPermissionStatus?: () => Promise<Partial<NativeCallLogSyncPermissionStatus>>;
   requestPermissions?: () => Promise<Partial<NativeCallLogSyncPermissionStatus>>;
@@ -65,6 +71,7 @@ type NativeCallLogSyncPlugin = {
   openBatteryOptimizationSettings?: () => Promise<{ opened?: boolean }>;
   openAutostartSettings?: () => Promise<{ opened?: boolean }>;
   getDeviceBrandInfo?: () => Promise<Partial<NativeDeviceBrandInfo>>;
+  getInstalledMessagingApps?: () => Promise<Partial<InstalledMessagingApps>>;
   syncCallLog?: (opts?: {
     sinceId?: number;
     beforeId?: number;
@@ -83,10 +90,12 @@ type NativeCallLogSyncPlugin = {
   }>;
   updateMissedCallSettings?: (opts: {
     enabled: boolean;
-    delayMinutes: 5 | 10;
+    delayMinutes: 5 | 7 | 10;
     quietHoursEnabled: boolean;
     quietStartHour: number;
     quietEndHour: number;
+    onlySavedContacts?: boolean;
+    savedNumberKeys?: string[];
   }) => Promise<{ saved?: boolean }>;
   markMissedCallReturned?: (opts: { number: string }) => Promise<{ marked?: boolean }>;
   startListening?: () => Promise<void>;
@@ -127,6 +136,8 @@ export type NotificationMeta = {
   eventId?: string | null;
   muteKey?: string | null;
   wishText?: string | null;
+  occasionType?: 'holiday' | 'birthday' | 'reconnect' | null;
+  occasionKey?: string | null;
 };
 
 export type NotificationActionEvent = NotificationMeta & {
@@ -328,6 +339,9 @@ function normaliseNativeDirection(raw?: string): CallDirection {
   const lower = (raw || '').toLowerCase();
   if (lower === 'incoming') return 'incoming';
   if (lower === 'outgoing') return 'outgoing';
+  if (lower === 'rejected') return 'rejected';
+  if (lower === 'blocked') return 'blocked';
+  if (lower === 'voicemail') return 'voicemail';
   return 'missed';
 }
 
@@ -349,7 +363,7 @@ function mapNativeCallEntries(rawList: NativeCallLogEntry[]): CallRecord[] {
         sim: normaliseNativeSim(item.sim),
         timestamp: Number(item.timestamp) || Date.now(),
         duration: Math.max(0, Math.round(Number(item.duration) || 0)),
-        note: rawDir === 'rejected' ? 'Rejected call' : null,
+        note: null,
         tag: null,
       };
     });
@@ -546,12 +560,34 @@ export async function getNativeDeviceBrandInfo(): Promise<NativeDeviceBrandInfo 
   }
 }
 
+export async function getInstalledMessagingApps(): Promise<InstalledMessagingApps> {
+  if (!isNativeCapacitor()) {
+    return { whatsapp: true, telegram: true, instagram: true };
+  }
+  const plugin = getCapacitor()?.Plugins?.CallLogSync;
+  if (!plugin || typeof plugin.getInstalledMessagingApps !== 'function') {
+    return { whatsapp: true, telegram: true, instagram: true };
+  }
+  try {
+    const res = await plugin.getInstalledMessagingApps();
+    return {
+      whatsapp: Boolean(res?.whatsapp),
+      telegram: Boolean(res?.telegram),
+      instagram: Boolean(res?.instagram),
+    };
+  } catch {
+    return { whatsapp: true, telegram: true, instagram: true };
+  }
+}
+
 export async function updateNativeMissedCallSettings(opts: {
   enabled: boolean;
-  delayMinutes: 5 | 10;
+  delayMinutes: 5 | 7 | 10;
   quietHoursEnabled: boolean;
   quietStartHour: number;
   quietEndHour: number;
+  onlySavedContacts?: boolean;
+  savedNumberKeys?: string[];
 }): Promise<void> {
   const plugin = getCapacitor()?.Plugins?.CallLogSync;
   if (!plugin || typeof plugin.updateMissedCallSettings !== 'function') return;
@@ -702,6 +738,8 @@ export async function showNativeNotification(
       eventId: meta?.eventId ?? null,
       muteKey: meta?.muteKey ?? null,
       wishText: meta?.wishText ?? null,
+      occasionType: meta?.occasionType ?? null,
+      occasionKey: meta?.occasionKey ?? null,
     });
     return true;
   } catch {
@@ -731,6 +769,8 @@ export async function scheduleNativeNotification(
       eventId: meta?.eventId ?? null,
       muteKey: meta?.muteKey ?? null,
       wishText: meta?.wishText ?? null,
+      occasionType: meta?.occasionType ?? null,
+      occasionKey: meta?.occasionKey ?? null,
     });
     return true;
   } catch {

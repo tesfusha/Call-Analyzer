@@ -27,7 +27,6 @@ import {
 import {
   Timestamp,
   collection,
-  deleteField,
   doc,
   getDoc,
   getDocFromServer,
@@ -37,13 +36,6 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-
-const BOOTSTRAPPED_ADMIN_EMAILS = new Set(['tesfutilahun33@gmail.com']);
-
-function isBootstrappedAdminUser(user: User | null | undefined): boolean {
-  if (!user || !user.emailVerified || !user.email) return false;
-  return BOOTSTRAPPED_ADMIN_EMAILS.has(user.email.trim().toLowerCase());
-}
 import {
   type NotificationActionEvent,
   type NotificationMeta,
@@ -71,7 +63,6 @@ import {
 import {
   DEFAULT_RELATIONSHIP_TAGS,
   buildSampleContactProfiles,
-  decodeIfQuotedPrintableText,
   getContactKey,
   getUpcomingContactEvents,
   mergeTagOptions,
@@ -82,10 +73,6 @@ import {
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
 import {
-  DEFAULT_SIM_LABELS,
-  DEFAULT_TARIFFS,
-  DEFAULT_VOICE_BUNDLES,
-  formatCarrierShort,
   normaliseEthPhone,
   type TariffConfig,
 } from '@/src/lib/ethiopia';
@@ -100,7 +87,6 @@ import {
 import {
   buildCallDedupKey,
   buildSampleCalls,
-  makeCallId,
   mergeCallWithoutOverwrite,
   type ParsedImportPackage,
 } from '@/src/lib/import';
@@ -118,27 +104,67 @@ import {
   toEatDateString,
 } from '@/src/lib/gamification';
 import { POINTS_CONFIG } from '@/src/lib/gamificationConstants';
-import { isWithinQuietHours, quietContacts, quietMessage } from '@/src/lib/reminders';
+import {
+  getEatWeekKey,
+  isWithinQuietHours,
+  quietContacts,
+  quietMessage,
+} from '@/src/lib/reminders';
 import {
   clearPinLockoutState,
   formatDisplayNameOrPhone,
   getPinLockoutDelayMs,
   hashPin,
-  maskPhoneNumber,
   readPinLockoutState,
   verifyPin,
   writePinLockoutState,
 } from '@/src/lib/security';
+import { GUIDE_SEEN_KEY, WHATS_NEW_SEEN_KEY } from '@/src/lib/appInfo';
 import {
   clearLegacyUserLocalStorage,
-  getScopedWithLegacyMigration,
   idbClearUser,
   idbDeleteScoped,
+  idbGetScoped,
   idbSetScoped,
   migrateUserLocalStorageToIdb,
+  getScopedWithLegacyMigration,
 } from '@/src/lib/idbStorage';
 import { triggerHaptic, type HapticKind } from '@/src/lib/haptics';
+import {
+  DEFAULT_ALERT_TYPE_PREFS,
+  DEFAULT_CALENDAR_PREFS,
+  DEFAULT_CALLS_TAB_STATE,
+  DEFAULT_RECONNECT_PROGRESS,
+  DEFAULT_REMINDER_PREFS,
+  DEFAULT_SETTINGS_SECTIONS,
+  DEFAULT_SIM_LABELS,
+  DEFAULT_STREAKS,
+  DEFAULT_TARIFFS,
+  DEFAULT_VOICE_BUNDLES,
+} from '@/src/store/defaults';
+import {
+  healCallRecord,
+  healContactProfile,
+  healScheduledCall,
+  sanitizeAlertTypePrefs,
+  sanitizeBadges,
+  sanitizeCalendarPrefs,
+  sanitizeCallsTabState,
+  sanitizeContactMilestones,
+  sanitizeExpandedSettingsSections,
+  sanitizePointsHistory,
+  sanitizeReconnectProgress,
+  sanitizeReminderPrefs,
+  sanitizeSentWishes,
+  sanitizeSimLabels,
+  sanitizeSnoozedQuietUntil,
+  sanitizeStreaks,
+  sanitizeTariffs,
+  sanitizeVoiceBundles,
+  sanitizeWishTemplates,
+} from '@/src/store/sanitizers';
 import type {
+  AlertTypePrefs,
   AuthProviderType,
   BadgeRecord,
   CalendarPrefs,
@@ -150,15 +176,22 @@ import type {
   ContactStreakStatus,
   DailyActiveRecord,
   PointsHistoryEntry,
+  ReconnectProgressRecord,
   RegisteredUserRecord,
   ReminderPrefs,
   ScheduledCall,
+  SentWishRecord,
+  SettingsSectionId,
   SimLabels,
   StreakRecord,
   TabKey,
-  VoiceBundleSlot,
   VoiceBundles,
+  WishChannel,
+  WishComposerContext,
+  WishTemplateMap,
 } from '@/src/types/call';
+
+export { DEFAULT_ALERT_TYPE_PREFS, DEFAULT_CALENDAR_PREFS, DEFAULT_REMINDER_PREFS };
 
 const THEME_KEY = 'callanalyzer.theme.v3';
 const LEGACY_THEME_KEY = 'callanalyzer.theme.v2';
@@ -209,6 +242,11 @@ const SCOPED_SUFFIXES = [
   'pointsHistory',
   'contactMilestones',
   'callsTabState',
+  'wishTemplates',
+  'sentWishes',
+  'snoozedQuietUntil',
+  'reconnectProgress',
+  'expandedSettingsSections',
 ] as const;
 
 function userStorageKey(uid: string, suffix: (typeof SCOPED_SUFFIXES)[number]): string {
@@ -273,21 +311,11 @@ function mapFirebaseAuthError(error: unknown, fallback: string): string {
   }
 }
 
-export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
-  defaultLang: 'english',
-  defaultGeezNumerals: false,
-  dateDisplay: 'ec-first',
-};
+const DEVICE_META_SCOPE = '__device__';
 
-export const DEFAULT_REMINDER_PREFS: ReminderPrefs = {
-  callbackDelayMinutes: 15,
-  missedCallReminderEnabled: true,
-  missedCallReminderDelayMinutes: 5,
-  eventLeadDays: 7,
-  quietContactDays: 30,
-  quietHoursEnabled: false,
-  quietStartHour: 22,
-  quietEndHour: 7,
+type AppSeenMeta = {
+  guideSeen: boolean;
+  whatsNewVersion: string | null;
 };
 
 export type ImportCounts = {
@@ -306,18 +334,6 @@ export type BackupRestoreCounts = {
   scheduledAdded: number;
   tagsAdded: number;
   restoredSections: string[];
-};
-
-const DEFAULT_STREAKS: StreakRecord = {
-  currentStreak: 0,
-  longestStreak: 0,
-  lastActiveDate: null,
-  totalActiveDays: 0,
-};
-
-const DEFAULT_CALLS_TAB_STATE: CallsTabState = {
-  lastOpenedAt: 0,
-  unseenCallIds: [],
 };
 
 export type ScheduleCallInput = {
@@ -358,6 +374,20 @@ type CallsContextValue = {
   simLabels: SimLabels;
   calendarPrefs: CalendarPrefs;
   reminderPrefs: ReminderPrefs;
+  alertTypePrefs: AlertTypePrefs;
+  setAlertTypePrefs: (next: AlertTypePrefs) => void;
+  alertSnoozedDate: string | null;
+  isAlertsSnoozedToday: boolean;
+  snoozeAlertsForToday: () => void;
+  resumeSnoozedAlertsToday: () => void;
+  readAlertKeys: string[];
+  readAlertSet: Set<string>;
+  markAllAlertsRead: (keys: string[]) => void;
+  guideSeen: boolean;
+  whatsNewSeenVersion: string | null;
+  seenMetaReady: boolean;
+  markGuideSeen: () => void;
+  markWhatsNewSeen: (version: string) => void;
   voiceBundles: VoiceBundles;
   theme: ThemeMode;
   themePreference: ThemePreference;
@@ -370,8 +400,7 @@ type CallsContextValue = {
   notificationPermission: NotificationPermissionStatus;
   refreshNotificationPermission: () => Promise<NotificationPermissionStatus>;
   requestAlertPermissions: () => Promise<NotificationPermissionStatus>;
-  sendTestAlertNotification: (customBody?: string) => Promise<boolean>;
-  privacyMode: boolean;
+  sendTestAlertNotification: (customBody?: string, delaySeconds?: number) => Promise<boolean>;
   pinEnabled: boolean;
   isLocked: boolean;
   pinLockoutUntil: number;
@@ -411,8 +440,6 @@ type CallsContextValue = {
   clearAppPin: () => void;
   unlockWithPin: (pin: string) => Promise<boolean>;
   lockApp: () => void;
-  setPrivacyMode: (enabled: boolean) => void;
-  togglePrivacyMode: () => void;
   availableTags: string[];
   customTags: string[];
   streaks: StreakRecord;
@@ -467,6 +494,26 @@ type CallsContextValue = {
   toggleFavorite: (number: string) => void;
   setThemeMode: (mode: ThemePreference) => void;
   toggleTheme: () => void;
+  wishTemplates: WishTemplateMap;
+  sentWishes: SentWishRecord[];
+  snoozedQuietUntil: Record<string, number>;
+  reconnectProgress: ReconnectProgressRecord;
+  expandedSettingsSections: SettingsSectionId[];
+  setExpandedSettingsSections: (sections: SettingsSectionId[]) => void;
+  wishComposerRequest: WishComposerContext | null;
+  openWishComposer: (ctx: WishComposerContext) => void;
+  closeWishComposer: () => void;
+  saveWishTemplate: (templateKey: string, templateText: string) => void;
+  recordWishOpened: (input: {
+    contactKey: string;
+    occasionKey: string;
+    year: number;
+    channel: WishChannel;
+    occasionName?: string;
+    contactName?: string;
+  }) => { awardedPoints: number };
+  snoozeQuietContact: (contactKey: string, durationMs: number | null) => void;
+  recordQuietReconnect: (contactKey: string, contactLabel?: string) => { awardedPoints: number };
 };
 
 const CallsContext = createContext<CallsContextValue | null>(null);
@@ -518,17 +565,24 @@ type ScopedUserSnapshot = {
   simLabels: SimLabels;
   calendarPrefs: CalendarPrefs;
   reminderPrefs: ReminderPrefs;
+  alertTypePrefs: AlertTypePrefs;
+  alertSnoozedDate: string | null;
+  readAlertKeys: string[];
   voiceBundles: VoiceBundles;
   profileName: string;
   userPhotoUrl: string | null;
   notificationsEnabled: boolean;
-  privacyMode: boolean;
   pinHash: string;
   streaks: StreakRecord;
   badges: BadgeRecord[];
   pointsHistory: PointsHistoryEntry[];
   contactMilestones: ContactMilestoneRecord[];
   callsTabState: CallsTabState;
+  wishTemplates: WishTemplateMap;
+  sentWishes: SentWishRecord[];
+  snoozedQuietUntil: Record<string, number>;
+  reconnectProgress: ReconnectProgressRecord;
+  expandedSettingsSections: SettingsSectionId[];
 };
 
 type HydratedScopedUserData = {
@@ -548,159 +602,25 @@ function createEmptySnapshot(): ScopedUserSnapshot {
     simLabels: { ...DEFAULT_SIM_LABELS },
     calendarPrefs: { ...DEFAULT_CALENDAR_PREFS },
     reminderPrefs: { ...DEFAULT_REMINDER_PREFS },
+    alertTypePrefs: { ...DEFAULT_ALERT_TYPE_PREFS },
+    alertSnoozedDate: null,
+    readAlertKeys: [],
     voiceBundles: sanitizeVoiceBundles(DEFAULT_VOICE_BUNDLES),
     profileName: '',
     userPhotoUrl: null,
     notificationsEnabled: true,
-    privacyMode: false,
     pinHash: '',
     streaks: { ...DEFAULT_STREAKS },
     badges: [],
     pointsHistory: [],
     contactMilestones: [],
     callsTabState: { ...DEFAULT_CALLS_TAB_STATE },
+    wishTemplates: {},
+    sentWishes: [],
+    snoozedQuietUntil: {},
+    reconnectProgress: { ...DEFAULT_RECONNECT_PROGRESS, weekKey: getEatWeekKey() },
+    expandedSettingsSections: [...DEFAULT_SETTINGS_SECTIONS],
   };
-}
-
-function sanitizeStreaks(raw: unknown): StreakRecord {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_STREAKS };
-  const obj = raw as Record<string, unknown>;
-  const current = Math.max(0, Math.round(Number(obj.currentStreak) || 0));
-  const longest = Math.max(current, Math.round(Number(obj.longestStreak) || 0));
-  return {
-    currentStreak: current,
-    longestStreak: longest,
-    lastActiveDate:
-      typeof obj.lastActiveDate === 'string' && obj.lastActiveDate.trim()
-        ? obj.lastActiveDate.trim()
-        : null,
-    totalActiveDays:
-      typeof obj.totalActiveDays === 'number' && Number.isFinite(obj.totalActiveDays)
-        ? Math.max(0, Math.round(obj.totalActiveDays))
-        : 0,
-  };
-}
-
-function sanitizeBadges(raw: unknown): BadgeRecord[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((item): item is BadgeRecord => Boolean(item && typeof item === 'object' && typeof (item as BadgeRecord).id === 'string'))
-    .map((item) => ({
-      id: item.id,
-      ...(typeof item.title === 'string' ? { title: item.title } : {}),
-      ...(typeof item.description === 'string' ? { description: item.description } : {}),
-      unlockedAt: Number(item.unlockedAt) || Date.now(),
-    }));
-}
-
-function sanitizePointsHistory(raw: unknown): PointsHistoryEntry[] {
-  if (!Array.isArray(raw)) return [];
-  const byId = new Map<string, PointsHistoryEntry>();
-  raw.forEach((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
-    const rec = item as Partial<PointsHistoryEntry>;
-    if (typeof rec.id !== 'string' || !rec.id.trim()) return;
-    const points = Math.max(0, Math.round(Number(rec.points) || 0));
-    if (points <= 0) return;
-    const timestamp =
-      typeof rec.timestamp === 'number' && Number.isFinite(rec.timestamp) && rec.timestamp > 0
-        ? Math.round(rec.timestamp)
-        : Date.now();
-    const eatDate =
-      typeof rec.eatDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rec.eatDate.trim())
-        ? rec.eatDate.trim()
-        : toEatDateString(timestamp);
-    const reason =
-      rec.reason === 'quick_callback' ||
-      rec.reason === 'call_tag_or_note' ||
-      rec.reason === 'streak_bonus' ||
-      rec.reason === 'contact_milestone'
-        ? rec.reason
-        : 'daily_open';
-    if (!byId.has(rec.id)) {
-      byId.set(rec.id, {
-        id: rec.id,
-        reason,
-        points,
-        label: typeof rec.label === 'string' && rec.label.trim() ? rec.label.trim() : 'Points activity',
-        timestamp,
-        eatDate,
-        ...(typeof rec.meta === 'string' && rec.meta.trim() ? { meta: rec.meta.trim() } : {}),
-      });
-    }
-  });
-  return Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
-}
-
-function sanitizeContactMilestones(raw: unknown): ContactMilestoneRecord[] {
-  if (!Array.isArray(raw)) return [];
-  const byId = new Map<string, ContactMilestoneRecord>();
-  raw.forEach((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
-    const rec = item as Partial<ContactMilestoneRecord>;
-    if (typeof rec.id !== 'string' || !rec.id.trim()) return;
-    if (typeof rec.contactKey !== 'string' || !rec.contactKey.trim()) return;
-    const days = Math.round(Number(rec.days) || 0);
-    if (!Number.isFinite(days) || days < 1) return;
-    const streakStartDate =
-      typeof rec.streakStartDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rec.streakStartDate.trim())
-        ? rec.streakStartDate.trim()
-        : '';
-    const reachedDate =
-      typeof rec.reachedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rec.reachedDate.trim())
-        ? rec.reachedDate.trim()
-        : streakStartDate || toEatDateString();
-    const awardedAt =
-      typeof rec.awardedAt === 'number' && Number.isFinite(rec.awardedAt) && rec.awardedAt > 0
-        ? Math.round(rec.awardedAt)
-        : Date.now();
-    const celebratedAt =
-      typeof rec.celebratedAt === 'number' && Number.isFinite(rec.celebratedAt) && rec.celebratedAt > 0
-        ? Math.round(rec.celebratedAt)
-        : null;
-    if (!byId.has(rec.id)) {
-      byId.set(rec.id, {
-        id: rec.id,
-        contactKey: rec.contactKey,
-        days,
-        streakStartDate: streakStartDate || reachedDate,
-        reachedDate,
-        badgeId:
-          typeof rec.badgeId === 'string' && rec.badgeId.trim()
-            ? rec.badgeId.trim()
-            : `contact_${days}d`,
-        badgeTitle:
-          typeof rec.badgeTitle === 'string' && rec.badgeTitle.trim()
-            ? rec.badgeTitle.trim()
-            : `${days}-Day Milestone`,
-        points: Math.max(0, Math.round(Number(rec.points) || 0)),
-        awardedAt,
-        celebratedAt,
-      });
-    }
-  });
-  return Array.from(byId.values()).sort((a, b) => b.awardedAt - a.awardedAt || b.days - a.days);
-}
-
-function sanitizeCallsTabState(raw: unknown): CallsTabState {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ...DEFAULT_CALLS_TAB_STATE };
-  }
-  const obj = raw as Record<string, unknown>;
-  const lastOpenedAt =
-    typeof obj.lastOpenedAt === 'number' && Number.isFinite(obj.lastOpenedAt) && obj.lastOpenedAt > 0
-      ? Math.round(obj.lastOpenedAt)
-      : 0;
-  const unseenCallIds = Array.isArray(obj.unseenCallIds)
-    ? Array.from(
-        new Set(
-          obj.unseenCallIds.filter(
-            (id): id is string => typeof id === 'string' && id.trim().length > 0,
-          ),
-        ),
-      ).slice(0, 500)
-    : [];
-  return { lastOpenedAt, unseenCallIds };
 }
 
 async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUserData> {
@@ -733,6 +653,20 @@ async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUser
   const rawPointsHistory = pick<PointsHistoryEntry[]>('pointsHistory', []);
   const rawContactMilestones = pick<ContactMilestoneRecord[]>('contactMilestones', []);
   const rawCallsTabState = pick<CallsTabState>('callsTabState', DEFAULT_CALLS_TAB_STATE);
+  const rawAlertTypePrefs = pick<Partial<AlertTypePrefs>>('alertTypePrefs', {});
+  const rawAlertSnoozedDate = pick<string | null>('alertSnoozedDate', null);
+  const rawReadAlertKeys = pick<string[]>('readAlertKeys', []);
+  const rawWishTemplates = pick<WishTemplateMap>('wishTemplates', {});
+  const rawSentWishes = pick<SentWishRecord[]>('sentWishes', []);
+  const rawSnoozedQuietUntil = pick<Record<string, number>>('snoozedQuietUntil', {});
+  const rawReconnectProgress = pick<ReconnectProgressRecord>(
+    'reconnectProgress',
+    DEFAULT_RECONNECT_PROGRESS,
+  );
+  const rawExpandedSections = pick<SettingsSectionId[]>(
+    'expandedSettingsSections',
+    DEFAULT_SETTINGS_SECTIONS,
+  );
   const rawPendingReg = pick<PendingRegistration | null>('pendingRegistration', null);
   const pendingReg =
     rawPendingReg && typeof rawPendingReg === 'object' && typeof rawPendingReg.phone === 'string'
@@ -763,129 +697,38 @@ async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUser
         ...DEFAULT_REMINDER_PREFS,
         ...(pick<Partial<ReminderPrefs>>('reminderPrefs', {}) || {}),
       }),
+      alertTypePrefs: sanitizeAlertTypePrefs(rawAlertTypePrefs),
+      alertSnoozedDate:
+        typeof rawAlertSnoozedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawAlertSnoozedDate)
+          ? rawAlertSnoozedDate
+          : null,
+      readAlertKeys: Array.isArray(rawReadAlertKeys)
+        ? Array.from(
+            new Set(
+              rawReadAlertKeys.filter((k): k is string => typeof k === 'string' && k.trim().length > 0),
+            ),
+          ).slice(0, 600)
+        : [],
       voiceBundles: sanitizeVoiceBundles(
         pick<Partial<VoiceBundles>>('voiceBundles', DEFAULT_VOICE_BUNDLES),
       ),
       profileName: typeof rawProfile === 'string' ? rawProfile : '',
       userPhotoUrl: typeof rawPhoto === 'string' ? rawPhoto : null,
       notificationsEnabled: Boolean(pick<boolean>('notifications', true)),
-      // Always show full phone numbers by default on app start; Privacy Mode is an intentional per-session toggle
-      privacyMode: false,
       pinHash: typeof rawPinHash === 'string' ? rawPinHash : '',
       streaks: sanitizeStreaks(rawStreaks),
       badges: sanitizeBadges(rawBadges),
       pointsHistory: sanitizePointsHistory(rawPointsHistory),
       contactMilestones: sanitizeContactMilestones(rawContactMilestones),
       callsTabState: sanitizeCallsTabState(rawCallsTabState),
+      wishTemplates: sanitizeWishTemplates(rawWishTemplates),
+      sentWishes: sanitizeSentWishes(rawSentWishes),
+      snoozedQuietUntil: sanitizeSnoozedQuietUntil(rawSnoozedQuietUntil),
+      reconnectProgress: sanitizeReconnectProgress(rawReconnectProgress),
+      expandedSettingsSections: sanitizeExpandedSettingsSections(rawExpandedSections),
     },
     pendingReg,
   };
-}
-
-function sanitizeTariffs(t: Partial<TariffConfig> | undefined): TariffConfig {
-  const sim1 = Number(t?.sim1RatePerMin);
-  const sim2 = Number(t?.sim2RatePerMin);
-  const budget = Number(t?.monthlyBudgetEtb);
-  return {
-    sim1RatePerMin: Math.max(0, Math.min(1000, Number.isFinite(sim1) ? sim1 : 0)),
-    sim2RatePerMin: Math.max(0, Math.min(1000, Number.isFinite(sim2) ? sim2 : 0)),
-    billingMode: t?.billingMode === 'per-minute' ? 'per-minute' : 'per-second',
-    monthlyBudgetEtb: Math.max(0, Math.min(1000000, Number.isFinite(budget) ? budget : 0)),
-  };
-}
-
-function sanitizeSimLabels(s: Partial<SimLabels> | undefined): SimLabels {
-  const raw1 = typeof s?.sim1Label === 'string' && s.sim1Label.trim() ? s.sim1Label.trim() : 'SIM 1';
-  const raw2 = typeof s?.sim2Label === 'string' && s.sim2Label.trim() ? s.sim2Label.trim() : 'SIM 2';
-  const label1 = clampStr(formatCarrierShort(raw1) || raw1, 40) || 'SIM 1';
-  const label2 = clampStr(formatCarrierShort(raw2) || raw2, 40) || 'SIM 2';
-  return {
-    sim1Label: label1,
-    sim2Label: label2,
-  };
-}
-
-function sanitizeCalendarPrefs(c: Partial<CalendarPrefs> | undefined): CalendarPrefs {
-  return {
-    defaultLang: c?.defaultLang === 'amharic' ? 'amharic' : 'english',
-    defaultGeezNumerals: Boolean(c?.defaultGeezNumerals),
-    dateDisplay: c?.dateDisplay === 'both' ? 'both' : 'ec-first',
-  };
-}
-
-function sanitizeReminderPrefs(r: Partial<ReminderPrefs> | undefined): ReminderPrefs {
-  const callbackRaw = Number(r?.callbackDelayMinutes);
-  const leadRaw = Number(r?.eventLeadDays);
-  const quietDaysRaw = Number(r?.quietContactDays);
-  const startRaw = Number(r?.quietStartHour);
-  const endRaw = Number(r?.quietEndHour);
-  const rawMissedDelay = Number(r?.missedCallReminderDelayMinutes);
-  return {
-    callbackDelayMinutes: Math.max(
-      5,
-      Math.min(1440, Math.round(Number.isFinite(callbackRaw) && callbackRaw > 0 ? callbackRaw : 15)),
-    ),
-    missedCallReminderEnabled:
-      typeof r?.missedCallReminderEnabled === 'boolean' ? r.missedCallReminderEnabled : true,
-    missedCallReminderDelayMinutes: rawMissedDelay === 10 ? 10 : 5,
-    eventLeadDays: Math.max(
-      0,
-      Math.min(60, Math.round(Number.isFinite(leadRaw) ? leadRaw : 7)),
-    ),
-    quietContactDays: Math.max(
-      3,
-      Math.min(180, Math.round(Number.isFinite(quietDaysRaw) && quietDaysRaw > 0 ? quietDaysRaw : 30)),
-    ),
-    quietHoursEnabled: Boolean(r?.quietHoursEnabled),
-    quietStartHour: Math.max(0, Math.min(23, Number.isFinite(startRaw) ? Math.round(startRaw) : 22)),
-    quietEndHour: Math.max(0, Math.min(23, Number.isFinite(endRaw) ? Math.round(endRaw) : 7)),
-  };
-}
-
-function sanitizeVoiceBundleSlot(slot: Partial<VoiceBundleSlot> | undefined, fallback: VoiceBundleSlot): VoiceBundleSlot {
-  const rawName = typeof slot?.name === 'string' ? slot.name : fallback.name;
-  const rawTotal = Number(slot?.totalMinutes ?? fallback.totalMinutes);
-  const rawPrice = Number(slot?.priceEtb ?? fallback.priceEtb);
-  const rawStarted = Number(slot?.startedAt ?? fallback.startedAt);
-  const rawExpires = Number(slot?.expiresAt ?? fallback.expiresAt);
-  return {
-    enabled: Boolean(slot?.enabled),
-    name: clampStr(rawName.trim(), 60),
-    totalMinutes: Math.max(0, Math.min(100000, Number.isFinite(rawTotal) ? rawTotal : 0)),
-    priceEtb: Math.max(0, Math.min(1000000, Number.isFinite(rawPrice) ? rawPrice : 0)),
-    startedAt: Math.max(0, Math.round(Number.isFinite(rawStarted) ? rawStarted : 0)),
-    expiresAt: Math.max(0, Math.round(Number.isFinite(rawExpires) ? rawExpires : 0)),
-  };
-}
-
-function sanitizeVoiceBundles(vb: Partial<VoiceBundles> | undefined): VoiceBundles {
-  return {
-    sim1: sanitizeVoiceBundleSlot(vb?.sim1, DEFAULT_VOICE_BUNDLES.sim1),
-    sim2: sanitizeVoiceBundleSlot(vb?.sim2, DEFAULT_VOICE_BUNDLES.sim2),
-  };
-}
-
-function healCallRecord(call: CallRecord): CallRecord {
-  const name = call.name ? decodeIfQuotedPrintableText(call.name) : null;
-  const note = call.note ? decodeIfQuotedPrintableText(call.note) : null;
-  const tag = call.tag ? decodeIfQuotedPrintableText(call.tag) : null;
-  if (name === call.name && note === call.note && tag === call.tag) return call;
-  return { ...call, name, note, tag };
-}
-
-function healContactProfile(profile: ContactProfile): ContactProfile {
-  const name = decodeIfQuotedPrintableText(profile.name);
-  const tag = decodeIfQuotedPrintableText(profile.tag);
-  const notes = decodeIfQuotedPrintableText(profile.notes);
-  if (name === profile.name && tag === profile.tag && notes === profile.notes) return profile;
-  return { ...profile, name, tag, notes };
-}
-
-function healScheduledCall(item: ScheduledCall): ScheduledCall {
-  const name = item.name ? decodeIfQuotedPrintableText(item.name) : null;
-  const note = item.note ? decodeIfQuotedPrintableText(item.note) : null;
-  if (name === item.name && note === item.note) return item;
-  return { ...item, name, note };
 }
 
 export function CallsProvider({ children }: { children: ReactNode }) {
@@ -903,6 +746,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [reminderPrefs, setReminderPrefsState] = useState<ReminderPrefs>({
     ...DEFAULT_REMINDER_PREFS,
   });
+  const [alertTypePrefs, setAlertTypePrefsState] = useState<AlertTypePrefs>({
+    ...DEFAULT_ALERT_TYPE_PREFS,
+  });
+  const [alertSnoozedDate, setAlertSnoozedDate] = useState<string | null>(null);
+  const [readAlertKeys, setReadAlertKeys] = useState<string[]>([]);
+  const [todayEat, setTodayEat] = useState<string>(() => toEatDateString());
+  const [seenMetaReady, setSeenMetaReady] = useState<boolean>(false);
+  const [guideSeen, setGuideSeen] = useState<boolean>(false);
+  const [whatsNewSeenVersion, setWhatsNewSeenVersion] = useState<string | null>(null);
   const [voiceBundles, setVoiceBundlesState] = useState<VoiceBundles>(() =>
     sanitizeVoiceBundles(DEFAULT_VOICE_BUNDLES),
   );
@@ -911,6 +763,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [pointsHistory, setPointsHistoryState] = useState<PointsHistoryEntry[]>([]);
   const [contactMilestones, setContactMilestonesState] = useState<ContactMilestoneRecord[]>([]);
   const [callsTabState, setCallsTabState] = useState<CallsTabState>({ ...DEFAULT_CALLS_TAB_STATE });
+  const [wishTemplates, setWishTemplatesState] = useState<WishTemplateMap>({});
+  const [sentWishes, setSentWishesState] = useState<SentWishRecord[]>([]);
+  const [snoozedQuietUntil, setSnoozedQuietUntilState] = useState<Record<string, number>>({});
+  const [reconnectProgress, setReconnectProgressState] = useState<ReconnectProgressRecord>(() => ({
+    ...DEFAULT_RECONNECT_PROGRESS,
+    weekKey: getEatWeekKey(),
+  }));
+  const [expandedSettingsSections, setExpandedSettingsSectionsState] = useState<SettingsSectionId[]>(
+    () => [...DEFAULT_SETTINGS_SECTIONS],
+  );
+  const [wishComposerRequest, setWishComposerRequest] = useState<WishComposerContext | null>(null);
   const [sessionNewCallIdsList, setSessionNewCallIdsList] = useState<string[]>([]);
   const prevCallsTabOpenedAtRef = useRef<number>(0);
   const callsTabActiveRef = useRef<boolean>(true);
@@ -1012,7 +875,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [notificationsEnabled, setNotificationsEnabledState] = useState<boolean>(true);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionStatus>('prompt');
-  const [privacyMode, setPrivacyModeState] = useState<boolean>(false);
   const [pinHash, setPinHash] = useState<string>('');
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [pinLockoutUntil, setPinLockoutUntil] = useState<number>(0);
@@ -1076,17 +938,24 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     simLabels,
     calendarPrefs,
     reminderPrefs,
+    alertTypePrefs,
+    alertSnoozedDate,
+    readAlertKeys,
     voiceBundles,
     theme,
     profileName,
     userPhotoUrl,
     notificationsEnabled,
-    privacyMode,
     streaks,
     badges,
     pointsHistory,
     contactMilestones,
     callsTabState,
+    wishTemplates,
+    sentWishes,
+    snoozedQuietUntil,
+    reconnectProgress,
+    expandedSettingsSections,
   });
 
   useEffect(() => {
@@ -1101,17 +970,24 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       simLabels,
       calendarPrefs,
       reminderPrefs,
+      alertTypePrefs,
+      alertSnoozedDate,
+      readAlertKeys,
       voiceBundles,
       theme,
       profileName,
       userPhotoUrl,
       notificationsEnabled,
-      privacyMode,
       streaks,
       badges,
       pointsHistory,
       contactMilestones,
       callsTabState,
+      wishTemplates,
+      sentWishes,
+      snoozedQuietUntil,
+      reconnectProgress,
+      expandedSettingsSections,
     };
   }, [
     calls,
@@ -1124,17 +1000,24 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     simLabels,
     calendarPrefs,
     reminderPrefs,
+    alertTypePrefs,
+    alertSnoozedDate,
+    readAlertKeys,
     voiceBundles,
     theme,
     profileName,
     userPhotoUrl,
     notificationsEnabled,
-    privacyMode,
     streaks,
     badges,
     pointsHistory,
     contactMilestones,
     callsTabState,
+    wishTemplates,
+    sentWishes,
+    snoozedQuietUntil,
+    reconnectProgress,
+    expandedSettingsSections,
   ]);
 
   useEffect(() => {
@@ -1179,11 +1062,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setSimLabelsState(snap.simLabels);
     setCalendarPrefsState(snap.calendarPrefs);
     setReminderPrefsState(snap.reminderPrefs);
+    setAlertTypePrefsState(snap.alertTypePrefs);
+    setAlertSnoozedDate(snap.alertSnoozedDate);
+    setReadAlertKeys(snap.readAlertKeys);
     setVoiceBundlesState(snap.voiceBundles);
     setProfileNameState(snap.profileName);
     setUserPhotoUrlState(snap.userPhotoUrl);
     setNotificationsEnabledState(snap.notificationsEnabled);
-    setPrivacyModeState(snap.privacyMode);
     setPinHash(snap.pinHash);
     setIsLocked(Boolean(snap.pinHash));
     setStreaksState(snap.streaks);
@@ -1191,6 +1076,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setPointsHistoryState(snap.pointsHistory);
     setContactMilestonesState(snap.contactMilestones);
     setCallsTabState(snap.callsTabState);
+    setWishTemplatesState(snap.wishTemplates);
+    setSentWishesState(snap.sentWishes);
+    setSnoozedQuietUntilState(snap.snoozedQuietUntil);
+    setReconnectProgressState(snap.reconnectProgress);
+    setExpandedSettingsSectionsState(snap.expandedSettingsSections);
     prevCallsTabOpenedAtRef.current = snap.callsTabState.lastOpenedAt;
     setSessionNewCallIdsList(snap.callsTabState.unseenCallIds);
     stateRef.current = {
@@ -1204,17 +1094,24 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       simLabels: snap.simLabels,
       calendarPrefs: snap.calendarPrefs,
       reminderPrefs: snap.reminderPrefs,
+      alertTypePrefs: snap.alertTypePrefs,
+      alertSnoozedDate: snap.alertSnoozedDate,
+      readAlertKeys: snap.readAlertKeys,
       voiceBundles: snap.voiceBundles,
       theme: stateRef.current.theme,
       profileName: snap.profileName,
       userPhotoUrl: snap.userPhotoUrl,
       notificationsEnabled: snap.notificationsEnabled,
-      privacyMode: snap.privacyMode,
       streaks: snap.streaks,
       badges: snap.badges,
       pointsHistory: snap.pointsHistory,
       contactMilestones: snap.contactMilestones,
       callsTabState: snap.callsTabState,
+      wishTemplates: snap.wishTemplates,
+      sentWishes: snap.sentWishes,
+      snoozedQuietUntil: snap.snoozedQuietUntil,
+      reconnectProgress: snap.reconnectProgress,
+      expandedSettingsSections: snap.expandedSettingsSections,
     };
   }, []);
 
@@ -1301,7 +1198,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       void idbSetScoped(hydratedUid, 'notifications', notificationsEnabled);
     }
   }, [notificationsEnabled, hydratedUid]);
-  // Privacy Mode is intentionally session-only so full phone numbers are always shown on app open.
   useEffect(() => {
     if (canPersistScoped(hydratedUid)) {
       void idbSetScoped(hydratedUid, 'streaks', streaks);
@@ -1327,6 +1223,106 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       void idbSetScoped(hydratedUid, 'callsTabState', callsTabState);
     }
   }, [callsTabState, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'alertTypePrefs', alertTypePrefs);
+    }
+  }, [alertTypePrefs, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'alertSnoozedDate', alertSnoozedDate);
+    }
+  }, [alertSnoozedDate, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'readAlertKeys', readAlertKeys);
+    }
+  }, [readAlertKeys, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'wishTemplates', wishTemplates);
+    }
+  }, [wishTemplates, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'sentWishes', sentWishes);
+    }
+  }, [sentWishes, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'snoozedQuietUntil', snoozedQuietUntil);
+    }
+  }, [snoozedQuietUntil, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'reconnectProgress', reconnectProgress);
+    }
+  }, [reconnectProgress, hydratedUid]);
+  useEffect(() => {
+    if (canPersistScoped(hydratedUid)) {
+      void idbSetScoped(hydratedUid, 'expandedSettingsSections', expandedSettingsSections);
+    }
+  }, [expandedSettingsSections, hydratedUid]);
+
+  // Keep EAT today date fresh so "Snooze for today" automatically resets at EAT midnight
+  useEffect(() => {
+    const syncToday = () => setTodayEat(toEatDateString());
+    syncToday();
+    const intervalId = window.setInterval(syncToday, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncToday();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  // Load & migrate Guide / What's New seen flags from IndexedDB (and legacy localStorage)
+  useEffect(() => {
+    let cancelled = false;
+    const hydrateSeenMeta = async () => {
+      try {
+        const stored = await idbGetScoped<AppSeenMeta>(DEVICE_META_SCOPE, 'appSeenMeta');
+        let legacyGuide = false;
+        let legacyWhatsNew: string | null = null;
+        try {
+          legacyGuide = localStorage.getItem(GUIDE_SEEN_KEY) === '1';
+          const v = localStorage.getItem(WHATS_NEW_SEEN_KEY);
+          if (v && v.trim()) legacyWhatsNew = v.trim();
+        } catch {
+          // ignore localStorage errors
+        }
+        const resolved: AppSeenMeta = {
+          guideSeen: Boolean(stored?.guideSeen || legacyGuide),
+          whatsNewVersion: stored?.whatsNewVersion || legacyWhatsNew || null,
+        };
+        if (
+          !stored ||
+          stored.guideSeen !== resolved.guideSeen ||
+          stored.whatsNewVersion !== resolved.whatsNewVersion
+        ) {
+          await idbSetScoped(DEVICE_META_SCOPE, 'appSeenMeta', resolved);
+        }
+        if (legacyGuide) removeStorageKey(GUIDE_SEEN_KEY);
+        if (legacyWhatsNew) removeStorageKey(WHATS_NEW_SEEN_KEY);
+        if (!cancelled) {
+          setGuideSeen(resolved.guideSeen);
+          setWhatsNewSeenVersion(resolved.whatsNewVersion);
+          setSeenMetaReady(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSeenMetaReady(true);
+        }
+      }
+    };
+    void hydrateSeenMeta();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!noticeState) return;
@@ -1456,7 +1452,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         termsAccepted: boolean;
         termsAcceptedAt: number | null;
         notificationsEnabled: boolean;
-        privacyMode: boolean;
         tariffs: TariffConfig;
         simLabels: SimLabels;
         calendarPrefs: CalendarPrefs;
@@ -1505,7 +1500,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             : {}),
           theme: safeTheme,
           notificationsEnabled: Boolean(overrides?.notificationsEnabled ?? s.notificationsEnabled),
-          privacyMode: false,
           tariffs: sanitizeTariffs(overrides?.tariffs ?? s.tariffs),
           simLabels: sanitizeSimLabels(overrides?.simLabels ?? s.simLabels),
           calendarPrefs: sanitizeCalendarPrefs(overrides?.calendarPrefs ?? s.calendarPrefs),
@@ -1687,10 +1681,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
 
       const uid = user.uid;
-      const bootstrappedAdmin = isBootstrappedAdminUser(user);
       hydratedUidRef.current = null;
       setHydratedUid(null);
-      updateAdminState(bootstrappedAdmin);
+      updateAdminState(false);
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -1738,22 +1731,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       });
       workspaceReadyRef.current = { uid, promise: readyPromise };
 
-      // Recognize bootstrapped owner admin immediately and verify /admins/{uid} allowlist from server
-      if (!bootstrappedAdmin) {
-        const adminDocRef = doc(db, 'admins', uid);
-        void getDocFromServer(adminDocRef)
-          .catch(() => getDoc(adminDocRef))
-          .then((adminSnap) => {
-            if (!cancelled && myRun === activeRun) {
-              updateAdminState(adminSnap.exists());
-            }
-          })
-          .catch(() => {
-            if (!cancelled && myRun === activeRun) {
-              updateAdminState(false);
-            }
-          });
-      }
+      // Verify /admins/{uid} allowlist from Firestore server
+      const adminDocRef = doc(db, 'admins', uid);
+      void getDocFromServer(adminDocRef)
+        .catch(() => getDoc(adminDocRef))
+        .then((adminSnap) => {
+          if (!cancelled && myRun === activeRun) {
+            updateAdminState(adminSnap.exists());
+          }
+        })
+        .catch(() => {
+          if (!cancelled && myRun === activeRun) {
+            updateAdminState(false);
+          }
+        });
 
       let currentOp: OperationType = OperationType.GET;
       let currentPath = `users/${uid}`;
@@ -1809,7 +1800,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             typeof data.notificationsEnabled === 'boolean'
               ? data.notificationsEnabled
               : local.notificationsEnabled;
-          const nextPrivacy = false;
           const nextTariffs =
             data.tariffs && typeof data.tariffs === 'object'
               ? sanitizeTariffs(data.tariffs as TariffConfig)
@@ -1846,6 +1836,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             (typeof data.termsAcceptedAt === 'number' ? data.termsAcceptedAt : null);
           const hasLegacyFields =
             Object.prototype.hasOwnProperty.call(data, 'passwordHint') ||
+            Object.prototype.hasOwnProperty.call(data, 'privacyMode') ||
             Object.prototype.hasOwnProperty.call(data, 'favorites') ||
             Object.prototype.hasOwnProperty.call(data, 'dismissedMissedIds') ||
             Object.prototype.hasOwnProperty.call(data, 'mutedAlertKeys');
@@ -1864,7 +1855,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           }
           if (nextName) setProfileNameState(nextName);
           setNotificationsEnabledState(nextNotifs);
-          setPrivacyModeState(nextPrivacy);
           setTariffsState(nextTariffs);
           setSimLabelsState(nextSimLabels);
           setCalendarPrefsState(nextCalPrefs);
@@ -1881,18 +1871,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             profileName: nextName || stateRef.current.profileName,
             userPhotoUrl: resolvedPhotoURL,
             notificationsEnabled: nextNotifs,
-            privacyMode: nextPrivacy,
           };
 
           if (Boolean(pendingReg) || hasLegacyFields) {
             currentOp = OperationType.UPDATE;
             currentPath = `users/${uid}`;
-            if (Object.prototype.hasOwnProperty.call(data, 'passwordHint')) {
-              await updateDoc(userDocRef, {
-                passwordHint: deleteField(),
-                syncedAt: serverTimestamp(),
-              }).catch(() => {});
-            }
             await persistWorkspaceToCloud(user, {
               theme: nextTheme,
               profileName: nextName,
@@ -1901,7 +1884,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               ...(typeof resolvedTerms === 'boolean' ? { termsAccepted: resolvedTerms } : {}),
               termsAcceptedAt: resolvedTermsAt,
               notificationsEnabled: nextNotifs,
-              privacyMode: nextPrivacy,
               tariffs: nextTariffs,
               simLabels: nextSimLabels,
               calendarPrefs: nextCalPrefs,
@@ -2110,12 +2092,50 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   );
 
   const sendTestAlertNotification = useCallback(
-    async (customBody?: string): Promise<boolean> => {
+    async (customBody?: string, delaySeconds = 0): Promise<boolean> => {
       const status = await requestAlertPermissions();
       if (status !== 'granted') return false;
       const body =
         customBody?.trim() ||
-        'Callback reminders, missed call alerts, and Ethiopian holiday wishes are active.';
+        'Missed call 7 minutes ago · Tap to call back or view details.';
+      if (delaySeconds > 0) {
+        const triggerAt = Date.now() + Math.round(delaySeconds * 1000);
+        if (isNativeCapacitor() && hasNativeNotificationsPlugin()) {
+          const scheduled = await scheduleNativeNotification(
+            `test-alert-${triggerAt}`,
+            'Test Contact',
+            body,
+            triggerAt,
+            {
+              category: 'schedule',
+              number: '0911000000',
+              contactKey: '911000000',
+              muteKey: 'test-alert',
+            },
+          );
+          if (scheduled) {
+            showNotice(
+              `Test notification scheduled in ${Math.round(delaySeconds)}s — you can close the app to test.`,
+              'success',
+            );
+            return true;
+          }
+        }
+        window.setTimeout(() => {
+          void deliverSystemNotification(`test-alert-${triggerAt}`, 'Test Contact', body, {
+            category: 'schedule',
+            number: '0911000000',
+            contactKey: '911000000',
+            muteKey: 'test-alert',
+          });
+        }, Math.round(delaySeconds * 1000));
+        showNotice(
+          `Test notification scheduled in ${Math.round(delaySeconds)}s.`,
+          'success',
+        );
+        return true;
+      }
+
       const sent = await deliverSystemNotification('test-alert', 'Call Analyzer - ETH', body, {
         category: 'other',
         muteKey: 'test-alert',
@@ -2130,7 +2150,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [deliverSystemNotification, requestAlertPermissions, showNotice],
   );
 
-  // Periodically check due scheduled calls and fire alerts respecting Quiet Hours & Muted keys
+  const isAlertsSnoozedToday = useMemo(
+    () => Boolean(alertSnoozedDate && alertSnoozedDate === todayEat),
+    [alertSnoozedDate, todayEat],
+  );
+
+  // Trigger callback reminders (toast + system notification) when scheduled time arrives
   useEffect(() => {
     const mutedSet = new Set(mutedAlertKeys);
     const checkDue = () => {
@@ -2147,6 +2172,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const updatedMap = new Map(updatedItems.map((i) => [i.id, i]));
       setScheduledCalls((prev) => prev.map((item) => updatedMap.get(item.id) ?? item));
 
+      if (!alertTypePrefs.scheduledCalls || isAlertsSnoozedToday) return;
+
       const first = dueUnnotified.find(
         (item) =>
           !mutedSet.has(`sched:${item.id}`) &&
@@ -2154,16 +2181,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       );
       if (!first) return;
 
-      const privacy = stateRef.current.privacyMode;
-      const label = formatDisplayNameOrPhone(first.name, first.number, privacy);
-      const maskedNumber = maskPhoneNumber(first.number, privacy);
+      const label = formatDisplayNameOrPhone(first.name, first.number);
       showNotice(`Scheduled call reminder: ${label}`);
 
       if (notificationsEnabled && !isWithinQuietHours(reminderPrefs)) {
         void deliverSystemNotification(
           first.id,
           `Call reminder: ${label}`,
-          first.note?.trim() || `Scheduled call to ${maskedNumber}`,
+          first.note?.trim() || `Scheduled call to ${first.number}`,
           {
             category: 'schedule',
             number: first.number,
@@ -2183,21 +2208,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     mutedAlertKeys,
     notificationsEnabled,
     reminderPrefs,
+    alertTypePrefs.scheduledCalls,
+    isAlertsSnoozedToday,
     showNotice,
     deliverSystemNotification,
   ]);
 
-  // Daily check for Birthday today, Ethiopian Holiday today, and Quiet contacts (respecting Mute)
+  // Daily check for Birthday today, Ethiopian Holiday today, and Quiet contacts (respecting Mute, Switches & Today Snooze)
   useEffect(() => {
     if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
-    if (!notificationsEnabled || isWithinQuietHours(reminderPrefs)) return;
+    if (!notificationsEnabled || isWithinQuietHours(reminderPrefs) || isAlertsSnoozedToday) return;
 
     const uid = authUser.uid;
     let effectCancelled = false;
     const now = new Date();
-    const todayIso = now.toISOString().slice(0, 10);
-    const dailySuffix = `dailyAlerts.${todayIso}`;
-    const cacheKey = `${uid}:${todayIso}`;
+    const todayDateEat = toEatDateString(now.getTime());
+    const dailySuffix = `dailyAlerts.${todayDateEat}`;
+    const cacheKey = `${uid}:${todayDateEat}`;
 
     const runDailyAlerts = async () => {
       const stored = await getScopedWithLegacyMigration<string[]>(uid, dailySuffix, []);
@@ -2215,75 +2242,101 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const newlySent: string[] = [];
 
       // 1. Contact Birthdays / Special Events today
-      const todaysEvents = getUpcomingContactEvents(contacts, calls, 0).filter((e) => e.isToday);
-      for (const evt of todaysEvents.slice(0, 2)) {
-        const muteKey = `bday:${evt.contactKey}`;
-        const idKey = `daily-bday-${evt.id}-${todayIso}`;
-        if (mutedSet.has(muteKey) || alreadySent.has(idKey)) continue;
-        newlySent.push(idKey);
-        const wishText = buildBirthdayWish(evt.name, evt.title, evt.tag);
-        void deliverSystemNotification(
-          idKey,
-          `${evt.title} today: ${evt.name}`,
-          `Send a birthday wish or call ${evt.name} today.`,
-          {
-            category: 'birthday',
-            number: evt.number,
-            contactKey: evt.contactKey,
-            eventId: evt.id,
-            muteKey,
-            wishText,
-          },
-        );
-      }
-
-      // 2. Ethiopian Holiday today
-      const todaysHoliday = getHolidaysInGregorianYearOrUpcoming(
-        now,
-        0,
-        calendarPrefs.defaultLang,
-      ).find((h) => h.isToday);
-      if (todaysHoliday) {
-        const muteKey = `holiday:${todaysHoliday.key}`;
-        const idKey = `daily-holiday-${todaysHoliday.key}-${todayIso}`;
-        if (!mutedSet.has(muteKey) && !alreadySent.has(idKey)) {
+      if (alertTypePrefs.birthdays) {
+        const todaysEvents = getUpcomingContactEvents(contacts, calls, 0).filter((e) => e.isToday);
+        for (const evt of todaysEvents.slice(0, 2)) {
+          const muteKey = `bday:${evt.contactKey}`;
+          const idKey = `daily-bday-${evt.id}-${todayDateEat}`;
+          if (mutedSet.has(muteKey) || alreadySent.has(idKey)) continue;
           newlySent.push(idKey);
+          const wishText = buildBirthdayWish(
+            evt.name,
+            evt.title,
+            evt.tag,
+            calendarPrefs.defaultLang,
+          );
           void deliverSystemNotification(
             idKey,
-            `Happy ${todaysHoliday.name}!`,
-            todaysHoliday.description || 'Send Ethiopian holiday wishes to your contacts.',
+            `${evt.title} today: ${evt.name}`,
+            `Send a birthday wish or call ${evt.name} today.`,
             {
-              category: 'holiday',
-              eventId: todaysHoliday.key,
+              category: 'birthday',
+              number: evt.number,
+              contactKey: evt.contactKey,
+              eventId: evt.id,
               muteKey,
-              wishText: buildHolidayWish(todaysHoliday.name, 'friend'),
+              wishText,
+              occasionType: 'birthday',
+              occasionKey: evt.id,
             },
           );
         }
       }
 
-      // 3. Top Quiet Contact (5+ calls in 30 days & gone quiet)
-      const quiet = quietContacts(calls, now, reminderPrefs.quietContactDays);
-      const topQuiet = quiet.find((q) => !mutedSet.has(`quiet:${getContactKey(q.number)}`));
-      if (topQuiet) {
-        const cKey = getContactKey(topQuiet.number);
-        const muteKey = `quiet:${cKey}`;
-        const idKey = `daily-quiet-${cKey}-${todayIso}`;
-        if (!alreadySent.has(idKey)) {
-          newlySent.push(idKey);
-          const privacy = stateRef.current.privacyMode;
-          const quietLabel = formatDisplayNameOrPhone(topQuiet.name, topQuiet.number, privacy);
-          void deliverSystemNotification(
-            idKey,
-            `Check in with ${quietLabel}`,
-            quietMessage(topQuiet, privacy),
-            {
-              category: 'other',
-              number: topQuiet.number,
-              contactKey: cKey,
-              muteKey,
-            },
-          );
+      // 2. Ethiopian Holiday today
+      if (alertTypePrefs.holidays) {
+        const todaysHoliday = getHolidaysInGregorianYearOrUpcoming(
+          now,
+          0,
+          calendarPrefs.defaultLang,
+        ).find((h) => h.isToday);
+        if (todaysHoliday) {
+          const muteKey = `holiday:${todaysHoliday.key}`;
+          const idKey = `daily-holiday-${todaysHoliday.key}-${todayDateEat}`;
+          if (!mutedSet.has(muteKey) && !alreadySent.has(idKey)) {
+            newlySent.push(idKey);
+            void deliverSystemNotification(
+              idKey,
+              `Happy ${todaysHoliday.name}!`,
+              todaysHoliday.description || 'Send Ethiopian holiday wishes to your contacts.',
+              {
+                category: 'holiday',
+                eventId: todaysHoliday.key,
+                muteKey,
+                wishText: buildHolidayWish(
+                  todaysHoliday.name,
+                  'friend',
+                  undefined,
+                  calendarPrefs.defaultLang,
+                ),
+                occasionType: 'holiday',
+                occasionKey: todaysHoliday.key,
+              },
+            );
+          }
+        }
+      }
+
+      // 3. Top Quiet Contact
+      if (alertTypePrefs.quietContacts) {
+        const quiet = quietContacts(calls, now, reminderPrefs.quietContactDays);
+        const nowMs = now.getTime();
+        const topQuiet = quiet.find((q) => {
+          const key = getContactKey(q.number);
+          const snoozedUntil = stateRef.current.snoozedQuietUntil[key] ?? 0;
+          return !mutedSet.has(`quiet:${key}`) && snoozedUntil <= nowMs;
+        });
+        if (topQuiet) {
+          const cKey = getContactKey(topQuiet.number);
+          const muteKey = `quiet:${cKey}`;
+          const idKey = `daily-quiet-${cKey}-${todayDateEat}`;
+          if (!alreadySent.has(idKey)) {
+            newlySent.push(idKey);
+            const quietLabel = formatDisplayNameOrPhone(topQuiet.name, topQuiet.number);
+            void deliverSystemNotification(
+              idKey,
+              `Check in with ${quietLabel}`,
+              quietMessage(topQuiet),
+              {
+                category: 'other',
+                number: topQuiet.number,
+                contactKey: cKey,
+                muteKey,
+                occasionType: 'reconnect',
+                occasionKey: `reconnect:${cKey}`,
+              },
+            );
+          }
         }
       }
 
@@ -2307,6 +2360,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     mutedAlertKeys,
     notificationsEnabled,
     reminderPrefs,
+    alertTypePrefs,
+    isAlertsSnoozedToday,
     deliverSystemNotification,
   ]);
 
@@ -2591,7 +2646,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const fetchRegisteredUsers = useCallback(async (): Promise<RegisteredUserRecord[]> => {
     const user = auth.currentUser;
-    if (!user || !user.emailVerified || (!isAdminRef.current && !isBootstrappedAdminUser(user))) {
+    if (!user || !user.emailVerified || !isAdminRef.current) {
       return [];
     }
     const path = 'userRegistry';
@@ -2629,7 +2684,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const fetchDailyActiveRecords = useCallback(async (): Promise<DailyActiveRecord[]> => {
     const user = auth.currentUser;
-    if (!user || !user.emailVerified || (!isAdminRef.current && !isBootstrappedAdminUser(user))) {
+    if (!user || !user.emailVerified || !isAdminRef.current) {
       return [];
     }
     const path = 'dailyActive';
@@ -2748,29 +2803,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     triggerHaptic('tap');
     setIsLocked(true);
   }, [pinHash, showNotice]);
-
-  const setPrivacyMode = useCallback(
-    (enabled: boolean) => {
-      if (isGuestRef.current && !auth.currentUser) {
-        setPrivacyModeState(enabled);
-        showNotice(
-          enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off — full numbers shown.',
-        );
-        return;
-      }
-      const user = requireSignedInUser();
-      if (!user) return;
-      setPrivacyModeState(enabled);
-      showNotice(
-        enabled ? 'Privacy mode on — numbers and notes masked.' : 'Privacy mode off — full numbers shown.',
-      );
-    },
-    [requireSignedInUser, showNotice],
-  );
-
-  const togglePrivacyMode = useCallback(() => {
-    setPrivacyMode(!stateRef.current.privacyMode);
-  }, [setPrivacyMode]);
 
   // Internal addCall workhorse used by both native Android sync and file/backup imports.
   // Deduplicates by normalized number + timestamp + duration (and ID) and merges
@@ -3029,6 +3061,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             latestNewMissed &&
             lastSince > 0 &&
             notificationsEnabled &&
+            reminderPrefs.missedCallReminderEnabled &&
+            stateRef.current.alertTypePrefs.missedCalls &&
+            stateRef.current.alertSnoozedDate !== toEatDateString() &&
             !isWithinQuietHours(reminderPrefs)
           ) {
             const cKey = getContactKey(latestNewMissed.number);
@@ -3076,23 +3111,33 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [runPhoneCallSync],
   );
 
-  // Sync missed-call reminder preferences (toggle, 5/10 min delay, quiet hours) to native Android CallLogSync
+  // Sync missed-call reminder preferences (toggle, 5/7/10 min delay, saved-contacts filter, quiet hours) to native Android CallLogSync
   useEffect(() => {
     if (!isNativeCapacitor() || !hasNativeCallLogSyncPlugin()) return;
     void updateNativeMissedCallSettings({
-      enabled: notificationsEnabled && reminderPrefs.missedCallReminderEnabled,
+      enabled:
+        notificationsEnabled &&
+        reminderPrefs.missedCallReminderEnabled &&
+        alertTypePrefs.missedCalls &&
+        !isAlertsSnoozedToday,
       delayMinutes: reminderPrefs.missedCallReminderDelayMinutes,
       quietHoursEnabled: reminderPrefs.quietHoursEnabled,
       quietStartHour: reminderPrefs.quietStartHour,
       quietEndHour: reminderPrefs.quietEndHour,
+      onlySavedContacts: Boolean(reminderPrefs.onlySavedContactsReminder),
+      savedNumberKeys: Array.from(new Set(Object.keys(contacts))).slice(0, 5000),
     });
   }, [
     notificationsEnabled,
     reminderPrefs.missedCallReminderEnabled,
     reminderPrefs.missedCallReminderDelayMinutes,
+    reminderPrefs.onlySavedContactsReminder,
     reminderPrefs.quietHoursEnabled,
     reminderPrefs.quietStartHour,
     reminderPrefs.quietEndHour,
+    alertTypePrefs.missedCalls,
+    isAlertsSnoozedToday,
+    contacts,
   ]);
 
   // Auto-sync real-time Android call logs when running inside Capacitor with CallLogSync / CallLog installed
@@ -3168,6 +3213,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             birthday: item.birthday ?? existing.birthday,
             events: mergedEvents,
             notes: item.notes || existing.notes,
+            telegramUsername: existing.telegramUsername || item.telegramUsername || undefined,
+            instagramUsername: existing.instagramUsername || item.instagramUsername || undefined,
             updatedAt: Date.now(),
           });
           nextMap[key] = merged;
@@ -3262,12 +3309,16 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             const nextTag = existing.tag.trim() ? existing.tag : item.tag;
             const nextNotes = existing.notes.trim() ? existing.notes : item.notes;
             const nextBirthday = existing.birthday ?? item.birthday;
+            const nextTelegram = existing.telegramUsername || item.telegramUsername || undefined;
+            const nextInstagram = existing.instagramUsername || item.instagramUsername || undefined;
 
             if (
               nextName !== existing.name ||
               nextTag !== existing.tag ||
               nextNotes !== existing.notes ||
               nextBirthday !== existing.birthday ||
+              nextTelegram !== existing.telegramUsername ||
+              nextInstagram !== existing.instagramUsername ||
               mergedEvents.length !== existing.events.length
             ) {
               contactsUpdated += 1;
@@ -3278,6 +3329,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
                 notes: nextNotes,
                 birthday: nextBirthday,
                 events: mergedEvents,
+                telegramUsername: nextTelegram,
+                instagramUsername: nextInstagram,
                 updatedAt: Date.now(),
               });
               mergedContactsMap[key] = updatedProfile;
@@ -3372,6 +3425,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           setReminderPrefsState(cleanRem);
           workspaceOverrides.reminderPrefs = cleanRem;
         }
+        if (pkg.settings.alertTypePrefs) {
+          const cleanAlertTypes = sanitizeAlertTypePrefs(pkg.settings.alertTypePrefs);
+          setAlertTypePrefsState(cleanAlertTypes);
+        }
         if (pkg.settings.voiceBundles) {
           const cleanBundles = sanitizeVoiceBundles(pkg.settings.voiceBundles);
           setVoiceBundlesState(cleanBundles);
@@ -3380,10 +3437,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         if (typeof pkg.settings.notificationsEnabled === 'boolean') {
           setNotificationsEnabledState(pkg.settings.notificationsEnabled);
           workspaceOverrides.notificationsEnabled = pkg.settings.notificationsEnabled;
-        }
-        if (typeof pkg.settings.privacyMode === 'boolean') {
-          setPrivacyModeState(pkg.settings.privacyMode);
-          workspaceOverrides.privacyMode = pkg.settings.privacyMode;
         }
         if (pkg.settings.themePreference) {
           setThemePreferenceState(pkg.settings.themePreference);
@@ -3401,6 +3454,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         if (pkg.settings.profileName && !stateRef.current.profileName.trim()) {
           setProfileNameState(pkg.settings.profileName);
           workspaceOverrides.profileName = pkg.settings.profileName;
+        }
+        if (Array.isArray(pkg.settings.expandedSettingsSections)) {
+          const cleanSections = sanitizeExpandedSettingsSections(pkg.settings.expandedSettingsSections);
+          setExpandedSettingsSectionsState(cleanSections);
+          stateRef.current = { ...stateRef.current, expandedSettingsSections: cleanSections };
         }
         restoredSections.push('Settings');
       }
@@ -3514,6 +3572,60 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         stateRef.current = { ...stateRef.current, contactMilestones: mergedMilestones };
         setContactMilestonesState(mergedMilestones);
         restoredSections.push('Milestones');
+      }
+
+      if (Object.keys(pkg.wishTemplates).length > 0) {
+        const mergedTemplates = sanitizeWishTemplates({
+          ...pkg.wishTemplates,
+          ...stateRef.current.wishTemplates,
+        });
+        stateRef.current = { ...stateRef.current, wishTemplates: mergedTemplates };
+        setWishTemplatesState(mergedTemplates);
+        restoredSections.push('Wishes');
+      }
+
+      if (pkg.sentWishes.length > 0) {
+        const byWishId = new Map<string, SentWishRecord>();
+        stateRef.current.sentWishes.forEach((w) => byWishId.set(w.id, w));
+        pkg.sentWishes.forEach((w) => {
+          if (!byWishId.has(w.id)) byWishId.set(w.id, w);
+        });
+        const mergedSentWishes = Array.from(byWishId.values()).sort(
+          (a, b) => b.timestamp - a.timestamp,
+        );
+        stateRef.current = { ...stateRef.current, sentWishes: mergedSentWishes };
+        setSentWishesState(mergedSentWishes);
+        if (!restoredSections.includes('Wishes')) restoredSections.push('Wishes');
+      }
+
+      if (Object.keys(pkg.snoozedQuietUntil).length > 0) {
+        const nowMs = Date.now();
+        const mergedSnoozed: Record<string, number> = { ...stateRef.current.snoozedQuietUntil };
+        Object.entries(pkg.snoozedQuietUntil).forEach(([k, until]) => {
+          if (until > nowMs) {
+            mergedSnoozed[k] = Math.max(mergedSnoozed[k] ?? 0, until);
+          }
+        });
+        const cleanSnoozed = sanitizeSnoozedQuietUntil(mergedSnoozed);
+        stateRef.current = { ...stateRef.current, snoozedQuietUntil: cleanSnoozed };
+        setSnoozedQuietUntilState(cleanSnoozed);
+        restoredSections.push('Reconnect Progress');
+      }
+
+      if (pkg.reconnectProgress && pkg.reconnectProgress.weekKey === getEatWeekKey()) {
+        const current = sanitizeReconnectProgress(stateRef.current.reconnectProgress);
+        const mergedKeys = Array.from(
+          new Set([...current.contactedKeys, ...pkg.reconnectProgress.contactedKeys]),
+        ).slice(0, 200);
+        const nextReconnect: ReconnectProgressRecord = {
+          weekKey: current.weekKey,
+          contactedKeys: mergedKeys,
+        };
+        stateRef.current = { ...stateRef.current, reconnectProgress: nextReconnect };
+        setReconnectProgressState(nextReconnect);
+        if (!restoredSections.includes('Reconnect Progress')) {
+          restoredSections.push('Reconnect Progress');
+        }
       }
 
       return {
@@ -3805,9 +3917,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         setDismissedMissedArray(nextDismissed);
       }
 
-      const privacy = stateRef.current.privacyMode;
-      const notifyLabel = formatDisplayNameOrPhone(resolvedName, number, privacy);
-      const notifyNum = maskPhoneNumber(number, privacy);
+      const notifyLabel = formatDisplayNameOrPhone(resolvedName, number);
 
       if (
         notificationsEnabled &&
@@ -3818,7 +3928,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         void scheduleNativeNotification(
           item.id,
           `Call reminder: ${notifyLabel}`,
-          item.note || `Scheduled call to ${notifyNum}`,
+          item.note || `Scheduled call to ${number}`,
           item.scheduledFor,
           {
             category: 'schedule',
@@ -3896,13 +4006,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         isNativeCapacitor() &&
         hasNativeNotificationsPlugin()
       ) {
-        const privacy = stateRef.current.privacyMode;
-        const snoozeLabel = formatDisplayNameOrPhone(updatedItem.name, updatedItem.number, privacy);
-        const snoozeNum = maskPhoneNumber(updatedItem.number, privacy);
+        const snoozeLabel = formatDisplayNameOrPhone(updatedItem.name, updatedItem.number);
         void scheduleNativeNotification(
           id,
           `Call reminder: ${snoozeLabel}`,
-          updatedItem.note || `Scheduled call to ${snoozeNum}`,
+          updatedItem.note || `Scheduled call to ${updatedItem.number}`,
           nextTime,
           {
             category: 'schedule',
@@ -4134,6 +4242,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
               eventId: event.eventId ?? null,
               muteKey: event.muteKey ?? null,
               wishText: event.wishText ?? null,
+              occasionType: event.occasionType ?? null,
+              occasionKey: event.occasionKey ?? null,
             },
           );
         }
@@ -4142,12 +4252,32 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
 
       if (action === 'wish') {
-        if (number && event.wishText) {
-          if (!event.handledNatively) {
-            window.location.href = `sms:${number}?body=${encodeURIComponent(event.wishText)}`;
-          }
-        } else if (number) {
-          setNotificationActionTarget({ contactNumber: number });
+        if (number) {
+          const cKey = event.contactKey || getContactKey(number);
+          const profile = stateRef.current.contacts[cKey];
+          const resolvedName =
+            profile?.name?.trim() ||
+            formatDisplayNameOrPhone(event.title, number) ||
+            number;
+          const occasionType =
+            event.occasionType ??
+            (event.category === 'birthday'
+              ? 'birthday'
+              : event.category === 'holiday'
+                ? 'holiday'
+                : 'birthday');
+          setWishComposerRequest({
+            contactNumber: number,
+            contactName: resolvedName,
+            contactKey: cKey,
+            tag: profile?.tag || undefined,
+            occasionType,
+            occasionKey: event.occasionKey || event.eventId || occasionType,
+            occasionName: event.title || (occasionType === 'birthday' ? 'Birthday' : 'Celebration'),
+            initialText: event.wishText || undefined,
+            telegramUsername: profile?.telegramUsername,
+            instagramUsername: profile?.instagramUsername,
+          });
         } else {
           setNotificationActionTarget({ openReminders: 'wishes' });
         }
@@ -4252,6 +4382,67 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
 
+  const setAlertTypePrefs = useCallback(
+    (next: AlertTypePrefs) => {
+      triggerHaptic('tap');
+      const clean = sanitizeAlertTypePrefs(next);
+      setAlertTypePrefsState(clean);
+      showNotice('Alert type preferences saved.', 'success');
+    },
+    [showNotice],
+  );
+
+  const snoozeAlertsForToday = useCallback(() => {
+    triggerHaptic('tap');
+    const eatDay = toEatDateString();
+    setTodayEat(eatDay);
+    setAlertSnoozedDate(eatDay);
+    showNotice('Alerts snoozed for today.');
+  }, [showNotice]);
+
+  const resumeSnoozedAlertsToday = useCallback(() => {
+    triggerHaptic('tap');
+    setAlertSnoozedDate(null);
+    showNotice('Alerts resumed for today.', 'success');
+  }, [showNotice]);
+
+  const markAllAlertsRead = useCallback(
+    (keys: string[]) => {
+      const cleanIncoming = keys.map((k) => k.trim()).filter(Boolean);
+      if (cleanIncoming.length === 0) return;
+      triggerHaptic('tap');
+      setReadAlertKeys((prev) => Array.from(new Set([...cleanIncoming, ...prev])).slice(0, 600));
+      showNotice('All alerts marked as read.');
+    },
+    [showNotice],
+  );
+
+  const markGuideSeen = useCallback(() => {
+    setGuideSeen(true);
+    setWhatsNewSeenVersion((prev) => {
+      const nextMeta: AppSeenMeta = {
+        guideSeen: true,
+        whatsNewVersion: prev,
+      };
+      void idbSetScoped(DEVICE_META_SCOPE, 'appSeenMeta', nextMeta);
+      return prev;
+    });
+  }, []);
+
+  const markWhatsNewSeen = useCallback((version: string) => {
+    const clean = version.trim();
+    if (!clean) return;
+    setWhatsNewSeenVersion(clean);
+    setGuideSeen((prevGuide) => {
+      const nextMeta: AppSeenMeta = {
+        guideSeen: prevGuide,
+        whatsNewVersion: clean,
+      };
+      void idbSetScoped(DEVICE_META_SCOPE, 'appSeenMeta', nextMeta);
+      return prevGuide;
+    });
+  }, []);
+
   const setVoiceBundles = useCallback(
     (next: VoiceBundles) => {
       const user = requireSignedInUser();
@@ -4322,12 +4513,189 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     }
   }, [ensureWorkspaceReady, persistWorkspaceToCloud]);
 
+  const setExpandedSettingsSections = useCallback((sections: SettingsSectionId[]) => {
+    const clean = sanitizeExpandedSettingsSections(sections);
+    stateRef.current = { ...stateRef.current, expandedSettingsSections: clean };
+    setExpandedSettingsSectionsState(clean);
+  }, []);
+
+  const openWishComposer = useCallback((ctx: WishComposerContext) => {
+    triggerHaptic('tap');
+    setWishComposerRequest(ctx);
+  }, []);
+
+  const closeWishComposer = useCallback(() => {
+    setWishComposerRequest(null);
+  }, []);
+
+  const saveWishTemplate = useCallback(
+    (templateKey: string, templateText: string) => {
+      const user = requireSignedInUser();
+      if (!user) return;
+      const cleanKey = clampStr(templateKey.trim(), 120);
+      const cleanText = clampStr(templateText.trim(), 1000);
+      if (!cleanKey || !cleanText) return;
+      const next = { ...stateRef.current.wishTemplates, [cleanKey]: cleanText };
+      stateRef.current = { ...stateRef.current, wishTemplates: next };
+      setWishTemplatesState(next);
+      showNotice('Saved as your default wish template.', 'success');
+    },
+    [requireSignedInUser, showNotice],
+  );
+
+  const recordWishOpened = useCallback(
+    (input: {
+      contactKey: string;
+      occasionKey: string;
+      year: number;
+      channel: WishChannel;
+      occasionName?: string;
+      contactName?: string;
+    }): { awardedPoints: number } => {
+      const now = Date.now();
+      const contactKey = clampStr(input.contactKey.trim(), 64);
+      const occasionKey = clampStr(input.occasionKey.trim(), 120);
+      const year = Math.round(input.year || new Date(now).getFullYear());
+      if (!contactKey || !occasionKey) return { awardedPoints: 0 };
+
+      const record: SentWishRecord = {
+        id: `${contactKey}|${occasionKey}|${year}|${now}`,
+        contactKey,
+        occasionKey,
+        year,
+        channel: input.channel,
+        timestamp: now,
+      };
+      const nextSent = [record, ...stateRef.current.sentWishes].slice(0, 500);
+      stateRef.current = { ...stateRef.current, sentWishes: nextSent };
+      setSentWishesState(nextSent);
+
+      if (!auth.currentUser?.emailVerified || isGuestRef.current) {
+        return { awardedPoints: 0 };
+      }
+
+      const pointId = `wish_opened:${contactKey}:${occasionKey}:${year}`;
+      if (stateRef.current.pointsHistory.some((e) => e.id === pointId)) {
+        return { awardedPoints: 0 };
+      }
+
+      const pointEntry: PointsHistoryEntry = {
+        id: pointId,
+        reason: 'wish_opened',
+        points: POINTS_CONFIG.WISH_OPENED,
+        label: `Sent ${input.occasionName || 'wish'} to ${input.contactName || contactKey}`,
+        timestamp: now,
+        eatDate: toEatDateString(now),
+        meta: `${contactKey}:${occasionKey}:${year}`,
+      };
+      const merged = mergePointsHistory(stateRef.current.pointsHistory, [pointEntry]).merged;
+      stateRef.current = { ...stateRef.current, pointsHistory: merged };
+      setPointsHistoryState(merged);
+
+      const badgeResult = reconcileBadges(
+        stateRef.current.streaks,
+        merged,
+        stateRef.current.badges,
+      );
+      if (
+        badgeResult.newlyUnlocked.length > 0 ||
+        badgeResult.badges.length !== stateRef.current.badges.length
+      ) {
+        stateRef.current = { ...stateRef.current, badges: badgeResult.badges };
+        setBadgesState(badgeResult.badges);
+      }
+
+      return { awardedPoints: POINTS_CONFIG.WISH_OPENED };
+    },
+    [],
+  );
+
+  const snoozeQuietContact = useCallback(
+    (contactKey: string, durationMs: number | null) => {
+      const cleanKey = clampStr(contactKey.trim(), 64);
+      if (!cleanKey) return;
+      triggerHaptic('tap');
+      const next = { ...stateRef.current.snoozedQuietUntil };
+      if (durationMs === null) {
+        delete next[cleanKey];
+      } else {
+        next[cleanKey] = Date.now() + Math.max(60_000, Math.round(durationMs));
+      }
+      const clean = sanitizeSnoozedQuietUntil(next);
+      stateRef.current = { ...stateRef.current, snoozedQuietUntil: clean };
+      setSnoozedQuietUntilState(clean);
+    },
+    [],
+  );
+
+  const recordQuietReconnect = useCallback(
+    (contactKey: string, contactLabel?: string): { awardedPoints: number } => {
+      const now = Date.now();
+      const cleanKey = clampStr(contactKey.trim(), 64);
+      if (!cleanKey) return { awardedPoints: 0 };
+
+      const weekKey = getEatWeekKey(now);
+      const current =
+        stateRef.current.reconnectProgress.weekKey === weekKey
+          ? stateRef.current.reconnectProgress
+          : { weekKey, contactedKeys: [] };
+
+      if (!current.contactedKeys.includes(cleanKey)) {
+        const nextProgress: ReconnectProgressRecord = {
+          weekKey,
+          contactedKeys: [cleanKey, ...current.contactedKeys].slice(0, 200),
+        };
+        stateRef.current = { ...stateRef.current, reconnectProgress: nextProgress };
+        setReconnectProgressState(nextProgress);
+      }
+
+      if (!auth.currentUser?.emailVerified || isGuestRef.current) {
+        return { awardedPoints: 0 };
+      }
+
+      const pointId = `reconnect_contact:${weekKey}:${cleanKey}`;
+      if (stateRef.current.pointsHistory.some((e) => e.id === pointId)) {
+        return { awardedPoints: 0 };
+      }
+
+      const pointEntry: PointsHistoryEntry = {
+        id: pointId,
+        reason: 'reconnect_contact',
+        points: POINTS_CONFIG.RECONNECT_CONTACT,
+        label: `Reconnected with ${contactLabel || cleanKey}`,
+        timestamp: now,
+        eatDate: toEatDateString(now),
+        meta: cleanKey,
+      };
+      const merged = mergePointsHistory(stateRef.current.pointsHistory, [pointEntry]).merged;
+      stateRef.current = { ...stateRef.current, pointsHistory: merged };
+      setPointsHistoryState(merged);
+
+      const badgeResult = reconcileBadges(
+        stateRef.current.streaks,
+        merged,
+        stateRef.current.badges,
+      );
+      if (
+        badgeResult.newlyUnlocked.length > 0 ||
+        badgeResult.badges.length !== stateRef.current.badges.length
+      ) {
+        stateRef.current = { ...stateRef.current, badges: badgeResult.badges };
+        setBadgesState(badgeResult.badges);
+      }
+
+      return { awardedPoints: POINTS_CONFIG.RECONNECT_CONTACT };
+    },
+    [],
+  );
+
   const favorites = useMemo(() => new Set(favoritesArray), [favoritesArray]);
   const dismissedMissedIds = useMemo(
     () => new Set(dismissedMissedArray),
     [dismissedMissedArray],
   );
   const mutedAlertSet = useMemo(() => new Set(mutedAlertKeys), [mutedAlertKeys]);
+  const readAlertSet = useMemo(() => new Set(readAlertKeys), [readAlertKeys]);
   const pinEnabled = Boolean(pinHash);
   const needsEmailVerification = Boolean(authUser && !authUser.emailVerified);
   const recordDailyAppOpen = useCallback(() => {
@@ -4617,6 +4985,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       simLabels,
       calendarPrefs,
       reminderPrefs,
+      alertTypePrefs,
+      setAlertTypePrefs,
+      alertSnoozedDate,
+      isAlertsSnoozedToday,
+      snoozeAlertsForToday,
+      resumeSnoozedAlertsToday,
+      readAlertKeys,
+      readAlertSet,
+      markAllAlertsRead,
+      guideSeen,
+      whatsNewSeenVersion,
+      seenMetaReady,
+      markGuideSeen,
+      markWhatsNewSeen,
       voiceBundles,
       theme,
       themePreference,
@@ -4630,7 +5012,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       refreshNotificationPermission,
       requestAlertPermissions,
       sendTestAlertNotification,
-      privacyMode,
       pinEnabled,
       isLocked,
       pinLockoutUntil,
@@ -4670,8 +5051,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       clearAppPin,
       unlockWithPin,
       lockApp,
-      setPrivacyMode,
-      togglePrivacyMode,
       availableTags,
       customTags,
       streaks,
@@ -4721,6 +5100,19 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       setThemeMode,
       toggleTheme,
+      wishTemplates,
+      sentWishes,
+      snoozedQuietUntil,
+      reconnectProgress,
+      expandedSettingsSections,
+      setExpandedSettingsSections,
+      wishComposerRequest,
+      openWishComposer,
+      closeWishComposer,
+      saveWishTemplate,
+      recordWishOpened,
+      snoozeQuietContact,
+      recordQuietReconnect,
     }),
     [
       calls,
@@ -4734,6 +5126,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       simLabels,
       calendarPrefs,
       reminderPrefs,
+      alertTypePrefs,
+      setAlertTypePrefs,
+      alertSnoozedDate,
+      isAlertsSnoozedToday,
+      snoozeAlertsForToday,
+      resumeSnoozedAlertsToday,
+      readAlertKeys,
+      readAlertSet,
+      markAllAlertsRead,
+      guideSeen,
+      whatsNewSeenVersion,
+      seenMetaReady,
+      markGuideSeen,
+      markWhatsNewSeen,
       voiceBundles,
       theme,
       themePreference,
@@ -4747,7 +5153,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       refreshNotificationPermission,
       requestAlertPermissions,
       sendTestAlertNotification,
-      privacyMode,
       pinEnabled,
       isLocked,
       pinLockoutUntil,
@@ -4787,8 +5192,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       clearAppPin,
       unlockWithPin,
       lockApp,
-      setPrivacyMode,
-      togglePrivacyMode,
       availableTags,
       customTags,
       streaks,
@@ -4838,6 +5241,19 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       setThemeMode,
       toggleTheme,
+      wishTemplates,
+      sentWishes,
+      snoozedQuietUntil,
+      reconnectProgress,
+      expandedSettingsSections,
+      setExpandedSettingsSections,
+      wishComposerRequest,
+      openWishComposer,
+      closeWishComposer,
+      saveWishTemplate,
+      recordWishOpened,
+      snoozeQuietContact,
+      recordQuietReconnect,
     ],
   );
 

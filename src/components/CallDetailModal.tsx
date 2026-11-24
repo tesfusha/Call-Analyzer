@@ -9,7 +9,8 @@ import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from 
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
 import { toDateTimeLocalValue, tomorrowAtHour } from '@/src/lib/schedule';
-import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { CallPatch, CallRecord } from '@/src/types/call';
@@ -39,7 +40,6 @@ export function CallDetailModal({
     contacts,
     tariffs,
     simLabels,
-    privacyMode,
     availableTags,
     addCustomTag,
     scheduleCall,
@@ -91,6 +91,28 @@ export function CallDetailModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [call, onClose]);
 
+  const initialCallProfile = call ? contacts[getContactKey(call.number)] : undefined;
+  const initialCallTag = call
+    ? call.tag?.trim() || initialCallProfile?.tag?.trim() || ''
+    : '';
+  const initialCallScheduleNote = call?.direction === 'missed' ? 'Return missed call' : '';
+
+  useBackHandler({
+    id: 'call-detail-modal',
+    active: Boolean(call),
+    priority: 50,
+    onBack: onClose,
+    hasUnsavedChanges: () =>
+      Boolean(
+        call &&
+          (name !== (call.name ?? '') ||
+            note !== (call.note ?? '') ||
+            tag !== initialCallTag ||
+            scheduleNote !== initialCallScheduleNote),
+      ),
+    unsavedMessage: 'Discard unsaved call note and tag changes?',
+  });
+
   useEffect(() => {
     if (bodyScrollRef.current) {
       bodyScrollRef.current.scrollTop = 0;
@@ -106,7 +128,7 @@ export function CallDetailModal({
     activeCategory === 'details' ? 'Edit Contact Tag & Call Note' : 'Schedule Follow-up Callback';
 
   const displayName = call
-    ? formatDisplayNameOrPhone(call.name, call.number, privacyMode)
+    ? formatDisplayNameOrPhone(call.name, call.number)
     : '';
 
   const modalContent = (
@@ -155,7 +177,7 @@ export function CallDetailModal({
                       {displayName}
                     </h2>
                     <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                      {maskPhoneNumber(call.number, privacyMode)}
+                      {call.number}
                     </p>
                   </div>
                 </button>
@@ -200,14 +222,24 @@ export function CallDetailModal({
                   className={
                     call.direction === 'missed'
                       ? 'font-semibold text-[#EF4444] dark:text-[#F28B82]'
-                      : 'font-semibold text-[#08246B] dark:text-white'
+                      : call.direction === 'rejected' || call.direction === 'blocked'
+                        ? 'font-semibold text-[#64748B] dark:text-[#94A3B8]'
+                        : call.direction === 'voicemail'
+                          ? 'font-semibold text-[#8B5CF6] dark:text-[#A78BFA]'
+                          : 'font-semibold text-[#08246B] dark:text-white'
                   }
                 >
                   {call.direction === 'incoming'
                     ? 'Incoming Call'
                     : call.direction === 'outgoing'
                       ? 'Outgoing Call'
-                      : 'Missed Call'}
+                      : call.direction === 'rejected'
+                        ? 'Rejected Call'
+                        : call.direction === 'blocked'
+                          ? 'Blocked Call'
+                          : call.direction === 'voicemail'
+                            ? 'Voicemail'
+                            : 'Missed Call'}
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>{call.duration > 0 ? formatDuration(call.duration) : '0s'}</span>

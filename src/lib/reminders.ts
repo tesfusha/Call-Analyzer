@@ -1,17 +1,33 @@
+import { getContactKey } from '@/src/lib/contacts';
 import { estimateCallCostEtb, formatEtb, normaliseEthPhone, type TariffConfig } from '@/src/lib/ethiopia';
 import { formatDuration } from '@/src/lib/format';
+import { eatDateDiffDays, toEatDateString } from '@/src/lib/gamification';
+import { EAT_UTC_OFFSET_MS } from '@/src/lib/gamificationConstants';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { computeTotals, filterByRange, topByDuration } from '@/src/lib/stats';
-import type { CallRecord } from '@/src/types/call';
+import type { CallRecord, ContactProfile } from '@/src/types/call';
+
+export const DORMANT_DAYS = 90;
 
 export type QuietContact = {
+  contactKey: string;
   number: string;
   name: string;
-  typicalIntervalDays: number;
+  tag: string;
+  isFavorite: boolean;
+  typicalIntervalDays: number | null;
   daysSinceLast: number;
   overdueDays: number;
+  overdueRatio: number;
   lastTimestamp: number;
   callCount: number;
+  priorityScore: number;
+  isDormant: boolean;
+};
+
+export type QuietContactsAnalysis = {
+  active: QuietContact[];
+  dormant: QuietContact[];
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -25,78 +41,204 @@ function median(values: number[]): number {
     : sorted[mid];
 }
 
-function hasAtLeastCallsInWindow(
-  sortedCalls: CallRecord[],
-  minCalls: number,
-  windowDays: number,
-): boolean {
-  if (sortedCalls.length < minCalls) return false;
-  const windowMs = windowDays * MS_PER_DAY;
-  let left = 0;
-  for (let right = 0; right < sortedCalls.length; right += 1) {
-    while (sortedCalls[right].timestamp - sortedCalls[left].timestamp > windowMs) {
-      left += 1;
-    }
-    if (right - left + 1 >= minCalls) {
-      return true;
-    }
-  }
-  return false;
+/**
+ * Returns the Monday 00:00 East Africa Time (UTC+3) YYYY-MM-DD key
+ * for the week containing `nowMs`.
+ */
+export function getEatWeekKey(nowMs: number = Date.now()): string {
+  const shifted = new Date(nowMs + EAT_UTC_OFFSET_MS);
+  const utcDay = shifted.getUTCDay(); // 0=Sun, 1=Mon, ...
+  const daysSinceMonday = (utcDay + 6) % 7;
+  const mondayMs =
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate() - daysSinceMonday,
+    ) - EAT_UTC_OFFSET_MS;
+  return toEatDateString(mondayMs);
 }
 
+/**
+ * Strict Step 15 rhythm calculation:
+ * Only answered incoming/outgoing calls (duration > 0), requiring at least
+ * 4 answered calls across at least 3 distinct EAT days.
+ * Returns null if the contact does not have an established rhythm yet.
+ */
 export function typicalIntervalDays(calls: CallRecord[]): number | null {
-  if (calls.length < 2) return null;
-  const sorted = [...calls].sort((a, b) => a.timestamp - b.timestamp);
+  const answered = calls.filter(
+    (c) => (c.direction === 'incoming' || c.direction === 'outgoing') && c.duration > 0,
+  );
+  if (answered.length < 4) return null;
+
+  const distinctDays = Array.from(new Set(answered.map((c) => toEatDateString(c.timestamp)))).sort();
+  if (distinctDays.length < 3) return null;
+
   const gaps: number[] = [];
-  for (let index = 1; index < sorted.length; index += 1) {
-    gaps.push((sorted[index].timestamp - sorted[index - 1].timestamp) / MS_PER_DAY);
+  for (let i = 1; i < distinctDays.length; i += 1) {
+    const diff = eatDateDiffDays(distinctDays[i - 1], distinctDays[i]);
+    if (Number.isFinite(diff) && diff >= 1) {
+      gaps.push(diff);
+    }
   }
+  if (gaps.length === 0) return null;
   const value = median(gaps);
-  return value > 0 ? value : null;
+  return Math.max(1, Math.round(value));
+}
+
+function tagPriorityWeight(tag: string): number {
+  const lower = tag.trim().toLowerCase();
+  if (!lower) return 4;
+  if (lower.includes('family')) return 18;
+  if (lower.includes('friend')) return 14;
+  if (lower.includes('business') || lower.includes('work') || lower.includes('coworker')) {
+    return 6;
+  }
+  return 8;
+}
+
+export function quietContactsAnalysis(
+  calls: CallRecord[],
+  options: {
+    now?: Date;
+    contacts?: Record<string, ContactProfile>;
+    favorites?: string[];
+    maxIntervalDays?: number;
+  } = {},
+): QuietContactsAnalysis {
+  const nowMs = (options.now ?? new Date()).getTime();
+  const todayEat = toEatDateString(nowMs);
+  const contactsMap = options.contacts ?? {};
+  const favSet = new Set((options.favorites ?? []).map((f) => getContactKey(f)));
+  const maxIntervalDays = options.maxIntervalDays ?? 45;
+
+  const byContact = new Map<string, CallRecord[]>();
+  calls.forEach((call) => {
+    // Only answered incoming/outgoing calls with duration > 0 count toward rhythm & last connected call.
+    if (
+      (call.direction !== 'incoming' && call.direction !== 'outgoing') ||
+      call.duration <= 0
+    ) {
+      return;
+    }
+    const key = getContactKey(call.number);
+    if (!key) return;
+    const list = byContact.get(key) ?? [];
+    list.push(call);
+    byContact.set(key, list);
+  });
+
+  const active: QuietContact[] = [];
+  const dormant: QuietContact[] = [];
+
+  byContact.forEach((answeredCalls, contactKey) => {
+    const sorted = [...answeredCalls].sort((a, b) => a.timestamp - b.timestamp);
+    const lastCall = sorted[sorted.length - 1];
+    const lastTimestamp = lastCall.timestamp;
+    const lastEatDay = toEatDateString(lastTimestamp);
+    const rawDiff = eatDateDiffDays(lastEatDay, todayEat);
+    const daysSinceLast = Number.isFinite(rawDiff) ? Math.max(0, rawDiff) : 0;
+
+    const profile = contactsMap[contactKey];
+    const namedCall = [...sorted].reverse().find((c) => c.name?.trim());
+    const number = profile?.number || lastCall.number;
+    const displayName =
+      profile?.name?.trim() || namedCall?.name?.trim() || '';
+    const tag = profile?.tag?.trim() || '';
+    const isFavorite = favSet.has(contactKey);
+
+    const rhythm = typicalIntervalDays(sorted);
+
+    if (daysSinceLast > DORMANT_DAYS) {
+      dormant.push({
+        contactKey,
+        number,
+        name: displayName,
+        tag,
+        isFavorite,
+        typicalIntervalDays: rhythm,
+        daysSinceLast,
+        overdueDays: rhythm !== null ? Math.max(0, daysSinceLast - rhythm) : daysSinceLast,
+        overdueRatio: rhythm !== null ? daysSinceLast / Math.max(1, rhythm) : daysSinceLast / 30,
+        lastTimestamp,
+        callCount: sorted.length,
+        priorityScore: 0,
+        isDormant: true,
+      });
+      return;
+    }
+
+    if (rhythm !== null) {
+      if (rhythm > maxIntervalDays) return;
+      const quietThreshold = Math.max(2 * rhythm, 7);
+      if (daysSinceLast <= quietThreshold) return;
+
+      const overdueDays = Math.max(1, daysSinceLast - rhythm);
+      const overdueRatio = daysSinceLast / Math.max(1, rhythm);
+      const priorityScore =
+        Math.log1p(sorted.length) * 18 +
+        (isFavorite ? 25 : 0) +
+        tagPriorityWeight(tag) +
+        Math.min(36, overdueRatio * 8);
+
+      active.push({
+        contactKey,
+        number,
+        name: displayName,
+        tag,
+        isFavorite,
+        typicalIntervalDays: rhythm,
+        daysSinceLast,
+        overdueDays,
+        overdueRatio,
+        lastTimestamp,
+        callCount: sorted.length,
+        priorityScore,
+        isDormant: false,
+      });
+      return;
+    }
+
+    // Contacts without >= 4 calls on >= 3 distinct days never show "usually every N days",
+    // but repeated contacts quiet for >= 14 days can still surface gently.
+    const fallbackThreshold = Math.max(14, Math.min(30, maxIntervalDays));
+    if (sorted.length >= 2 && daysSinceLast >= fallbackThreshold) {
+      const overdueRatio = daysSinceLast / fallbackThreshold;
+      const priorityScore =
+        Math.log1p(sorted.length) * 14 +
+        (isFavorite ? 25 : 0) +
+        tagPriorityWeight(tag) +
+        Math.min(24, overdueRatio * 6);
+
+      active.push({
+        contactKey,
+        number,
+        name: displayName,
+        tag,
+        isFavorite,
+        typicalIntervalDays: null,
+        daysSinceLast,
+        overdueDays: Math.max(0, daysSinceLast - fallbackThreshold),
+        overdueRatio,
+        lastTimestamp,
+        callCount: sorted.length,
+        priorityScore,
+        isDormant: false,
+      });
+    }
+  });
+
+  active.sort((a, b) => b.priorityScore - a.priorityScore || b.overdueDays - a.overdueDays);
+  dormant.sort((a, b) => a.daysSinceLast - b.daysSinceLast);
+
+  return { active, dormant };
 }
 
 export function quietContacts(
   calls: CallRecord[],
   now: Date = new Date(),
-  maxIntervalDays = 30,
+  maxIntervalDays = 45,
 ): QuietContact[] {
-  const nowMs = now.getTime();
-  const byNumber = new Map<string, CallRecord[]>();
-
-  calls.forEach((call) => {
-    const key = normaliseEthPhone(call.number);
-    const list = byNumber.get(key) ?? [];
-    list.push(call);
-    byNumber.set(key, list);
-  });
-
-  const result: QuietContact[] = [];
-  byNumber.forEach((contactCalls) => {
-    if (contactCalls.length < 5) return;
-    const sorted = [...contactCalls].sort((a, b) => a.timestamp - b.timestamp);
-    if (!hasAtLeastCallsInWindow(sorted, 5, 30)) return;
-
-    const interval = typicalIntervalDays(sorted);
-    if (interval === null || interval > maxIntervalDays) return;
-
-    const lastTimestamp = sorted[sorted.length - 1].timestamp;
-    const daysSinceLast = (nowMs - lastTimestamp) / MS_PER_DAY;
-    const threshold = Math.max(interval * 1.5, Math.min(7, maxIntervalDays));
-    if (daysSinceLast >= threshold) {
-      const named = contactCalls.find((c) => c.name?.trim());
-      result.push({
-        number: contactCalls[0].number,
-        name: named?.name?.trim() || contactCalls[0].number,
-        typicalIntervalDays: Math.max(1, Math.round(interval)),
-        daysSinceLast: Math.floor(daysSinceLast),
-        overdueDays: Math.max(0, Math.floor(daysSinceLast - interval)),
-        lastTimestamp,
-        callCount: contactCalls.length,
-      });
-    }
-  });
-
-  return result.sort((a, b) => b.overdueDays - a.overdueDays);
+  return quietContactsAnalysis(calls, { now, maxIntervalDays }).active;
 }
 
 export function isWithinQuietHours(
@@ -112,16 +254,18 @@ export function isWithinQuietHours(
   return hour >= prefs.quietStartHour || hour < prefs.quietEndHour;
 }
 
-export function quietMessage(contact: QuietContact, privacyMode = false): string {
+export function quietMessage(contact: QuietContact): string {
   const days = contact.daysSinceLast;
-  const usually = contact.typicalIntervalDays;
-  const displayName = formatDisplayNameOrPhone(contact.name, contact.number, privacyMode);
-  return `It's been ${days} day${days === 1 ? '' : 's'} since you called ${displayName} — you usually call every ${usually} day${usually === 1 ? '' : 's'}.`;
+  const dayLabel = `Last call ${days} day${days === 1 ? '' : 's'} ago`;
+  if (contact.typicalIntervalDays !== null) {
+    return `${dayLabel}, usually every ${contact.typicalIntervalDays} day${contact.typicalIntervalDays === 1 ? '' : 's'}`;
+  }
+  return dayLabel;
 }
 
 /**
- * Finds missed calls within the last 7 days where no later incoming/outgoing call
- * happened with the same contact, excluding any call IDs marked as handled.
+ * Finds missed calls within the last 7 days where no later answered incoming or outgoing call
+ * happened with the same contact, excluding dismissed call IDs and rejected/blocked/voicemail calls.
  */
 export function unreturnedMissedCalls(
   calls: CallRecord[],
@@ -136,7 +280,11 @@ export function unreturnedMissedCalls(
 
   calls.forEach((call) => {
     const key = normaliseEthPhone(call.number);
-    if (call.direction === 'incoming' || call.direction === 'outgoing') {
+    if (!key) return;
+    if (
+      call.direction === 'outgoing' ||
+      (call.direction === 'incoming' && call.duration > 0)
+    ) {
       const prev = latestAnsweredByContact.get(key) ?? 0;
       if (call.timestamp > prev) latestAnsweredByContact.set(key, call.timestamp);
     } else if (call.direction === 'missed' && !dismissedIds.has(call.id)) {
@@ -178,7 +326,6 @@ export function buildPeriodReport(
   period: 'weekly' | 'monthly',
   tariffs?: TariffConfig,
   now: Date = new Date(),
-  privacyMode = false,
 ): PeriodReport {
   const slice = filterByRange(calls, period === 'weekly' ? '7d' : '30d', now);
   const totals = computeTotals(slice);
@@ -200,7 +347,7 @@ export function buildPeriodReport(
     totalDuration: totals.totalDuration,
     missedCount: totals.missedCount,
     spendEtb,
-    topContactName: top ? formatDisplayNameOrPhone(top.name, top.number, privacyMode) : null,
+    topContactName: top ? formatDisplayNameOrPhone(top.name, top.number) : null,
   };
 }
 

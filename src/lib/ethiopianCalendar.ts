@@ -244,13 +244,23 @@ export function buildHolidayWish(
   holidayName: string,
   contactName: string,
   tag?: string,
+  lang: CalendarLang = 'english',
 ): string {
   const firstName = contactName.split(/\s+/)[0] || contactName;
   const cleanTag = (tag ?? '').toLowerCase();
+  if (lang === 'amharic') {
+    if (cleanTag === 'family') {
+      return `መልካም ${holidayName} ${firstName}! ለእርስዎና ለመላው ቤተሰብ ሰላም፣ ጤናና ደስታን እመኛለሁ።`;
+    }
+    if (cleanTag === 'coworkers' || cleanTag === 'work' || cleanTag === 'business') {
+      return `መልካም ${holidayName} ${firstName}! መልካም በዓልና የስራ ስኬት እመኝልዎታለሁ።`;
+    }
+    return `መልካም ${holidayName} ${firstName}! በዓሉን በሰላም፣ በጤናና በደስታ እንዲያሳልፉ እመኛለሁ።`;
+  }
   if (cleanTag === 'family') {
     return `Melkam ${holidayName}, ${firstName}! Wishing you and our whole family peace, health, and joy.`;
   }
-  if (cleanTag === 'coworkers' || cleanTag === 'work') {
+  if (cleanTag === 'coworkers' || cleanTag === 'work' || cleanTag === 'business') {
     return `Happy ${holidayName}, ${firstName}! Wishing you a joyful celebration and continued success.`;
   }
   return `Melkam ${holidayName}, ${firstName}! Wishing you a wonderful celebration filled with peace and happiness.`;
@@ -260,16 +270,30 @@ export function buildBirthdayWish(
   contactName: string,
   eventTitle = 'Birthday',
   tag?: string,
+  lang: CalendarLang = 'english',
 ): string {
   const firstName = contactName.split(/\s+/)[0] || contactName;
   const lowerEvent = eventTitle.toLowerCase();
   const cleanTag = (tag ?? '').toLowerCase();
 
+  if (lang === 'amharic') {
+    if (lowerEvent === 'birthday' || lowerEvent.includes('birthday') || eventTitle.includes('ልደት')) {
+      if (cleanTag === 'family') {
+        return `መልካም ልደት ${firstName}! ረጅም ዕድሜ፣ ጤናና ደስታ ይብዛልህ።`;
+      }
+      if (cleanTag === 'coworkers' || cleanTag === 'work' || cleanTag === 'business') {
+        return `መልካም ልደት ${firstName}! መልካም አመት፣ ጤናና ስኬት እመኝልዎታለሁ።`;
+      }
+      return `መልካም ልደት ${firstName}! ዘመንህ በደስታና በጤና የተሞላ ይሁን።`;
+    }
+    return `መልካም ${eventTitle} ${firstName}! ሁልጊዜ ሰላምና ደስታ ይከተልዎት።`;
+  }
+
   if (lowerEvent === 'birthday' || lowerEvent.includes('birthday')) {
     if (cleanTag === 'family') {
       return `Melkam Lidet, ${firstName}! Wishing you abundant health, joy, and blessings on your birthday.`;
     }
-    if (cleanTag === 'coworkers' || cleanTag === 'work') {
+    if (cleanTag === 'coworkers' || cleanTag === 'work' || cleanTag === 'business') {
       return `Happy Birthday, ${firstName}! Wishing you a great year ahead filled with success and good health.`;
     }
     return `Happy Birthday, ${firstName}! Wishing you an amazing year ahead filled with joy and laughter.`;
@@ -277,3 +301,70 @@ export function buildBirthdayWish(
 
   return `Warm wishes on your ${eventTitle}, ${firstName}! Wishing you all the best today and always.`;
 }
+
+export function getBusinessReconnectTemplate(lang: CalendarLang = 'english'): string {
+  if (lang === 'amharic') {
+    return 'ሰላም {name}፣ እንዴት ነዎት? ሁሉም ነገር ደህና ነው? የሚያስፈልግዎት ነገር ካለ ያሳውቁኝ።';
+  }
+  return 'Hello {name}, just checking in. Do you need anything?';
+}
+
+export function getDefaultWishTemplate({
+  occasionType,
+  tag,
+  lang = 'english',
+}: {
+  occasionType: 'holiday' | 'birthday' | 'reconnect';
+  tag?: string;
+  lang?: CalendarLang;
+}): string {
+  const cleanTag = (tag ?? '').toLowerCase();
+  if (occasionType === 'reconnect') {
+    if (cleanTag === 'business' || cleanTag === 'work' || cleanTag === 'coworkers') {
+      return getBusinessReconnectTemplate(lang);
+    }
+    if (lang === 'amharic') {
+      return 'ሰላም {name}፣ ቆየን ከተገናኘን! እንዴት ነህ/ነሽ? ትንሽ ልጠይቅህ ብዬ ነው።';
+    }
+    return 'Hey {name}, it has been a while! Just checking in to say hello and hope you are doing well.';
+  }
+
+  if (occasionType === 'birthday') {
+    if (lang === 'amharic') {
+      if (cleanTag === 'family') {
+        return 'መልካም {occasion} {name}! ረጅም ዕድሜ፣ ጤናና ደስታ ይብዛልህ።';
+      }
+      return 'መልካም {occasion} {name}! አዲሱ አመት የጤና፣ የሰላምና የስኬት ይሁንልህ።';
+    }
+    if (cleanTag === 'family') {
+      return 'Melkam {occasion}, {name}! Wishing you abundant health, joy, and blessings today.';
+    }
+    return 'Happy {occasion}, {name}! Wishing you an amazing year ahead filled with joy and good health.';
+  }
+
+  if (lang === 'amharic') {
+    if (cleanTag === 'family') {
+      return 'መልካም {occasion} {name}! ለእርስዎና ለመላው ቤተሰብ ሰላም፣ ጤናና ደስታን እመኛለሁ።';
+    }
+    return 'መልካም {occasion} {name}! በዓሉን በሰላም፣ በጤናና በደስታ እንዲያሳልፉ እመኛለሁ።';
+  }
+  if (cleanTag === 'family') {
+    return 'Melkam {occasion}, {name}! Wishing you and our whole family peace, health, and joy.';
+  }
+  if (cleanTag === 'coworkers' || cleanTag === 'work' || cleanTag === 'business') {
+    return 'Happy {occasion}, {name}! Wishing you a joyful celebration and continued success.';
+  }
+  return 'Melkam {occasion}, {name}! Wishing you a wonderful celebration filled with peace and happiness.';
+}
+
+export function resolveWishTemplatePlaceholders(
+  template: string,
+  { name, occasion }: { name: string; occasion: string },
+): string {
+  const cleanName = name.trim() || 'Friend';
+  const cleanOccasion = occasion.trim() || 'Celebration';
+  return template
+    .replace(/\{name\}/gi, cleanName)
+    .replace(/\{occasion\}/gi, cleanOccasion);
+}
+

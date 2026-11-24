@@ -10,7 +10,7 @@ import {
   buildHolidayWish,
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactProfile } from '@/src/types/call';
@@ -24,7 +24,7 @@ export function QuickWishModal({
   contact: ContactProfile | null;
   onClose: () => void;
 }) {
-  const { calendarPrefs, privacyMode, showNotice } = useCalls();
+  const { calendarPrefs, showNotice } = useCalls();
   useLockBodyScroll(Boolean(contact));
   const prefersReducedMotion = useReducedMotion();
 
@@ -36,6 +36,7 @@ export function QuickWishModal({
   const [mode, setMode] = useState<WishMode>('holiday');
   const [selectedHolidayKey, setSelectedHolidayKey] = useState<string>('');
   const [message, setMessage] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
 
   const holidayUid = (h: (typeof holidays)[number]) =>
     `${h.key}-${h.ethiopian.year}-${h.ethiopian.month}-${h.ethiopian.day}`;
@@ -46,6 +47,7 @@ export function QuickWishModal({
     setSelectedHolidayKey(defaultHoliday ? holidayUid(defaultHoliday) : '');
     const startMode: WishMode = contact.birthday ? 'birthday' : 'holiday';
     setMode(startMode);
+    setIsDirty(false);
     if (startMode === 'birthday') {
       setMessage(buildBirthdayWish(contact.name, 'Birthday', contact.tag));
     } else {
@@ -64,12 +66,22 @@ export function QuickWishModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [contact, onClose]);
 
+  useBackHandler({
+    id: 'quick-wish-modal',
+    active: Boolean(contact),
+    priority: 55,
+    onBack: onClose,
+    hasUnsavedChanges: () => isDirty,
+    unsavedMessage: 'Discard your edited wish message?',
+  });
+
   const activeHoliday =
     holidays.find((h) => holidayUid(h) === selectedHolidayKey) ?? holidays[0] ?? null;
 
   const switchMode = (nextMode: WishMode) => {
     if (!contact) return;
     setMode(nextMode);
+    setIsDirty(false);
     if (nextMode === 'birthday') {
       setMessage(buildBirthdayWish(contact.name, 'Birthday', contact.tag));
     } else {
@@ -84,6 +96,7 @@ export function QuickWishModal({
     setSelectedHolidayKey(holidayKey);
     const found = holidays.find((h) => holidayUid(h) === holidayKey);
     setMode('holiday');
+    setIsDirty(false);
     setMessage(buildHolidayWish(found?.name ?? 'Holiday', contact.name, contact.tag));
   };
 
@@ -136,7 +149,7 @@ export function QuickWishModal({
                     Send wish to {contact.name}
                   </h2>
                   <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums truncate">
-                    {maskPhoneNumber(contact.number, privacyMode)}
+                    {contact.number}
                     {contact.tag ? ` · ${contact.tag}` : ''}
                   </p>
                 </div>
@@ -192,7 +205,10 @@ export function QuickWishModal({
                 <textarea
                   rows={4}
                   value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  onChange={(e) => {
+                    setMessage(e.target.value);
+                    setIsDirty(true);
+                  }}
                   className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-xs text-[#08246B] dark:text-white resize-none focus:outline-none focus:border-[#FF6A00]"
                 />
               </label>

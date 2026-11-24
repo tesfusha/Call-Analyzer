@@ -154,44 +154,25 @@ export function clearPinLockoutState(storageKey: string): void {
   }
 }
 
-export function maskPhoneNumber(number: string, privacyMode = false): string {
-  const clean = number.trim();
-  if (!privacyMode || !clean) return clean;
-  const digits = clean.replace(/\D/g, '');
-  if (digits.length === 0) return '*'.repeat(Math.min(clean.length, 6));
-  if (digits.length <= 2) return '*'.repeat(digits.length);
-  if (digits.length <= 6) {
-    return `${'*'.repeat(digits.length - 2)}${digits.slice(-2)}`;
-  }
-  const prefix = clean.startsWith('+') ? '+' : '';
-  const head = digits.slice(0, 4);
-  const tail = digits.slice(-2);
-  return `${prefix}${head}${'*'.repeat(digits.length - 6)}${tail}`;
-}
-
 export function formatDisplayNameOrPhone(
   name: string | null | undefined,
   number: string,
-  privacyMode = false,
 ): string {
   const cleanName = name?.trim();
-  if (!cleanName) return maskPhoneNumber(number, privacyMode);
+  if (!cleanName) return number.trim();
   const nameDigits = cleanName.replace(/\D/g, '');
   const numDigits = number.replace(/\D/g, '');
   if (
     cleanName === number.trim() ||
     (nameDigits.length >= 6 && nameDigits === numDigits)
   ) {
-    return maskPhoneNumber(number, privacyMode);
+    return number.trim();
   }
   return cleanName;
 }
 
-export function maskPrivateText(
-  text: string | null | undefined,
-  privacyMode: boolean,
-  fallback = 'Hidden in privacy mode',
-): string {
-  if (!text) return '';
-  return privacyMode ? fallback : text;
+export function sanitizeSocialUsername(raw: string): string {
+  const withoutAt = raw.trim().replace(/^@+/, '');
+  return withoutAt.replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 64);
 }
+

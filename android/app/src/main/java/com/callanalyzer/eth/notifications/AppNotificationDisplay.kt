@@ -22,6 +22,8 @@ object AppNotificationDisplay {
     const val EXTRA_EVENT_ID = "app_notif_event_id"
     const val EXTRA_MUTE_KEY = "app_notif_mute_key"
     const val EXTRA_WISH_TEXT = "app_notif_wish_text"
+    const val EXTRA_OCCASION_TYPE = "app_notif_occasion_type"
+    const val EXTRA_OCCASION_KEY = "app_notif_occasion_key"
     const val EXTRA_ACTION_ID = "app_notif_action_id"
 
     fun showNotification(
@@ -35,23 +37,38 @@ object AppNotificationDisplay {
         contactKey: String?,
         eventId: String?,
         muteKey: String?,
-        wishText: String?
+        wishText: String?,
+        occasionType: String? = null,
+        occasionKey: String? = null
     ): Boolean {
         val appContext = context.applicationContext
         NotificationHelper.ensureChannels(appContext)
         if (!NotificationHelper.canPostNotifications(appContext)) return false
 
         val isSchedule = category == "schedule"
-        val channelId = if (isSchedule) {
-            NotificationHelper.CHANNEL_MISSED_CALL_REMINDERS
+        val isWishCategory = category == "birthday" || category == "holiday"
+        val channelId = when {
+            isSchedule -> NotificationHelper.CHANNEL_MISSED_CALL_REMINDERS
+            isWishCategory -> NotificationHelper.CHANNEL_WISHES_AND_BIRTHDAYS
+            else -> NotificationHelper.CHANNEL_GENERAL_ALERTS
+        }
+        val priority = if (isSchedule || isWishCategory) {
+            NotificationCompat.PRIORITY_HIGH
         } else {
-            NotificationHelper.CHANNEL_GENERAL_ALERTS
+            NotificationCompat.PRIORITY_DEFAULT
+        }
+        val accentColor = when {
+            isSchedule -> 0xFFE11D48.toInt()
+            category == "birthday" -> 0xFFDB2777.toInt()
+            category == "holiday" -> 0xFFD97706.toInt()
+            else -> 0xFF059669.toInt()
         }
 
+        val defaultTapActionId = if (isWishCategory) "wish" else "view"
         val viewPendingIntent = buildActivityActionPendingIntent(
             context = appContext,
             requestCode = requestCodeFor(id, 1),
-            actionId = "view",
+            actionId = defaultTapActionId,
             id = id,
             idKey = idKey,
             title = title,
@@ -61,15 +78,21 @@ object AppNotificationDisplay {
             contactKey = contactKey,
             eventId = eventId,
             muteKey = muteKey,
-            wishText = wishText
+            wishText = wishText,
+            occasionType = occasionType,
+            occasionKey = occasionKey
         )
+
+        val largeIcon = NotificationHelper.createInitialsAvatarBitmap(appContext, title, accentColor)
 
         val builder = NotificationCompat.Builder(appContext, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(largeIcon)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(if (isSchedule) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setShowWhen(true)
+            .setPriority(priority)
             .setCategory(if (isSchedule) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_EVENT)
             .setAutoCancel(true)
             .setContentIntent(viewPendingIntent)
@@ -84,7 +107,7 @@ object AppNotificationDisplay {
                             appContext,
                             requestCodeFor(id, 2),
                             "call",
-                            id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                            id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                         )
                     )
                 }
@@ -95,7 +118,7 @@ object AppNotificationDisplay {
                         appContext,
                         requestCodeFor(id, 3),
                         "snooze_15m",
-                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                     )
                 )
                 builder.addAction(
@@ -105,7 +128,7 @@ object AppNotificationDisplay {
                         appContext,
                         requestCodeFor(id, 4),
                         "clear",
-                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                     )
                 )
             }
@@ -113,12 +136,12 @@ object AppNotificationDisplay {
             "birthday", "holiday" -> {
                 builder.addAction(
                     0,
-                    "Send Wish",
+                    "Send wish",
                     buildActivityActionPendingIntent(
                         appContext,
                         requestCodeFor(id, 5),
                         "wish",
-                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                     )
                 )
                 builder.addAction(
@@ -128,17 +151,17 @@ object AppNotificationDisplay {
                         appContext,
                         requestCodeFor(id, 6),
                         "remind_later",
-                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                     )
                 )
                 builder.addAction(
                     0,
-                    "Mute",
+                    "Dismiss",
                     buildBroadcastActionPendingIntent(
                         appContext,
                         requestCodeFor(id, 7),
-                        "mute",
-                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                        "clear",
+                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                     )
                 )
             }
@@ -147,12 +170,12 @@ object AppNotificationDisplay {
                 builder.addAction(0, "View", viewPendingIntent)
                 builder.addAction(
                     0,
-                    "Clear",
+                    "Dismiss",
                     buildBroadcastActionPendingIntent(
                         appContext,
                         requestCodeFor(id, 8),
                         "clear",
-                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                        id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
                     )
                 )
             }
@@ -185,7 +208,9 @@ object AppNotificationDisplay {
                 contactKey = record.contactKey,
                 eventId = record.eventId,
                 muteKey = record.muteKey,
-                wishText = record.wishText
+                wishText = record.wishText,
+                occasionType = record.occasionType,
+                occasionKey = record.occasionKey
             )
             return
         }
@@ -256,7 +281,9 @@ object AppNotificationDisplay {
         muteKey: String?,
         wishText: String?,
         timestamp: Long,
-        handledNatively: Boolean
+        handledNatively: Boolean,
+        occasionType: String? = null,
+        occasionKey: String? = null
     ): JSONObject = JSONObject().apply {
         put("actionId", actionId)
         put("notificationId", notificationId)
@@ -269,6 +296,8 @@ object AppNotificationDisplay {
         put("eventId", eventId ?: JSONObject.NULL)
         put("muteKey", muteKey ?: JSONObject.NULL)
         put("wishText", wishText ?: JSONObject.NULL)
+        put("occasionType", occasionType ?: JSONObject.NULL)
+        put("occasionKey", occasionKey ?: JSONObject.NULL)
         put("timestamp", timestamp)
         put("handledNatively", handledNatively)
     }
@@ -298,12 +327,14 @@ object AppNotificationDisplay {
         contactKey: String?,
         eventId: String?,
         muteKey: String?,
-        wishText: String?
+        wishText: String?,
+        occasionType: String?,
+        occasionKey: String?
     ): PendingIntent {
         val intent = Intent(context, AppNotificationActionActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtrasFromPayload(
-                actionId, id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                actionId, id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
             )
         }
         return PendingIntent.getActivity(
@@ -327,12 +358,14 @@ object AppNotificationDisplay {
         contactKey: String?,
         eventId: String?,
         muteKey: String?,
-        wishText: String?
+        wishText: String?,
+        occasionType: String?,
+        occasionKey: String?
     ): PendingIntent {
         val intent = Intent(context, AppNotificationActionReceiver::class.java).apply {
             action = AppNotificationActionReceiver.ACTION_PREFIX + actionId
             putExtrasFromPayload(
-                actionId, id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText
+                actionId, id, idKey, title, body, category, number, contactKey, eventId, muteKey, wishText, occasionType, occasionKey
             )
         }
         return PendingIntent.getBroadcast(
@@ -354,7 +387,9 @@ object AppNotificationDisplay {
         contactKey: String?,
         eventId: String?,
         muteKey: String?,
-        wishText: String?
+        wishText: String?,
+        occasionType: String?,
+        occasionKey: String?
     ) {
         putExtra(EXTRA_ACTION_ID, actionId)
         putExtra(EXTRA_NOTIFICATION_ID, id)
@@ -367,6 +402,8 @@ object AppNotificationDisplay {
         putExtra(EXTRA_EVENT_ID, eventId)
         putExtra(EXTRA_MUTE_KEY, muteKey)
         putExtra(EXTRA_WISH_TEXT, wishText)
+        putExtra(EXTRA_OCCASION_TYPE, occasionType)
+        putExtra(EXTRA_OCCASION_KEY, occasionKey)
     }
 
     private fun alarmRequestCode(id: Int): Int {

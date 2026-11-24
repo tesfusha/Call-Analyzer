@@ -9,7 +9,7 @@ import {
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { type ExportDeliveryResult, saveAndShareBytes } from '@/src/lib/export';
-import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import {
   carrierStats,
   computeTotals,
@@ -497,14 +497,12 @@ export async function exportCallHistoryPdfReport({
   tariffs,
   simLabels,
   title = 'Call History & Analytics Report',
-  privacyMode = false,
   filename = 'call-history-report.pdf',
 }: {
   calls: CallRecord[];
   tariffs: TariffConfig;
   simLabels: SimLabels;
   title?: string;
-  privacyMode?: boolean;
   filename?: string;
 }): Promise<ExportDeliveryResult> {
   const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
@@ -663,7 +661,7 @@ export async function exportCallHistoryPdfReport({
   doc.text('Top Contacts by Talk Time', marginX, cursorY);
 
   const topRawNames = topContacts.map((c) =>
-    formatDisplayNameOrPhone(c.name, c.number, privacyMode),
+    formatDisplayNameOrPhone(c.name, c.number),
   );
 
   autoTable(doc, {
@@ -681,7 +679,7 @@ export async function exportCallHistoryPdfReport({
             return [
               String(idx + 1),
               hasNonLatin1(rawName) ? '' : rawName,
-              maskPhoneNumber(c.number, privacyMode),
+              c.number,
               String(c.count),
               `${c.incoming} / ${c.outgoing} / ${c.missed}`,
               formatDuration(c.duration),
@@ -758,9 +756,9 @@ export async function exportCallHistoryPdfReport({
   );
 
   const logRawNames = logSlice.map((c) =>
-    formatDisplayNameOrPhone(c.name, c.number, privacyMode),
+    formatDisplayNameOrPhone(c.name, c.number),
   );
-  const logRawTags = logSlice.map((c) => (c.tag ? maskPrivateText(c.tag, privacyMode) : '—'));
+  const logRawTags = logSlice.map((c) => c.tag || '—');
 
   autoTable(doc, {
     startY: cursorY + 2.5,
@@ -779,7 +777,7 @@ export async function exportCallHistoryPdfReport({
             const simText = c.sim ? formatSimDisplay(c.sim, simLabels) : '—';
             return [
               hasNonLatin1(rawName) ? '' : rawName,
-              maskPhoneNumber(c.number, privacyMode),
+              c.number,
               c.direction.charAt(0).toUpperCase() + c.direction.slice(1),
               hasNonLatin1(simText) ? safeLatinText(simText) : simText,
               `${formatDateTime(c.timestamp)} (${formatEthiopianShort(c.timestamp)} EC)`,
@@ -881,7 +879,7 @@ export async function exportCallHistoryPdfReport({
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
     doc.text(
-      `Call Analyzer - ETH · ${generatedEc} EC${privacyMode ? ' · Privacy Mode Active' : ''}`,
+      `Call Analyzer - ETH · ${generatedEc} EC`,
       marginX,
       pageH - 7.5,
     );

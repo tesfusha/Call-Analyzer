@@ -1,4 +1,10 @@
-export type CallDirection = 'incoming' | 'outgoing' | 'missed';
+export type CallDirection =
+  | 'incoming'
+  | 'outgoing'
+  | 'missed'
+  | 'rejected'
+  | 'blocked'
+  | 'voicemail';
 
 export type SimSlot = 'SIM 1' | 'SIM 2' | null;
 
@@ -51,6 +57,8 @@ export type ContactProfile = {
   birthday: ContactBirthday | null;
   events: ContactEvent[];
   notes: string;
+  telegramUsername?: string;
+  instagramUsername?: string;
   updatedAt: number;
 };
 
@@ -82,7 +90,9 @@ export type CalendarPrefs = {
 export type ReminderPrefs = {
   callbackDelayMinutes: number;
   missedCallReminderEnabled: boolean;
-  missedCallReminderDelayMinutes: 5 | 10;
+  missedCallReminderDelayMinutes: 5 | 7 | 10;
+  onlySavedContactsReminder?: boolean;
+  weeklyReconnectGoal?: number;
   eventLeadDays: number;
   quietContactDays: number;
   quietHoursEnabled: boolean;
@@ -136,7 +146,9 @@ export type PointsReason =
   | 'quick_callback'
   | 'call_tag_or_note'
   | 'streak_bonus'
-  | 'contact_milestone';
+  | 'contact_milestone'
+  | 'wish_opened'
+  | 'reconnect_contact';
 
 export type PointsHistoryEntry = {
   id: string;
@@ -206,6 +218,56 @@ export type CallsTabState = {
   unseenCallIds: string[];
 };
 
+export type AlertTypePrefs = {
+  missedCalls: boolean;
+  scheduledCalls: boolean;
+  birthdays: boolean;
+  holidays: boolean;
+  quietContacts: boolean;
+};
+
+export type WishChannel = 'sms' | 'whatsapp' | 'telegram' | 'instagram' | 'copy';
+
+export type WishOccasionType = 'holiday' | 'birthday' | 'reconnect';
+
+export type WishTemplateMap = Record<string, string>;
+
+export type SentWishRecord = {
+  id: string;
+  contactKey: string;
+  occasionKey: string;
+  year: number;
+  channel: WishChannel;
+  timestamp: number;
+};
+
+export type ReconnectProgressRecord = {
+  weekKey: string;
+  contactedKeys: string[];
+};
+
+export type SettingsSectionId =
+  | 'appearance'
+  | 'security'
+  | 'sim_tariffs'
+  | 'reminders'
+  | 'calendar'
+  | 'backup'
+  | 'about';
+
+export type WishComposerContext = {
+  contactNumber: string;
+  contactName: string;
+  contactKey?: string;
+  tag?: string;
+  occasionType: WishOccasionType;
+  occasionKey: string;
+  occasionName: string;
+  initialText?: string;
+  telegramUsername?: string;
+  instagramUsername?: string;
+};
+
 export type BackupSettingsSnapshot = {
   tariffs?: {
     sim1RatePerMin: number;
@@ -216,12 +278,13 @@ export type BackupSettingsSnapshot = {
   simLabels?: SimLabels;
   calendarPrefs?: CalendarPrefs;
   reminderPrefs?: ReminderPrefs;
+  alertTypePrefs?: AlertTypePrefs;
   voiceBundles?: VoiceBundles;
   notificationsEnabled?: boolean;
-  privacyMode?: boolean;
   themePreference?: 'system' | 'light' | 'dark-gray';
   fontSizeScale?: 'default' | 'large' | 'xlarge';
   profileName?: string;
+  expandedSettingsSections?: SettingsSectionId[];
 };
 
 export type DailyActiveRecord = {
@@ -238,5 +301,3 @@ export type AppUpdateNotice = {
   notes: string;
   mandatory: boolean;
 };
-
-

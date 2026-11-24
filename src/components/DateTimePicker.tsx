@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { toDateTimeLocalValue } from '@/src/lib/schedule';
+import { useBackHandler } from '@/src/lib/backNavigation';
 
 type PopoverCoords = {
   top?: number;
@@ -111,6 +112,14 @@ function useAnchoredPopover(
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<PopoverCoords | null>(null);
+  const popoverBackId = useId();
+
+  useBackHandler({
+    id: `anchored-popover-${popoverBackId}`,
+    active: open,
+    priority: 80,
+    onBack: onClose,
+  });
 
   const updateCoords = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();

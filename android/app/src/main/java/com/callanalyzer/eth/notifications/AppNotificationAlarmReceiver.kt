@@ -37,7 +37,9 @@ class AppNotificationAlarmReceiver : BroadcastReceiver() {
                     contactKey = record.contactKey,
                     eventId = record.eventId,
                     muteKey = record.muteKey,
-                    wishText = record.wishText
+                    wishText = record.wishText,
+                    occasionType = record.occasionType,
+                    occasionKey = record.occasionKey
                 )
             } finally {
                 pendingResult.finish()

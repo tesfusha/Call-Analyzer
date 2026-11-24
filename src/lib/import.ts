@@ -1,6 +1,7 @@
 import { getContactKey } from '@/src/lib/contacts';
 import { normaliseEthPhone } from '@/src/lib/ethiopia';
 import { computeScoreFromHistory, toEatDateString } from '@/src/lib/gamification';
+import { sanitizeSocialUsername } from '@/src/lib/security';
 import type {
   BackupSettingsSnapshot,
   BadgeRecord,
@@ -10,13 +11,18 @@ import type {
   ContactProfile,
   PointsHistoryEntry,
   PointsReason,
+  ReconnectProgressRecord,
   ScheduledCall,
   ScheduledCallStatus,
+  SentWishRecord,
+  SettingsSectionId,
   SimSlot,
   StreakRecord,
+  WishChannel,
+  WishTemplateMap,
 } from '@/src/types/call';
 
-export const CURRENT_BACKUP_SCHEMA_VERSION = 3;
+export const CURRENT_BACKUP_SCHEMA_VERSION = 4;
 
 export type ImportResult = {
   calls: CallRecord[];
@@ -44,6 +50,10 @@ export type ParsedImportPackage = {
   favorites: string[];
   dismissedMissedIds: string[];
   mutedAlertKeys: string[];
+  wishTemplates: WishTemplateMap;
+  sentWishes: SentWishRecord[];
+  snoozedQuietUntil: Record<string, number>;
+  reconnectProgress: ReconnectProgressRecord | null;
 };
 
 export type ImportPreviewSummary = {
@@ -200,7 +210,7 @@ function validatePhoneNumber(raw: string): { valid: boolean; value: string; reas
     return {
       valid: false,
       value: '',
-      reason: 'masked phone number (turn off Privacy Mode before exporting a restorable backup)',
+      reason: 'masked phone number cannot be imported',
     };
   }
   if (cleaned.length > 40) {
@@ -223,9 +233,10 @@ function validatePhoneNumber(raw: string): { valid: boolean; value: string; reas
 
 function parseDirection(value: string): CallDirection | null {
   const key = value.trim().toLowerCase();
-  if (key === 'missed' || key === 'miss' || key === 'rejected' || key === 'declined') {
-    return 'missed';
-  }
+  if (key === 'rejected' || key === 'declined') return 'rejected';
+  if (key === 'blocked') return 'blocked';
+  if (key === 'voicemail' || key === 'voice_mail') return 'voicemail';
+  if (key === 'missed' || key === 'miss') return 'missed';
   if (key === 'outgoing' || key === 'out' || key === 'placed' || key === 'dialed') {
     return 'outgoing';
   }
@@ -579,6 +590,11 @@ function sanitiseImportedContacts(raw: unknown): ContactProfile[] {
       });
     }
 
+    const telegramUsername =
+      typeof obj.telegramUsername === 'string' ? sanitizeSocialUsername(obj.telegramUsername) : '';
+    const instagramUsername =
+      typeof obj.instagramUsername === 'string' ? sanitizeSocialUsername(obj.instagramUsername) : '';
+
     out.push({
       key,
       number: phoneCheck.value,
@@ -587,6 +603,8 @@ function sanitiseImportedContacts(raw: unknown): ContactProfile[] {
       birthday,
       events,
       notes,
+      ...(telegramUsername ? { telegramUsername } : {}),
+      ...(instagramUsername ? { instagramUsername } : {}),
       updatedAt:
         typeof obj.updatedAt === 'number' && Number.isFinite(obj.updatedAt) && obj.updatedAt > 0
           ? Math.round(obj.updatedAt)
@@ -685,16 +703,36 @@ function sanitiseImportedSettings(raw: unknown): BackupSettingsSnapshot | null {
     const quietDays = Number(r.quietContactDays);
     const quietStart = Number(r.quietStartHour);
     const quietEnd = Number(r.quietEndHour);
+    const rawMissedDelay = Number(r.missedCallReminderDelayMinutes);
+    const missedCallReminderDelayMinutes: 5 | 7 | 10 =
+      rawMissedDelay === 5 ? 5 : rawMissedDelay === 10 ? 10 : 7;
+    const rawGoal = Number(r.weeklyReconnectGoal);
     snapshot.reminderPrefs = {
       callbackDelayMinutes: Math.max(5, Math.min(1440, Number.isFinite(callbackDelay) ? Math.round(callbackDelay) : 15)),
       missedCallReminderEnabled:
         typeof r.missedCallReminderEnabled === 'boolean' ? r.missedCallReminderEnabled : true,
-      missedCallReminderDelayMinutes: Number(r.missedCallReminderDelayMinutes) === 10 ? 10 : 5,
+      missedCallReminderDelayMinutes,
+      onlySavedContactsReminder: Boolean(r.onlySavedContactsReminder),
+      weeklyReconnectGoal: Number.isFinite(rawGoal)
+        ? Math.max(1, Math.min(14, Math.round(rawGoal)))
+        : 3,
       eventLeadDays: Math.max(0, Math.min(60, Number.isFinite(eventLead) ? Math.round(eventLead) : 7)),
       quietContactDays: Math.max(3, Math.min(180, Number.isFinite(quietDays) ? Math.round(quietDays) : 30)),
       quietHoursEnabled: Boolean(r.quietHoursEnabled),
       quietStartHour: Math.max(0, Math.min(23, Number.isFinite(quietStart) ? Math.round(quietStart) : 22)),
       quietEndHour: Math.max(0, Math.min(23, Number.isFinite(quietEnd) ? Math.round(quietEnd) : 7)),
+    };
+    hasAny = true;
+  }
+
+  if (obj.alertTypePrefs && typeof obj.alertTypePrefs === 'object') {
+    const a = obj.alertTypePrefs as Record<string, unknown>;
+    snapshot.alertTypePrefs = {
+      missedCalls: typeof a.missedCalls === 'boolean' ? a.missedCalls : true,
+      scheduledCalls: typeof a.scheduledCalls === 'boolean' ? a.scheduledCalls : true,
+      birthdays: typeof a.birthdays === 'boolean' ? a.birthdays : true,
+      holidays: typeof a.holidays === 'boolean' ? a.holidays : true,
+      quietContacts: typeof a.quietContacts === 'boolean' ? a.quietContacts : false,
     };
     hasAny = true;
   }
@@ -723,10 +761,6 @@ function sanitiseImportedSettings(raw: unknown): BackupSettingsSnapshot | null {
     snapshot.notificationsEnabled = obj.notificationsEnabled;
     hasAny = true;
   }
-  if (typeof obj.privacyMode === 'boolean') {
-    snapshot.privacyMode = obj.privacyMode;
-    hasAny = true;
-  }
   if (
     obj.themePreference === 'system' ||
     obj.themePreference === 'light' ||
@@ -748,6 +782,25 @@ function sanitiseImportedSettings(raw: unknown): BackupSettingsSnapshot | null {
   }
   if (typeof obj.profileName === 'string' && obj.profileName.trim()) {
     snapshot.profileName = obj.profileName.trim().slice(0, 120);
+    hasAny = true;
+  }
+  if (Array.isArray(obj.expandedSettingsSections)) {
+    const allowed = new Set<SettingsSectionId>([
+      'appearance',
+      'security',
+      'sim_tariffs',
+      'reminders',
+      'calendar',
+      'backup',
+      'about',
+    ]);
+    snapshot.expandedSettingsSections = Array.from(
+      new Set(
+        obj.expandedSettingsSections.filter(
+          (v): v is SettingsSectionId => typeof v === 'string' && allowed.has(v as SettingsSectionId),
+        ),
+      ),
+    );
     hasAny = true;
   }
 
@@ -812,6 +865,8 @@ function sanitiseImportedPointsHistory(raw: unknown): PointsHistoryEntry[] {
     'call_tag_or_note',
     'streak_bonus',
     'contact_milestone',
+    'wish_opened',
+    'reconnect_contact',
   ]);
   const byId = new Map<string, PointsHistoryEntry>();
 
@@ -932,6 +987,74 @@ function sanitiseStringArray(raw: unknown, maxItems = 500): string[] {
   ).slice(0, maxItems);
 }
 
+function sanitiseWishTemplates(raw: unknown): WishTemplateMap {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: WishTemplateMap = {};
+  Object.entries(raw as Record<string, unknown>).forEach(([key, val]) => {
+    if (typeof val !== 'string') return;
+    const cleanKey = key.trim().slice(0, 120);
+    const cleanVal = val.trim().slice(0, 1000);
+    if (cleanKey && cleanVal) {
+      out[cleanKey] = cleanVal;
+    }
+  });
+  return out;
+}
+
+function sanitiseSentWishes(raw: unknown): SentWishRecord[] {
+  if (!Array.isArray(raw)) return [];
+  const validChannels = new Set<WishChannel>(['sms', 'whatsapp', 'telegram', 'instagram', 'copy']);
+  const byId = new Map<string, SentWishRecord>();
+  raw.forEach((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+    const obj = item as Record<string, unknown>;
+    const contactKey =
+      typeof obj.contactKey === 'string' ? obj.contactKey.trim().slice(0, 64) : '';
+    const occasionKey =
+      typeof obj.occasionKey === 'string' ? obj.occasionKey.trim().slice(0, 120) : '';
+    const year = Math.round(Number(obj.year) || 0);
+    if (!contactKey || !occasionKey || year < 1900 || year > 2500) return;
+    const rawChannel = typeof obj.channel === 'string' ? obj.channel : 'copy';
+    const channel: WishChannel = validChannels.has(rawChannel as WishChannel)
+      ? (rawChannel as WishChannel)
+      : 'copy';
+    const timestamp =
+      typeof obj.timestamp === 'number' && Number.isFinite(obj.timestamp) && obj.timestamp > 0
+        ? Math.round(obj.timestamp)
+        : Date.now();
+    const id =
+      typeof obj.id === 'string' && obj.id.trim()
+        ? obj.id.trim().slice(0, 160)
+        : `${contactKey}|${occasionKey}|${year}|${index}`;
+    if (!byId.has(id)) {
+      byId.set(id, { id, contactKey, occasionKey, year, channel, timestamp });
+    }
+  });
+  return Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function sanitiseSnoozedQuietUntil(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  Object.entries(raw as Record<string, unknown>).forEach(([key, val]) => {
+    const until = Number(val);
+    const cleanKey = key.trim().slice(0, 64);
+    if (cleanKey && Number.isFinite(until) && until > 0) {
+      out[cleanKey] = Math.round(until);
+    }
+  });
+  return out;
+}
+
+function sanitiseReconnectProgress(raw: unknown): ReconnectProgressRecord | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const weekKey = typeof obj.weekKey === 'string' ? obj.weekKey.trim().slice(0, 16) : '';
+  const contactedKeys = sanitiseStringArray(obj.contactedKeys, 200);
+  if (!weekKey && contactedKeys.length === 0) return null;
+  return { weekKey, contactedKeys };
+}
+
 export function parseBackupImport(text: string, filename = ''): ParsedImportPackage {
   const source = text.replace(/^\uFEFF/, '').trim();
   const emptyPkg = (formatLabel: string, problems: string[]): ParsedImportPackage => ({
@@ -954,6 +1077,10 @@ export function parseBackupImport(text: string, filename = ''): ParsedImportPack
     favorites: [],
     dismissedMissedIds: [],
     mutedAlertKeys: [],
+    wishTemplates: {},
+    sentWishes: [],
+    snoozedQuietUntil: {},
+    reconnectProgress: null,
   });
 
   if (!source) {
@@ -1009,7 +1136,11 @@ export function parseBackupImport(text: string, filename = ''): ParsedImportPack
       obj.contactMilestones !== undefined ||
       obj.pointsHistory !== undefined ||
       obj.score !== undefined ||
-      obj.scheduledCalls !== undefined;
+      obj.scheduledCalls !== undefined ||
+      obj.wishTemplates !== undefined ||
+      obj.sentWishes !== undefined ||
+      obj.snoozedQuietUntil !== undefined ||
+      obj.reconnectProgress !== undefined;
 
     let callsResult: ImportResult = { calls: [], invalid: 0, problems: [] };
     if (Array.isArray(obj.calls)) {
@@ -1044,6 +1175,10 @@ export function parseBackupImport(text: string, filename = ''): ParsedImportPack
     const favorites = sanitiseStringArray(obj.favorites, 200);
     const dismissedMissedIds = sanitiseStringArray(obj.dismissedMissedIds, 500);
     const mutedAlertKeys = sanitiseStringArray(obj.mutedAlertKeys, 200);
+    const wishTemplates = sanitiseWishTemplates(obj.wishTemplates);
+    const sentWishes = sanitiseSentWishes(obj.sentWishes);
+    const snoozedQuietUntil = sanitiseSnoozedQuietUntil(obj.snoozedQuietUntil);
+    const reconnectProgress = sanitiseReconnectProgress(obj.reconnectProgress);
 
     const formatLabel =
       rawVersion !== null && rawVersion >= 2
@@ -1072,6 +1207,10 @@ export function parseBackupImport(text: string, filename = ''): ParsedImportPack
       favorites,
       dismissedMissedIds,
       mutedAlertKeys,
+      wishTemplates,
+      sentWishes,
+      snoozedQuietUntil,
+      reconnectProgress,
     };
   }
 

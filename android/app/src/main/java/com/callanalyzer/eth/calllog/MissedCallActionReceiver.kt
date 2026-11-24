@@ -19,6 +19,7 @@ class MissedCallActionReceiver : BroadcastReceiver() {
             val store = CallLogSyncStore(context)
             store.addNotifiedCallId(callId)
             store.removePendingAlarm(callId)
+            NotificationHelper.refreshMissedCallSummary(context, store)
         }
     }
 

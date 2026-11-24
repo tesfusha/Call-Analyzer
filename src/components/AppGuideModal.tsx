@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { APP_NAME, APP_PRIVACY_NOTE, APP_VERSION } from '@/src/lib/appInfo';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 type GuideStep = {
@@ -261,6 +262,12 @@ export function AppGuideModal({
   onClose: () => void;
 }) {
   useLockBodyScroll(open);
+  useBackHandler({
+    id: 'app-guide-modal',
+    active: open,
+    priority: 65,
+    onBack: onClose,
+  });
   const prefersReducedMotion = useReducedMotion();
   const [stepIndex, setStepIndex] = useState(0);
 

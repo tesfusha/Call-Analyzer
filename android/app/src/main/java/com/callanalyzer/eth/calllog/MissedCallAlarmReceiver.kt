@@ -51,6 +51,7 @@ class MissedCallAlarmReceiver : BroadcastReceiver() {
         if (shown) {
             store.markAlarmShown(callId)
             store.addNotifiedCallId(callId)
+            NotificationHelper.refreshMissedCallSummary(context, store)
         }
     }
 

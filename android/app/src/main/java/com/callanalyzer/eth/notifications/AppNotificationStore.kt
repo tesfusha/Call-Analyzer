@@ -16,7 +16,9 @@ data class ScheduledNotificationRecord(
     val contactKey: String?,
     val eventId: String?,
     val muteKey: String?,
-    val wishText: String?
+    val wishText: String?,
+    val occasionType: String? = null,
+    val occasionKey: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
@@ -30,6 +32,8 @@ data class ScheduledNotificationRecord(
         put("eventId", eventId ?: JSONObject.NULL)
         put("muteKey", muteKey ?: JSONObject.NULL)
         put("wishText", wishText ?: JSONObject.NULL)
+        put("occasionType", occasionType ?: JSONObject.NULL)
+        put("occasionKey", occasionKey ?: JSONObject.NULL)
     }
 
     companion object {
@@ -57,7 +61,9 @@ data class ScheduledNotificationRecord(
                 contactKey = optNullableString(obj, "contactKey"),
                 eventId = optNullableString(obj, "eventId"),
                 muteKey = optNullableString(obj, "muteKey"),
-                wishText = optNullableString(obj, "wishText")
+                wishText = optNullableString(obj, "wishText"),
+                occasionType = optNullableString(obj, "occasionType"),
+                occasionKey = optNullableString(obj, "occasionKey")
             )
         }
     }

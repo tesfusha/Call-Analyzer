@@ -21,6 +21,8 @@ class AppNotificationActionReceiver : BroadcastReceiver() {
         val eventId = intent.getStringExtra(AppNotificationDisplay.EXTRA_EVENT_ID)
         val muteKey = intent.getStringExtra(AppNotificationDisplay.EXTRA_MUTE_KEY)
         val wishText = intent.getStringExtra(AppNotificationDisplay.EXTRA_WISH_TEXT)
+        val occasionType = intent.getStringExtra(AppNotificationDisplay.EXTRA_OCCASION_TYPE)
+        val occasionKey = intent.getStringExtra(AppNotificationDisplay.EXTRA_OCCASION_KEY)
 
         if (id >= 0) {
             NotificationHelper.cancelNotification(appContext, id)
@@ -47,7 +49,9 @@ class AppNotificationActionReceiver : BroadcastReceiver() {
                             contactKey = contactKey,
                             eventId = eventId,
                             muteKey = muteKey,
-                            wishText = wishText
+                            wishText = wishText,
+                            occasionType = occasionType,
+                            occasionKey = occasionKey
                         )
                     )
                     handledNatively = true
@@ -70,7 +74,9 @@ class AppNotificationActionReceiver : BroadcastReceiver() {
                             contactKey = contactKey,
                             eventId = eventId,
                             muteKey = muteKey,
-                            wishText = wishText
+                            wishText = wishText,
+                            occasionType = occasionType,
+                            occasionKey = occasionKey
                         )
                     )
                     handledNatively = true
@@ -97,7 +103,9 @@ class AppNotificationActionReceiver : BroadcastReceiver() {
             muteKey = muteKey,
             wishText = wishText,
             timestamp = nowMs,
-            handledNatively = handledNatively
+            handledNatively = handledNatively,
+            occasionType = occasionType,
+            occasionKey = occasionKey
         )
         AppNotificationsPlugin.dispatchAction(appContext, eventJson)
     }

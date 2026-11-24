@@ -2,7 +2,7 @@
   "entities": {
     "UserWorkspace": {
       "title": "UserWorkspace",
-      "description": "Private user account preferences (theme, tariffs, SIM labels, calendar defaults, reminder settings, voice bundles). Contains NO call logs, contact phone numbers, or scheduled calls.",
+      "description": "Private user account preferences (theme, tariffs, SIM labels, calendar defaults, reminder settings, voice bundles). Contains NO call logs, contact phone numbers, scheduled calls, wish templates, sent wishes, social usernames, or reconnect progress.",
       "type": "object",
       "properties": {
         "uid": {
@@ -39,9 +39,6 @@
         "notificationsEnabled": {
           "type": "boolean"
         },
-        "privacyMode": {
-          "type": "boolean"
-        },
         "tariffs": {
           "type": "object"
         },
@@ -68,7 +65,6 @@
         "email",
         "theme",
         "notificationsEnabled",
-        "privacyMode",
         "tariffs",
         "simLabels",
         "calendarPrefs",

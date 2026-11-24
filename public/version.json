@@ -1,7 +1,7 @@
 {
-  "versionCode": 5,
-  "versionName": "2.5.5",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.5.5.apk",
-  "notes": "Added native Android AppNotifications plugin (enabling device alerts, scheduled callback alarms, interactive notification buttons) and optimized incremental call-log sync for 50,000+ call logs.",
+  "versionCode": 7,
+  "versionName": "2.6.0",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.6.0.apk",
+  "notes": "Wish Composer with custom templates and GSM-7/Unicode SMS counter, smarter Quiet Contacts with real call rhythm and weekly reconnect goals, collapsible Settings sections, 5/7/10-minute missed-call reminders with saved-contacts filter, PBKDF2 screen lock, and full Rejected/Blocked/Voicemail call support.",
   "mandatory": false
 }

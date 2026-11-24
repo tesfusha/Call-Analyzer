@@ -19,6 +19,7 @@ import {
 } from '@/src/lib/avatars';
 import { shareContactVcard } from '@/src/lib/export';
 import { firstGraphemes } from '@/src/lib/format';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 
@@ -85,6 +86,19 @@ export function ProfileEditModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  useBackHandler({
+    id: 'profile-edit-modal',
+    active: open,
+    priority: 55,
+    onBack: onClose,
+    hasUnsavedChanges: () =>
+      displayName !== resolvedCurrentName ||
+      phone !== (userPhone ?? '') ||
+      selectedPhotoUrl !== resolvedCurrentPhoto ||
+      Boolean(currentPassword || newPassword || confirmPassword),
+    unsavedMessage: 'Discard unsaved profile changes?',
+  });
 
   useEffect(() => {
     if (bodyScrollRef.current) {

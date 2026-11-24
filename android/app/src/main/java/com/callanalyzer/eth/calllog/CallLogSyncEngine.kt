@@ -12,8 +12,10 @@ object CallLogSyncEngine {
     /**
      * Evaluates new CallLog.Calls entries natively (works with the app closed/swiped away):
      * - Initializes the evaluation watermark on first run so historical missed calls don't trigger stale alerts.
-     * - Cancels any pending alarm AND removes any already-shown notification when an outgoing call matches a pending missed number.
-     * - Schedules an exact alarm for newly missed calls according to user's delay setting (5 or 10 min).
+     * - Cancels any pending alarm AND removes any already-shown notification when an outgoing call or answered incoming call matches a pending missed number.
+     * - Schedules an exact alarm for newly missed calls according to user's delay setting (5, 7, or 10 min; default 7),
+     *   coalescing repeated missed calls from the same number into one reminder and honoring onlySavedContacts.
+     * - Ignores rejected, blocked, and voicemail calls for missed-call alerts (still synced to web).
      * Never modifies `lastWebSyncedId`, so the web UI still receives all new calls on next open.
      */
     fun evaluateNewCalls(context: Context): Int {
@@ -36,13 +38,18 @@ object CallLogSyncEngine {
             val nowMs = System.currentTimeMillis()
             val delayMs = store.getDelayMinutes() * 60_000L
             val remindersEnabled = store.isReminderEnabled()
+            val onlySavedContacts = store.isOnlySavedContacts()
 
             for (call in newCalls) {
                 if (call.rawId > lastEvalId) {
                     lastEvalId = call.rawId
                 }
 
-                if (call.direction == "outgoing" && call.normalizedNumber.isNotEmpty()) {
+                val isCallbackOrAnswered =
+                    (call.direction == "outgoing" || (call.direction == "incoming" && call.duration > 0L)) &&
+                        call.normalizedNumber.isNotEmpty()
+
+                if (isCallbackOrAnswered) {
                     // Cancel any pending alarms OR dismiss notifications already shown for the same normalized number
                     val matchingPending = store.getPendingAlarms().filter { pending ->
                         pending.normalizedNumber == call.normalizedNumber &&
@@ -52,18 +59,33 @@ object CallLogSyncEngine {
                         cancelAlarmAndNotification(context, store, pending)
                     }
                 } else if (call.direction == "missed" && remindersEnabled && call.normalizedNumber.isNotEmpty()) {
+                    if (onlySavedContacts && !store.isNumberSaved(call.number, call.normalizedNumber)) {
+                        continue
+                    }
                     // Only schedule if not already notified and the missed call occurred within the last 12 hours
                     if (!store.hasNotifiedCallId(call.rawId) && (nowMs - call.timestamp) <= 12L * 3_600_000L) {
                         val triggerAtMs = (call.timestamp + delayMs).coerceAtLeast(nowMs + 1_000L)
+                        val existingForNumber = store.getPendingAlarms().find { pending ->
+                            !pending.shown && pending.normalizedNumber == call.normalizedNumber
+                        }
+                        if (existingForNumber != null) {
+                            cancelExactAlarm(context, existingForNumber.callId)
+                            store.addNotifiedCallId(existingForNumber.callId)
+                            store.removePendingAlarm(existingForNumber.callId)
+                        }
+                        val nextCount = (existingForNumber?.missedCount ?: 0) + 1
+                        val resolvedName = call.name?.takeIf { it.isNotBlank() } ?: existingForNumber?.displayName
                         val alarm = PendingMissedAlarm(
                             callId = call.rawId,
                             number = call.number,
                             normalizedNumber = call.normalizedNumber,
-                            displayName = call.name,
+                            displayName = resolvedName,
                             callTimestampMs = call.timestamp,
                             triggerAtMs = triggerAtMs,
-                            notificationId = PendingMissedAlarm.notificationIdForCall(call.rawId),
-                            shown = false
+                            notificationId = existingForNumber?.notificationId
+                                ?: PendingMissedAlarm.notificationIdForCall(call.rawId),
+                            shown = false,
+                            missedCount = nextCount
                         )
                         store.upsertPendingAlarm(alarm)
                         scheduleExactAlarm(context, alarm)
@@ -80,7 +102,7 @@ object CallLogSyncEngine {
         if (!CallLogReader.hasReadCallLogPermission(context)) return false
         val recent = CallLogReader.queryCallsAfterId(context, afterId = alarm.callId, limit = 500)
         return recent.any { call ->
-            call.direction == "outgoing" &&
+            (call.direction == "outgoing" || (call.direction == "incoming" && call.duration > 0L)) &&
                 call.normalizedNumber == alarm.normalizedNumber &&
                 call.timestamp >= alarm.callTimestampMs
         }
@@ -108,6 +130,7 @@ object CallLogSyncEngine {
         store.addReturnedCallId(alarm.callId)
         store.addNotifiedCallId(alarm.callId)
         store.removePendingAlarm(alarm.callId)
+        NotificationHelper.refreshMissedCallSummary(context, store)
     }
 
     fun scheduleExactAlarm(context: Context, alarm: PendingMissedAlarm) {

@@ -19,10 +19,12 @@ import {
   Phone,
   PhoneIncoming,
   PhoneMissed,
+  PhoneOff,
   PhoneOutgoing,
   RefreshCw,
   Search,
   ShieldAlert,
+  ShieldBan,
   Sparkles,
   Star,
   Tag,
@@ -31,6 +33,7 @@ import {
   Upload,
   User,
   Users,
+  Voicemail,
   Wrench,
   X,
   Zap,
@@ -66,8 +69,9 @@ import { triggerHaptic } from '@/src/lib/haptics';
 import { buildImportPreview, parseBackupImport } from '@/src/lib/import';
 import { unreturnedMissedCalls } from '@/src/lib/reminders';
 import { formatScheduledCountdown, formatScheduledLabel } from '@/src/lib/schedule';
-import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { filterByRange, totalSpendEtb } from '@/src/lib/stats';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { CallDirection, CallRecord } from '@/src/types/call';
@@ -102,13 +106,34 @@ function DirectionIcon({ direction }: { direction: CallDirection }) {
   if (direction === 'outgoing') {
     return <PhoneOutgoing size={14} className="text-[#FF6A00] shrink-0" />;
   }
+  if (direction === 'rejected') {
+    return <PhoneOff size={14} className="text-[#64748B] shrink-0" />;
+  }
+  if (direction === 'blocked') {
+    return <ShieldBan size={14} className="text-[#64748B] shrink-0" />;
+  }
+  if (direction === 'voicemail') {
+    return <Voicemail size={14} className="text-[#8B5CF6] shrink-0" />;
+  }
   return <PhoneMissed size={14} className="text-[#EF4444] shrink-0" />;
 }
 
 function formatCallStatus(direction: CallDirection): string {
   if (direction === 'incoming') return 'Incoming Call';
   if (direction === 'outgoing') return 'Outgoing Call';
+  if (direction === 'rejected') return 'Rejected';
+  if (direction === 'blocked') return 'Blocked';
+  if (direction === 'voicemail') return 'Voicemail';
   return 'Missed Call';
+}
+
+function callStatusTextClass(direction: CallDirection): string {
+  if (direction === 'missed') return 'text-[#EF4444] dark:text-[#F28B82] font-medium';
+  if (direction === 'rejected' || direction === 'blocked') {
+    return 'text-[#64748B] dark:text-[#94A3B8] font-medium';
+  }
+  if (direction === 'voicemail') return 'text-[#8B5CF6] dark:text-[#A78BFA] font-medium';
+  return 'font-medium text-[#08246B] dark:text-white';
 }
 
 export const CallsTab = memo(function CallsTab({
@@ -138,7 +163,6 @@ export const CallsTab = memo(function CallsTab({
     authUser,
     isGuest,
     openAuthPrompt,
-    privacyMode,
     toggleFavorite,
     availableTags,
     importBackupPackage,
@@ -180,6 +204,30 @@ export const CallsTab = memo(function CallsTab({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(quickActionsOpen);
+  useBackHandler({
+    id: 'calls-quick-actions-drawer',
+    active: quickActionsOpen,
+    priority: 40,
+    onBack: () => setQuickActionsOpen(false),
+  });
+  useBackHandler({
+    id: 'calls-filters-panel',
+    active: filtersOpen,
+    priority: 25,
+    onBack: () => setFiltersOpen(false),
+  });
+  useBackHandler({
+    id: 'calls-search-bar',
+    active: searchOpen,
+    priority: 24,
+    onBack: () => setSearchOpen(false),
+  });
+  useBackHandler({
+    id: 'calls-subtab',
+    active: activeCategory !== 'log',
+    priority: 15,
+    onBack: () => setActiveCategory('log'),
+  });
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
     if (!authUser?.uid) return false;
     try {
@@ -570,12 +618,8 @@ export const CallsTab = memo(function CallsTab({
       {!isGuest && authUser && (() => {
         const topContact = topContactStatuses[0] ?? null;
         const activeContactStreaksCount = topContactStatuses.filter((c) => c.currentStreak > 0).length;
-        const maskedTopName = topContact
-          ? formatDisplayNameOrPhone(
-              topContact.displayName,
-              topContact.number,
-              privacyMode,
-            )
+        const topContactName = topContact
+          ? formatDisplayNameOrPhone(topContact.displayName, topContact.number)
           : '';
         return (
           <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3 space-y-2.5">
@@ -641,7 +685,7 @@ export const CallsTab = memo(function CallsTab({
                 >
                   <Users size={14} className="text-[#FF6A00] shrink-0" />
                   <p className="text-xs text-[#08246B] dark:text-white truncate">
-                    <span className="font-semibold">Status with {maskedTopName}:</span>{' '}
+                    <span className="font-semibold">Status with {topContactName}:</span>{' '}
                     <span className="font-bold text-[#FF6A00]">{topContact.statusHeadline}</span>
                     <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums">
                       {' '}
@@ -939,7 +983,7 @@ export const CallsTab = memo(function CallsTab({
                         <span className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                           Call Type
                         </span>
-                        <div className="grid grid-cols-5 items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                        <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
                           {(
                             [
                               { value: 'all', label: 'All' },
@@ -953,6 +997,9 @@ export const CallsTab = memo(function CallsTab({
                                     ? `Unret (${unreturnedIds.size})`
                                     : 'Unret',
                               },
+                              { value: 'rejected', label: 'Rejected' },
+                              { value: 'blocked', label: 'Blocked' },
+                              { value: 'voicemail', label: 'Voicemail' },
                             ] as const
                           ).map((opt) => {
                             const active = dirFilter === opt.value;
@@ -964,7 +1011,7 @@ export const CallsTab = memo(function CallsTab({
                                   triggerHaptic('tap');
                                   setDirFilter(opt.value);
                                 }}
-                                className={`min-h-[36px] px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap truncate transition-colors ${
+                                className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-colors ${
                                   active
                                     ? 'bg-[#FF6A00] text-white shadow-sm'
                                     : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
@@ -1134,7 +1181,6 @@ export const CallsTab = memo(function CallsTab({
                         const displayName = formatDisplayNameOrPhone(
                           call.name?.trim() || contactProfile?.name?.trim(),
                           call.number,
-                          privacyMode,
                         );
                         const resolvedTag = resolveCallTag(call);
                         const shortTag = resolvedTag ? formatShortTag(resolvedTag) : '';
@@ -1219,13 +1265,7 @@ export const CallsTab = memo(function CallsTab({
 
                                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                                   <DirectionIcon direction={call.direction} />
-                                  <span
-                                    className={
-                                      call.direction === 'missed'
-                                        ? 'text-[#EF4444] dark:text-[#F28B82] font-medium'
-                                        : 'font-medium text-[#08246B] dark:text-white'
-                                    }
-                                  >
+                                  <span className={callStatusTextClass(call.direction)}>
                                     {formatCallStatus(call.direction)}
                                   </span>
                                   <span aria-hidden="true">·</span>
@@ -1338,13 +1378,7 @@ export const CallsTab = memo(function CallsTab({
                                       >
                                         <div className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                                           <DirectionIcon direction={subCall.direction} />
-                                          <span
-                                            className={
-                                              subCall.direction === 'missed'
-                                                ? 'text-[#EF4444] dark:text-[#F28B82] font-medium'
-                                                : 'font-medium text-[#08246B] dark:text-white'
-                                            }
-                                          >
+                                          <span className={callStatusTextClass(subCall.direction)}>
                                             {formatCallStatus(subCall.direction)}
                                           </span>
                                           {sessionNewCallIds.has(subCall.id) && (
@@ -1552,7 +1586,6 @@ export const CallsTab = memo(function CallsTab({
                         {formatDisplayNameOrPhone(
                           upcomingEvents[0].name,
                           upcomingEvents[0].number,
-                          privacyMode,
                         )}
                         &apos;s {upcomingEvents[0].title}{' '}
                         <span className="text-[#FF6A00]">
@@ -1600,7 +1633,6 @@ export const CallsTab = memo(function CallsTab({
                     const label = formatDisplayNameOrPhone(
                       missed.name,
                       missed.number,
-                      privacyMode,
                     );
                     return (
                       <div
@@ -1710,7 +1742,7 @@ export const CallsTab = memo(function CallsTab({
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                            {formatDisplayNameOrPhone(item.name, item.number, privacyMode)}
+                            {formatDisplayNameOrPhone(item.name, item.number)}
                           </p>
                           <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                             <span className="font-semibold text-[#FF6A00]">
@@ -1805,7 +1837,6 @@ export const CallsTab = memo(function CallsTab({
                   const displayName = formatDisplayNameOrPhone(
                     vip.name,
                     vip.number,
-                    privacyMode,
                   );
                   const shortVipTag = vip.tag ? formatShortTag(vip.tag) : '';
                   return (
@@ -1840,7 +1871,7 @@ export const CallsTab = memo(function CallsTab({
                             )}
                           </div>
                           <p className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                            {maskPhoneNumber(vip.number, privacyMode)}
+                            {vip.number}
                             {vip.lastTimestamp > 0
                               ? ` · Last ${formatTime(vip.lastTimestamp)}`
                               : ''}

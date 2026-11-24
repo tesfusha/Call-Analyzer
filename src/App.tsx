@@ -4,8 +4,6 @@ import {
   BarChart3,
   Bell,
   Calendar,
-  Eye,
-  EyeOff,
   HelpCircle,
   Lock,
   LogIn,
@@ -37,12 +35,19 @@ import { SettingsTab } from '@/src/components/SettingsTab';
 import { UpdateNoticeModal } from '@/src/components/UpdateNoticeModal';
 import { UsageTab } from '@/src/components/UsageTab';
 import { WhatsNewModal } from '@/src/components/WhatsNewModal';
+import { WishComposerModal } from '@/src/components/WishComposerModal';
+import { App as CapacitorApp } from '@capacitor/app';
+import { DiscardChangesModal } from '@/src/components/DiscardChangesModal';
 import {
   APP_VERSION,
-  GUIDE_SEEN_KEY,
   UPDATE_CHECK_INTERVAL_MS,
-  WHATS_NEW_SEEN_KEY,
 } from '@/src/lib/appInfo';
+import {
+  dispatchBackNavigation,
+  resetExitBackTimer,
+  useBackHandler,
+  useDiscardPrompt,
+} from '@/src/lib/backNavigation';
 import {
   checkForAppUpdate,
   dismissUpdateVersionCode,
@@ -54,15 +59,11 @@ import {
   isNativeCapacitor,
   markNativeMissedCallReturned,
 } from '@/src/lib/capacitor';
-import { getContactKey, getUpcomingContactEvents } from '@/src/lib/contacts';
-import {
-  formatEthiopianShort,
-  getHolidaysInGregorianYearOrUpcoming,
-} from '@/src/lib/ethiopianCalendar';
+import { getContactKey } from '@/src/lib/contacts';
+import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { firstGraphemes } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { quietContacts, unreturnedMissedCalls } from '@/src/lib/reminders';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { unreturnedMissedCalls } from '@/src/lib/reminders';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { CallsProvider, useCalls } from '@/src/store/CallsContext';
 import type { AppUpdateNotice, CallRecord, ContactMilestoneRecord, TabKey } from '@/src/types/call';
@@ -80,18 +81,22 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof Phone }> = [
 function AppShell() {
   const {
     calls,
-    contacts,
     scheduledCalls,
     favorites,
     dismissedMissedIds,
     mutedAlertSet,
+    alertTypePrefs,
+    isAlertsSnoozedToday,
+    readAlertSet,
     calendarPrefs,
-    reminderPrefs,
+    guideSeen,
+    whatsNewSeenVersion,
+    seenMetaReady,
+    markGuideSeen,
+    markWhatsNewSeen,
     theme,
     themePreference,
     toggleTheme,
-    privacyMode,
-    togglePrivacyMode,
     pinEnabled,
     isLocked,
     pinLockoutUntil,
@@ -148,6 +153,18 @@ function AppShell() {
   const [checkingVerify, setCheckingVerify] = useState(false);
   const [resendingVerify, setResendingVerify] = useState(false);
   const mainContentRef = useRef<HTMLDivElement>(null);
+  const discardPrompt = useDiscardPrompt();
+  const tabHistoryRef = useRef<TabKey[]>(['calls']);
+  const activeTabRef = useRef<TabKey>(activeTab);
+  activeTabRef.current = activeTab;
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
+  const canUseMainTabs = Boolean(
+    !authLoading && !needsEmailVerification && !isLocked && (authUser || isGuest),
+  );
+  const canUseMainTabsRef = useRef(canUseMainTabs);
+  canUseMainTabsRef.current = canUseMainTabs;
+  const exitingWebRef = useRef(false);
 
   // Check remote version.json on app start and once every 24 hours (fails silently offline)
   useEffect(() => {
@@ -213,43 +230,44 @@ function AppShell() {
     setRemindersOpen(false);
     setActiveTab('calls');
     setVisitedTabs(new Set(['calls']));
+    tabHistoryRef.current = ['calls'];
+    resetExitBackTimer();
   }, [authUid, isGuest]);
 
   const handleCloseGuide = useCallback(() => {
     setGuideOpen(false);
-    try {
-      localStorage.setItem(GUIDE_SEEN_KEY, '1');
-      localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
+    markGuideSeen();
+    markWhatsNewSeen(APP_VERSION);
+  }, [markGuideSeen, markWhatsNewSeen]);
 
   const handleCloseWhatsNew = useCallback(() => {
     setWhatsNewOpen(false);
-    try {
-      localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
+    markWhatsNewSeen(APP_VERSION);
+  }, [markWhatsNewSeen]);
 
   useEffect(() => {
-    if (authLoading || needsEmailVerification || isLocked) return;
+    if (!seenMetaReady || authLoading || needsEmailVerification || isLocked) return;
     if (!authUser && !isGuest) return;
-    try {
-      if (localStorage.getItem(GUIDE_SEEN_KEY) !== '1') {
-        setGuideOpen(true);
-        localStorage.setItem(GUIDE_SEEN_KEY, '1');
-        localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
-      } else if (localStorage.getItem(WHATS_NEW_SEEN_KEY) !== APP_VERSION) {
-        setWhatsNewOpen(true);
-        localStorage.setItem(WHATS_NEW_SEEN_KEY, APP_VERSION);
-      }
-    } catch {
-      // ignore storage errors
+    if (!guideSeen) {
+      setGuideOpen(true);
+      markGuideSeen();
+      markWhatsNewSeen(APP_VERSION);
+    } else if (whatsNewSeenVersion !== APP_VERSION) {
+      setWhatsNewOpen(true);
+      markWhatsNewSeen(APP_VERSION);
     }
-  }, [authLoading, needsEmailVerification, isLocked, authUser, isGuest]);
+  }, [
+    seenMetaReady,
+    authLoading,
+    needsEmailVerification,
+    isLocked,
+    authUser,
+    isGuest,
+    guideSeen,
+    whatsNewSeenVersion,
+    markGuideSeen,
+    markWhatsNewSeen,
+  ]);
 
   useEffect(() => {
     if (authLoading || needsEmailVerification || isLocked || !authUser) return;
@@ -282,23 +300,133 @@ function AppShell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [authPromptMode, closeAuthPrompt]);
 
+  useBackHandler({
+    id: 'auth-prompt-modal',
+    active: authPromptMode !== 'closed',
+    priority: 60,
+    onBack: closeAuthPrompt,
+  });
+
   useEffect(() => {
     if (activeTab === 'admin' && !isAdmin) {
+      tabHistoryRef.current = ['calls'];
       setActiveTab('calls');
     }
   }, [activeTab, isAdmin]);
 
-  const handleSwitchTab = useCallback((nextTab: TabKey) => {
-    triggerHaptic('tap');
-    setVisitedTabs((prev) => {
-      if (prev.has(nextTab)) return prev;
-      const next = new Set(prev);
-      next.add(nextTab);
-      return next;
+  const handleSwitchTab = useCallback(
+    (nextTab: TabKey, options?: { fromBack?: boolean }) => {
+      triggerHaptic('tap');
+      resetExitBackTimer();
+      if (!options?.fromBack) {
+        const hist = tabHistoryRef.current;
+        if (hist[hist.length - 1] !== nextTab) {
+          hist.push(nextTab);
+          if (hist.length > 20) {
+            hist.splice(0, hist.length - 20);
+          }
+        }
+      }
+      setVisitedTabs((prev) => {
+        if (prev.has(nextTab)) return prev;
+        const next = new Set(prev);
+        next.add(nextTab);
+        return next;
+      });
+      setActiveTab(nextTab);
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    },
+    [],
+  );
+
+  // Native Android hardware Back button (Capacitor App plugin)
+  useEffect(() => {
+    if (!isNativeCapacitor()) return;
+    const listenerPromise = CapacitorApp.addListener('backButton', () => {
+      dispatchBackNavigation({
+        isLocked: isLockedRef.current,
+        onMinimizeApp: () => {
+          void CapacitorApp.minimizeApp();
+        },
+        canStepBackTab: () =>
+          canUseMainTabsRef.current &&
+          (tabHistoryRef.current.length > 1 || activeTabRef.current !== 'calls'),
+        stepBackTab: () => {
+          const history = tabHistoryRef.current;
+          if (history.length > 1) {
+            history.pop();
+            const prevTab = history[history.length - 1] ?? 'calls';
+            handleSwitchTab(prevTab, { fromBack: true });
+          } else if (activeTabRef.current !== 'calls') {
+            tabHistoryRef.current = ['calls'];
+            handleSwitchTab('calls', { fromBack: true });
+          }
+        },
+        showExitToast: () => showNotice('Press back again to exit', 'tap'),
+        onExitApp: () => {
+          void CapacitorApp.exitApp();
+        },
+      });
     });
-    setActiveTab(nextTab);
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  }, []);
+    return () => {
+      void listenerPromise.then((handle) => handle.remove());
+    };
+  }, [handleSwitchTab, showNotice]);
+
+  // Web browser Back parity via History sentinel + popstate
+  useEffect(() => {
+    if (isNativeCapacitor() || typeof window === 'undefined') return;
+    const ensureSentinel = () => {
+      if (exitingWebRef.current) return;
+      if (window.history.state?.__caSentinel !== true) {
+        try {
+          window.history.pushState({ __caSentinel: true }, '');
+        } catch {
+          // ignore history errors in restricted frames
+        }
+      }
+    };
+    if (canUseMainTabs || guideOpen || whatsNewOpen || authPromptMode !== 'closed') {
+      ensureSentinel();
+    }
+
+    const onPopState = () => {
+      if (exitingWebRef.current) {
+        exitingWebRef.current = false;
+        return;
+      }
+      const result = dispatchBackNavigation({
+        isLocked: isLockedRef.current,
+        onMinimizeApp: () => showNotice('Enter your 4-digit PIN to unlock.', 'tap'),
+        canStepBackTab: () =>
+          canUseMainTabsRef.current &&
+          (tabHistoryRef.current.length > 1 || activeTabRef.current !== 'calls'),
+        stepBackTab: () => {
+          const history = tabHistoryRef.current;
+          if (history.length > 1) {
+            history.pop();
+            const prevTab = history[history.length - 1] ?? 'calls';
+            handleSwitchTab(prevTab, { fromBack: true });
+          } else if (activeTabRef.current !== 'calls') {
+            tabHistoryRef.current = ['calls'];
+            handleSwitchTab('calls', { fromBack: true });
+          }
+        },
+        showExitToast: () => showNotice('Press back again to exit', 'tap'),
+        onExitApp: () => {
+          exitingWebRef.current = true;
+        },
+      });
+      if (result !== 'exit-now') {
+        ensureSentinel();
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [canUseMainTabs, guideOpen, whatsNewOpen, authPromptMode, handleSwitchTab, showNotice]);
 
   const prevActiveTabRef = useRef<TabKey>(activeTab);
   useEffect(() => {
@@ -524,35 +652,32 @@ function AppShell() {
   }, []);
 
   const pendingFollowUps = useMemo(() => {
-    const missedCount = unreturnedMissedCalls(calls, dismissedMissedIds).filter(
-      (m) => !mutedAlertSet.has(`missed:${getContactKey(m.number)}`),
-    ).length;
-    const scheduledCount = scheduledCalls.filter(
-      (s) => s.status === 'pending' && !mutedAlertSet.has(`sched:${s.id}`),
-    ).length;
-    const quietCount = quietContacts(calls, new Date(), reminderPrefs.quietContactDays).filter(
-      (q) => !mutedAlertSet.has(`quiet:${getContactKey(q.number)}`),
-    ).length;
-    const eventsCount = getUpcomingContactEvents(
-      contacts,
-      calls,
-      reminderPrefs.eventLeadDays,
-    ).filter((evt) => !mutedAlertSet.has(`bday:${evt.contactKey}`)).length;
-    const holidaysCount = getHolidaysInGregorianYearOrUpcoming(
-      new Date(),
-      reminderPrefs.eventLeadDays,
-      calendarPrefs.defaultLang,
-    ).filter((h) => !mutedAlertSet.has(`holiday:${h.key}`)).length;
-    return missedCount + scheduledCount + quietCount + eventsCount + holidaysCount;
+    if (isAlertsSnoozedToday) return 0;
+    const missedCount = alertTypePrefs.missedCalls
+      ? unreturnedMissedCalls(calls, dismissedMissedIds).filter(
+          (m) =>
+            !mutedAlertSet.has(`missed:${getContactKey(m.number)}`) &&
+            !readAlertSet.has(`missed:${m.id}`),
+        ).length
+      : 0;
+    const scheduledCount = alertTypePrefs.scheduledCalls
+      ? scheduledCalls.filter(
+          (s) =>
+            s.status === 'pending' &&
+            !mutedAlertSet.has(`sched:${s.id}`) &&
+            !readAlertSet.has(`sched:${s.id}:${s.scheduledFor}`),
+        ).length
+      : 0;
+    return missedCount + scheduledCount;
   }, [
+    isAlertsSnoozedToday,
+    alertTypePrefs.missedCalls,
+    alertTypePrefs.scheduledCalls,
     calls,
-    contacts,
     scheduledCalls,
     dismissedMissedIds,
     mutedAlertSet,
-    reminderPrefs.quietContactDays,
-    reminderPrefs.eventLeadDays,
-    calendarPrefs.defaultLang,
+    readAlertSet,
   ]);
 
   const detailCall = useMemo<CallRecord | null>(
@@ -565,9 +690,9 @@ function AppShell() {
       triggerHaptic('tap');
       void markNativeMissedCallReturned(number);
       window.location.href = `tel:${number}`;
-      showNotice(`Dialing ${maskPhoneNumber(number, privacyMode)}...`, false);
+      showNotice(`Dialing ${number}...`, false);
     },
-    [privacyMode, showNotice],
+    [showNotice],
   );
 
   const headerDateText = useMemo(() => {
@@ -820,32 +945,18 @@ function AppShell() {
             }
           />
 
-          <div className="flex items-center gap-1.5">
+          {pinEnabled && (
             <button
               type="button"
-              onClick={togglePrivacyMode}
-              title={privacyMode ? 'Show phone numbers and notes' : 'Mask phone numbers and private notes'}
-              className={`flex-1 min-h-[40px] px-2.5 py-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors ${
-                privacyMode
-                  ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
-                  : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
-              }`}
+              onClick={lockApp}
+              aria-label="Lock screen"
+              title="Lock screen with PIN"
+              className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-2 transition-colors"
             >
-              {privacyMode ? <EyeOff size={14} /> : <Eye size={14} />}
-              {privacyMode ? 'Privacy on' : 'Privacy'}
+              <Lock size={14} className="text-[#FF6A00]" />
+              Lock screen
             </button>
-            {pinEnabled && (
-              <button
-                type="button"
-                onClick={lockApp}
-                aria-label="Lock screen"
-                title="Lock screen with PIN"
-                className="min-h-[40px] min-w-[40px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center transition-colors"
-              >
-                <Lock size={14} className="text-[#FF6A00]" />
-              </button>
-            )}
-          </div>
+          )}
 
           <button
             type="button"
@@ -1030,25 +1141,6 @@ function AppShell() {
             </div>
           )}
 
-          {privacyMode && (
-            <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <EyeOff size={15} className="text-[#FF6A00] shrink-0" />
-                <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                  Privacy Mode is on · Phone numbers are masked
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={togglePrivacyMode}
-                className="min-h-[34px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-              >
-                <Eye size={13} />
-                Show full numbers
-              </button>
-            </div>
-          )}
-
           {visitedTabs.has('calls') && (
             <div className={activeTab === 'calls' ? 'block' : 'hidden'}>
               <CallsTab
@@ -1076,7 +1168,6 @@ function AppShell() {
           {visitedTabs.has('calendar') && (
             <div className={activeTab === 'calendar' ? 'block' : 'hidden'}>
               <EthiopianCalendarView
-                onSelectCall={handleSelectCall}
                 onSelectContact={handleSelectContact}
                 onOpenWishes={handleOpenWishes}
               />
@@ -1206,6 +1297,8 @@ function AppShell() {
         initialCategory={remindersInitialCategory}
       />
 
+      <WishComposerModal />
+
       <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />
 
       <WhatsNewModal
@@ -1262,6 +1355,8 @@ function AppShell() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <DiscardChangesModal prompt={discardPrompt} />
 
       <AnimatePresence>
         {notice && (

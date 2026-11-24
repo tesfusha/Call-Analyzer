@@ -114,6 +114,47 @@ class CallLogSyncPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun getInstalledMessagingApps(call: PluginCall) {
+        val pm = context.packageManager
+        val whatsapp = isAnyPackageInstalled(pm, listOf("com.whatsapp", "com.whatsapp.w4b"))
+        val telegram = isAnyPackageInstalled(
+            pm,
+            listOf(
+                "org.telegram.messenger",
+                "org.telegram.messenger.web",
+                "org.thunderdog.challegram"
+            )
+        )
+        val instagram = isAnyPackageInstalled(pm, listOf("com.instagram.android"))
+        call.resolve(
+            JSObject().apply {
+                put("whatsapp", whatsapp)
+                put("telegram", telegram)
+                put("instagram", instagram)
+            }
+        )
+    }
+
+    private fun isAnyPackageInstalled(pm: PackageManager, packageNames: List<String>): Boolean {
+        for (pkg in packageNames) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getPackageInfo(pkg, 0)
+                }
+                return true
+            } catch (_: PackageManager.NameNotFoundException) {
+                // Try next package variant
+            } catch (_: Exception) {
+                // Ignore query errors
+            }
+        }
+        return false
+    }
+
+    @PluginMethod
     fun syncCallLog(call: PluginCall) {
         if (!CallLogReader.hasReadCallLogPermission(context)) {
             call.reject("READ_CALL_LOG permission not granted.")
@@ -204,13 +245,27 @@ class CallLogSyncPlugin : Plugin() {
         val quietHoursEnabled = call.getBoolean("quietHoursEnabled") ?: store.isQuietHoursEnabled()
         val quietStartHour = call.getInt("quietStartHour") ?: store.getQuietStartHour()
         val quietEndHour = call.getInt("quietEndHour") ?: store.getQuietEndHour()
+        val onlySavedContacts = call.getBoolean("onlySavedContacts") ?: store.isOnlySavedContacts()
+        val rawKeys = call.getArray("savedNumberKeys")
+        val savedNumberKeys: List<String>? = if (rawKeys != null) {
+            val list = ArrayList<String>(rawKeys.length())
+            for (i in 0 until rawKeys.length()) {
+                val item = rawKeys.optString(i, "").trim()
+                if (item.isNotEmpty()) list.add(item)
+            }
+            list
+        } else {
+            null
+        }
 
         store.updateSettings(
             reminderEnabled = enabled,
             delayMinutes = delayMinutes,
             quietHoursEnabled = quietHoursEnabled,
             quietStartHour = quietStartHour,
-            quietEndHour = quietEndHour
+            quietEndHour = quietEndHour,
+            onlySavedContacts = onlySavedContacts,
+            savedNumberKeys = savedNumberKeys
         )
         call.resolve(JSObject().put("saved", true))
     }

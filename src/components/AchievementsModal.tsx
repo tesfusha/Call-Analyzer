@@ -27,7 +27,8 @@ import {
   type BadgeDefinition,
 } from '@/src/lib/gamificationConstants';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 
@@ -61,6 +62,12 @@ export function AchievementsModal({
   initialTab?: 'general' | 'contacts';
 }) {
   useLockBodyScroll(open);
+  useBackHandler({
+    id: 'achievements-modal',
+    active: open,
+    priority: 55,
+    onBack: onClose,
+  });
   const prefersReducedMotion = useReducedMotion();
   const {
     effectiveStreaks,
@@ -68,8 +75,6 @@ export function AchievementsModal({
     badges,
     pointsHistory,
     topContactStatuses,
-    contactStatuses,
-    privacyMode,
     rebuildScore,
     calendarPrefs,
     reminderPrefs,
@@ -123,25 +128,7 @@ const LIST_PAGE_STEP = 12;
     };
   }, [topContactStatuses]);
 
-  const formatHistoryLabel = (entry: (typeof sortedHistory)[number]) => {
-    if (!privacyMode) return entry.label;
-    if (entry.reason === 'contact_milestone' && entry.meta) {
-      const st = contactStatuses[entry.meta];
-      const daysMatch = /^contact_milestone:.*:(\d+)$/.exec(entry.id);
-      const days = daysMatch ? daysMatch[1] : '';
-      const maskedName = st
-        ? formatDisplayNameOrPhone(st.displayName, st.number, true)
-        : 'contact';
-      return `${days ? `${days}-day streak` : 'Contact streak'} (${maskedName})`;
-    }
-    if (entry.reason === 'quick_callback') {
-      return 'Quick missed-call callback';
-    }
-    if (entry.reason === 'call_tag_or_note') {
-      return 'Added tag or note to a call';
-    }
-    return entry.label;
-  };
+  const formatHistoryLabel = (entry: (typeof sortedHistory)[number]) => entry.label;
 
   const modalContent = (
     <AnimatePresence>
@@ -554,9 +541,8 @@ const LIST_PAGE_STEP = 12;
                           const shownName = formatDisplayNameOrPhone(
                             status.displayName,
                             status.number,
-                            privacyMode,
                           );
-                          const shownNumber = maskPhoneNumber(status.number, privacyMode);
+                          const shownNumber = status.number;
                           const earnedBadges = status.badges.filter((b) => b.earned);
                           const canOpen = Boolean(onSelectContact);
                           return (

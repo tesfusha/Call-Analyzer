@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Download, ExternalLink, Info, ShieldAlert, X } from 'lucide-react';
 import { APP_VERSION_CODE, APP_VERSION_NAME } from '@/src/lib/appInfo';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import type { AppUpdateNotice } from '@/src/types/call';
 
@@ -26,6 +27,15 @@ export function UpdateNoticeModal({ update, onDismiss }: UpdateNoticeModalProps)
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, mandatory, onDismiss]);
+
+  useBackHandler({
+    id: 'update-notice-modal',
+    active: open,
+    priority: 90,
+    onBack: () => {
+      if (!mandatory) onDismiss();
+    },
+  });
 
   const modalContent = (
     <AnimatePresence>

@@ -283,6 +283,13 @@ export function createTagOrNotePointEntry(
   existingHistory: PointsHistoryEntry[],
   nowMs: number = Date.now(),
 ): PointsHistoryEntry | null {
+  if (
+    call.direction === 'rejected' ||
+    call.direction === 'blocked' ||
+    call.direction === 'voicemail'
+  ) {
+    return null;
+  }
   const hasAnnotation = Boolean(call.tag?.trim() || call.note?.trim());
   if (!hasAnnotation) return null;
   const entryId = `call_tag_or_note:${call.id}`;
@@ -463,7 +470,12 @@ export function computeContactStatuses(
       bucket.latestCallName = call.name.trim();
     }
 
-    if (call.tag?.trim() || call.note?.trim()) {
+    const isExcludedStatus =
+      call.direction === 'rejected' ||
+      call.direction === 'blocked' ||
+      call.direction === 'voicemail';
+
+    if (!isExcludedStatus && (call.tag?.trim() || call.note?.trim())) {
       bucket.taggedOrNotedCallsCount += 1;
     }
 
@@ -473,7 +485,10 @@ export function computeContactStatuses(
       bucket.outgoingCalls.push(call);
     }
 
-    if (call.direction === 'incoming' || call.direction === 'outgoing') {
+    if (
+      (call.direction === 'incoming' || call.direction === 'outgoing') &&
+      call.duration > 0
+    ) {
       bucket.totalConnectedCalls += 1;
       const eatDate = toEatDateString(call.timestamp);
       const flags = bucket.dayDirections.get(eatDate) ?? { incoming: false, outgoing: false };

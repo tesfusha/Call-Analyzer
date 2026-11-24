@@ -7,6 +7,9 @@ import {
   BellOff,
   Cake,
   Check,
+  CheckCheck,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
   Download,
@@ -37,14 +40,16 @@ import {
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile } from '@/src/lib/export';
-import { formatDateTime, formatDuration } from '@/src/lib/format';
+import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
 import {
   buildPeriodReport,
   formatReportClipboard,
-  quietContacts,
+  getEatWeekKey,
+  quietContactsAnalysis,
   quietMessage,
   unreturnedMissedCalls,
+  type QuietContact,
 } from '@/src/lib/reminders';
 import {
   buildScheduledCallIcs,
@@ -53,7 +58,8 @@ import {
   toDateTimeLocalValue,
   tomorrowAtHour,
 } from '@/src/lib/schedule';
-import { formatDisplayNameOrPhone, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 
@@ -94,12 +100,18 @@ export function RemindersModal({
   const {
     calls,
     contacts,
+    favorites,
     scheduledCalls,
     tariffs,
     simLabels,
     calendarPrefs,
     reminderPrefs,
-    privacyMode,
+    alertTypePrefs,
+    isAlertsSnoozedToday,
+    snoozeAlertsForToday,
+    resumeSnoozedAlertsToday,
+    readAlertSet,
+    markAllAlertsRead,
     dismissedMissedIds,
     mutedAlertKeys,
     mutedAlertSet,
@@ -115,6 +127,12 @@ export function RemindersModal({
     notificationPermission,
     requestAlertPermissions,
     sendTestAlertNotification,
+    sentWishes,
+    snoozedQuietUntil,
+    snoozeQuietContact,
+    reconnectProgress,
+    recordQuietReconnect,
+    openWishComposer,
     showNotice,
   } = useCalls();
 
@@ -134,10 +152,24 @@ export function RemindersModal({
   );
   const [schedNote, setSchedNote] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [quietFilter, setQuietFilter] = useState<'all' | 'family' | 'friends' | 'business'>('all');
+  const [showAllQuiet, setShowAllQuiet] = useState(false);
+  const [dormantOpen, setDormantOpen] = useState(false);
+  const [openSnoozeKey, setOpenSnoozeKey] = useState<string | null>(null);
+  const [mutedUndo, setMutedUndo] = useState<{ key: string; label: string } | null>(null);
+  const [swipeState, setSwipeState] = useState<{ key: string; dx: number } | null>(null);
+  const swipeStartRef = useRef<{ key: string; x: number; y: number } | null>(null);
   const bodyScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (open) setActiveCategory(initialCategory);
+    if (open) {
+      setActiveCategory(initialCategory);
+      setOpenSnoozeKey(null);
+      setShowAllQuiet(false);
+      setDormantOpen(false);
+      setMutedUndo(null);
+      setSwipeState(null);
+    }
   }, [open, initialCategory]);
 
   useEffect(() => {
@@ -154,6 +186,23 @@ export function RemindersModal({
       bodyScrollRef.current.scrollTop = 0;
     }
   }, [activeCategory, open]);
+
+  useBackHandler({
+    id: 'reminders-modal',
+    active: open,
+    priority: 45,
+    onBack: onClose,
+  });
+
+  useBackHandler({
+    id: 'reminders-new-schedule-form',
+    active: open && newSchedOpen,
+    priority: 48,
+    onBack: () => setNewSchedOpen(false),
+    hasUnsavedChanges: () =>
+      Boolean(schedNumber.trim() || schedName.trim() || schedNote.trim()),
+    unsavedMessage: 'You have an unsaved scheduled call draft. Discard it and go back?',
+  });
 
   const pendingScheduled = useMemo(
     () =>
@@ -185,13 +234,53 @@ export function RemindersModal({
     () => getFrequentAndLongCallers(calls, contacts),
     [calls, contacts],
   );
-  const quiet = useMemo(
-    () =>
-      quietContacts(calls, new Date(), reminderPrefs.quietContactDays).filter(
-        (q) => !mutedAlertSet.has(`quiet:${getContactKey(q.number)}`),
-      ),
-    [calls, reminderPrefs.quietContactDays, mutedAlertSet],
+  const quietAnalysis = useMemo(() => {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const analysis = quietContactsAnalysis(calls, {
+      now,
+      contacts,
+      favorites: Array.from(favorites),
+      maxIntervalDays: reminderPrefs.quietContactDays,
+    });
+    const active = analysis.active.filter((q) => {
+      const snoozedUntil = snoozedQuietUntil[q.contactKey] ?? 0;
+      return !mutedAlertSet.has(`quiet:${q.contactKey}`) && snoozedUntil <= nowMs;
+    });
+    const dormant = analysis.dormant.filter(
+      (q) => !mutedAlertSet.has(`quiet:${q.contactKey}`),
+    );
+    return { active, dormant };
+  }, [calls, contacts, favorites, reminderPrefs.quietContactDays, mutedAlertSet, snoozedQuietUntil]);
+
+  const quiet = quietAnalysis.active;
+
+  const filteredQuiet = useMemo(() => {
+    if (quietFilter === 'all') return quiet;
+    return quiet.filter((q) => {
+      const lower = q.tag.trim().toLowerCase();
+      if (quietFilter === 'family') return lower.includes('family');
+      if (quietFilter === 'friends') return lower.includes('friend');
+      return lower.includes('business') || lower.includes('work') || lower.includes('coworker');
+    });
+  }, [quiet, quietFilter]);
+
+  const displayedQuiet = useMemo(
+    () => (showAllQuiet ? filteredQuiet : filteredQuiet.slice(0, 5)),
+    [filteredQuiet, showAllQuiet],
   );
+
+  const currentYear = new Date().getFullYear();
+  const weekKey = getEatWeekKey();
+  const weeklyGoal = Math.max(1, Math.min(14, Math.round(reminderPrefs.weeklyReconnectGoal ?? 3)));
+  const weeklyContactedCount =
+    reconnectProgress.weekKey === weekKey ? reconnectProgress.contactedKeys.length : 0;
+
+  const hasSentWishThisYear = (cKey: string, occKey: string) =>
+    sentWishes.some(
+      (w) => w.contactKey === cKey && w.occasionKey === occKey && w.year === currentYear,
+    );
+
   const unreturned = useMemo(
     () =>
       unreturnedMissedCalls(calls, dismissedMissedIds).filter(
@@ -200,12 +289,26 @@ export function RemindersModal({
     [calls, dismissedMissedIds, mutedAlertSet],
   );
   const weekly = useMemo(
-    () => buildPeriodReport(calls, 'weekly', tariffs, new Date(), privacyMode),
-    [calls, tariffs, privacyMode],
+    () => buildPeriodReport(calls, 'weekly', tariffs, new Date()),
+    [calls, tariffs],
   );
   const monthly = useMemo(
-    () => buildPeriodReport(calls, 'monthly', tariffs, new Date(), privacyMode),
-    [calls, tariffs, privacyMode],
+    () => buildPeriodReport(calls, 'monthly', tariffs, new Date()),
+    [calls, tariffs],
+  );
+
+  const allActiveAlertKeys = useMemo(() => {
+    const keys: string[] = [];
+    unreturned.forEach((m) => keys.push(`missed:${m.id}`));
+    pendingScheduled.forEach((s) => keys.push(`sched:${s.id}:${s.scheduledFor}`));
+    upcomingEvents.forEach((e) => keys.push(`bday:${e.id}:${e.daysUntil}`));
+    upcomingHolidays.forEach((h) => keys.push(`holiday:${h.key}:${h.daysUntil}`));
+    return keys;
+  }, [unreturned, pendingScheduled, upcomingEvents, upcomingHolidays]);
+
+  const unreadAlertKeys = useMemo(
+    () => allActiveAlertKeys.filter((k) => !readAlertSet.has(k)),
+    [allActiveAlertKeys, readAlertSet],
   );
 
   const unifiedContacts = useMemo(() => {
@@ -429,6 +532,35 @@ export function RemindersModal({
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={unreadAlertKeys.length === 0}
+                onClick={() => markAllAlertsRead(allActiveAlertKeys)}
+                className="min-h-[34px] px-2.5 py-1 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] disabled:opacity-45 flex items-center gap-1.5 whitespace-nowrap transition-colors"
+              >
+                <CheckCheck size={13} className="text-[#FF6A00]" />
+                {unreadAlertKeys.length > 0 ? `Mark all as read (${unreadAlertKeys.length})` : 'All read'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  isAlertsSnoozedToday ? resumeSnoozedAlertsToday() : snoozeAlertsForToday()
+                }
+                className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                  isAlertsSnoozedToday
+                    ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
+                    : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
+                }`}
+              >
+                <BellOff size={13} />
+                {isAlertsSnoozedToday ? 'Snoozed today · Resume' : 'Snooze for today'}
+              </button>
+            </div>
+          </div>
+
           <CategoryTabs
             items={categories}
             activeKey={activeCategory}
@@ -468,7 +600,10 @@ export function RemindersModal({
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 {upcomingEvents.map((evt) => {
-                  const wish = buildBirthdayWish(evt.name, evt.title, evt.tag);
+                  const display = formatDisplayNameOrPhone(evt.name, evt.number);
+                  const wish = buildBirthdayWish(evt.name, evt.title, evt.tag, calendarPrefs.defaultLang);
+                  const openedThisYear = hasSentWishThisYear(evt.contactKey, evt.id);
+                  const profile = contacts[evt.contactKey];
                   return (
                     <div key={evt.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
                       <button
@@ -479,12 +614,20 @@ export function RemindersModal({
                         }}
                         className="min-w-0 text-left space-y-0.5"
                       >
-                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                          {formatDisplayNameOrPhone(evt.name, evt.number, privacyMode)}
-                          {evt.tag ? (
-                            <span className="ml-2 text-xs font-medium text-[#FF6A00]">{evt.tag}</span>
-                          ) : null}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
+                            {display}
+                          </p>
+                          {evt.tag && (
+                            <span className="text-xs font-medium text-[#FF6A00]">{evt.tag}</span>
+                          )}
+                          {openedThisYear && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                              <Check size={10} />
+                              Opened · {currentYear}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                           {evt.title} ·{' '}
                           {evt.calendar === 'ethiopian'
@@ -501,24 +644,34 @@ export function RemindersModal({
                         <button
                           type="button"
                           onClick={() =>
-                            void copyText(
-                              wish,
-                              `Copied wish for ${formatDisplayNameOrPhone(evt.name, evt.number, privacyMode)}.`,
-                            )
+                            void copyText(wish, `Copied wish for ${display}.`)
                           }
-                          aria-label={`Copy wish for ${formatDisplayNameOrPhone(evt.name, evt.number, privacyMode)}`}
+                          aria-label={`Copy wish for ${display}`}
                           className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
                         >
                           <Copy size={13} />
                           Copy
                         </button>
-                        <a
-                          href={`sms:${evt.number}?body=${encodeURIComponent(wish)}`}
-                          className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openWishComposer({
+                              contactNumber: evt.number,
+                              contactName: display,
+                              contactKey: evt.contactKey,
+                              tag: evt.tag,
+                              occasionType: 'birthday',
+                              occasionKey: evt.id,
+                              occasionName: evt.title,
+                              telegramUsername: profile?.telegramUsername,
+                              instagramUsername: profile?.instagramUsername,
+                            })
+                          }
+                          className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
                         >
                           <MessageSquare size={13} className="text-[#FF6A00]" />
                           Wish
-                        </a>
+                        </button>
                         <button
                           type="button"
                           onClick={() => onCallBack(evt.number)}
@@ -621,7 +774,16 @@ export function RemindersModal({
                   : filteredWishRecipients.slice(0, 12)
                 ).map((caller) => {
                   const holidayTitle = activeHoliday?.name ?? 'Holiday';
-                  const wishText = buildHolidayWish(holidayTitle, caller.name, caller.tag);
+                  const holidayOccasionKey = activeHoliday?.key ?? 'holiday';
+                  const display = formatDisplayNameOrPhone(caller.name, caller.number);
+                  const wishText = buildHolidayWish(
+                    holidayTitle,
+                    caller.name,
+                    caller.tag,
+                    calendarPrefs.defaultLang,
+                  );
+                  const openedThisYear = hasSentWishThisYear(caller.key, holidayOccasionKey);
+                  const profile = contacts[caller.key];
                   return (
                     <div key={caller.key} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
                       <button
@@ -632,14 +794,20 @@ export function RemindersModal({
                         }}
                         className="min-w-0 text-left space-y-0.5"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <UserCheck size={13} className="text-[#FF6A00] shrink-0" />
                           <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                            {formatDisplayNameOrPhone(caller.name, caller.number, privacyMode)}
+                            {display}
                           </span>
                           {caller.tag && (
                             <span className="text-xs font-medium text-[#FF6A00] shrink-0">
                               {caller.tag}
+                            </span>
+                          )}
+                          {openedThisYear && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0">
+                              <Check size={10} />
+                              Opened · {currentYear}
                             </span>
                           )}
                         </div>
@@ -654,7 +822,7 @@ export function RemindersModal({
                           onClick={() =>
                             void copyText(
                               wishText,
-                              `Copied ${holidayTitle} wish for ${formatDisplayNameOrPhone(caller.name, caller.number, privacyMode)}.`,
+                              `Copied ${holidayTitle} wish for ${display}.`,
                             )
                           }
                           className="min-h-[36px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1"
@@ -662,13 +830,26 @@ export function RemindersModal({
                           <Copy size={12} />
                           Copy
                         </button>
-                        <a
-                          href={`sms:${caller.number}?body=${encodeURIComponent(wishText)}`}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openWishComposer({
+                              contactNumber: caller.number,
+                              contactName: display,
+                              contactKey: caller.key,
+                              tag: caller.tag,
+                              occasionType: 'holiday',
+                              occasionKey: holidayOccasionKey,
+                              occasionName: holidayTitle,
+                              telegramUsername: profile?.telegramUsername,
+                              instagramUsername: profile?.instagramUsername,
+                            })
+                          }
                           className="min-h-[36px] px-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1"
                         >
                           <MessageSquare size={12} />
                           Send wish
-                        </a>
+                        </button>
                       </div>
                     </div>
                   );
@@ -764,7 +945,7 @@ export function RemindersModal({
                                   : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
                               }`}
                             >
-                              {formatDisplayNameOrPhone(c.name, c.number, privacyMode)}
+                              {formatDisplayNameOrPhone(c.name, c.number)}
                               {c.tag ? ` · ${c.tag}` : ''}
                             </button>
                           );
@@ -840,11 +1021,7 @@ export function RemindersModal({
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 {pendingScheduled.map((item) => {
-                  const displayName = formatDisplayNameOrPhone(
-                    item.name,
-                    item.number,
-                    privacyMode,
-                  );
+                  const displayName = formatDisplayNameOrPhone(item.name, item.number);
                   return (
                     <div key={item.id} className="py-3 flex flex-wrap items-center justify-between gap-2.5">
                       <button
@@ -855,8 +1032,14 @@ export function RemindersModal({
                         }}
                         className="min-w-0 text-left space-y-0.5"
                       >
-                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                          {displayName}
+                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate flex items-center gap-1.5">
+                          {!readAlertSet.has(`sched:${item.id}:${item.scheduledFor}`) && (
+                            <span
+                              className="w-2 h-2 rounded-full bg-[#FF6A00] shrink-0"
+                              aria-label="Unread alert"
+                            />
+                          )}
+                          <span className="truncate">{displayName}</span>
                         </p>
                         <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                           <span className="font-semibold text-[#FF6A00]">
@@ -866,7 +1049,7 @@ export function RemindersModal({
                         </p>
                         {item.note && (
                           <p className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
-                            {maskPrivateText(item.note, privacyMode)}
+                            {item.note}
                           </p>
                         )}
                       </button>
@@ -945,7 +1128,7 @@ export function RemindersModal({
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 {unreturned.map((missed) => {
-                  const name = formatDisplayNameOrPhone(missed.name, missed.number, privacyMode);
+                  const name = formatDisplayNameOrPhone(missed.name, missed.number);
                   return (
                     <div key={missed.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
                       <button
@@ -956,8 +1139,14 @@ export function RemindersModal({
                         }}
                         className="min-w-0 text-left"
                       >
-                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                          {name}
+                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate flex items-center gap-1.5">
+                          {!readAlertSet.has(`missed:${missed.id}`) && (
+                            <span
+                              className="w-2 h-2 rounded-full bg-[#FF6A00] shrink-0"
+                              aria-label="Unread alert"
+                            />
+                          )}
+                          <span className="truncate">{name}</span>
                         </p>
                         <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
                           Missed {formatDateTime(missed.timestamp)}
@@ -1021,87 +1210,376 @@ export function RemindersModal({
           </div>
         )}
 
-        {/* Quiet Contacts */}
+        {/* Quiet Contacts / Reconnect Suggestions (Step 15) */}
         {activeCategory === 'quiet' && (
           <div className="space-y-4">
-          <div className="space-y-2.5">
-            <h3 className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Contacts gone quiet ({quiet.length})
-            </h3>
-            {quiet.length === 0 ? (
+            {/* Summary + Weekly Reconnect Goal */}
+            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-bold text-[#08246B] dark:text-white">
+                    {filteredQuiet.length}{' '}
+                    {filteredQuiet.length === 1 ? 'person' : 'people'} to reconnect today
+                  </p>
+                  <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Swipe right to call · Swipe left to snooze 1 week
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-mono font-bold tabular-nums text-[#FF6A00]">
+                    {weeklyContactedCount} of {weeklyGoal}
+                  </p>
+                  <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Weekly goal
+                  </p>
+                </div>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-white dark:bg-[var(--dark-surface)] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
+                  style={{
+                    width: `${Math.min(100, Math.round((weeklyContactedCount / weeklyGoal) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {!alertTypePrefs.quietContacts && (
+              <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2">
+                Pop-up notifications for quiet contacts stay calm and off by default. Enable in Settings → Reminders.
+              </p>
+            )}
+
+            {/* Category filter chips */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'all', label: 'All' },
+                  { id: 'family', label: 'Family' },
+                  { id: 'friends', label: 'Friends' },
+                  { id: 'business', label: 'Business' },
+                ] as const
+              ).map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => {
+                    setQuietFilter(chip.id);
+                    setShowAllQuiet(false);
+                  }}
+                  className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                    quietFilter === chip.id
+                      ? 'bg-[#FF6A00] text-white'
+                      : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+
+            {mutedUndo && (
+              <div className="rounded-xl bg-[#08246B] dark:bg-[var(--dark-elevated)] text-white px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs">
+                <span className="truncate">
+                  Muted reconnect reminders for <strong>{mutedUndo.label}</strong>.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    unmuteAlertKey(mutedUndo.key);
+                    setMutedUndo(null);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-[#FF6A00] text-white font-semibold shrink-0"
+                >
+                  Undo
+                </button>
+              </div>
+            )}
+
+            {/* Active Reconnect List */}
+            {filteredQuiet.length === 0 ? (
               <p className="text-sm text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                No overdue frequent contacts right now. Contacts appear here when they call at least 5 times within 30 days and then pass 1.5× their usual calling interval.
+                No overdue regular contacts in this filter right now.
               </p>
             ) : (
-              <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                {quiet.map((item) => {
-                  const qMuteKey = `quiet:${getContactKey(item.number)}`;
+              <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                {displayedQuiet.map((item: QuietContact) => {
+                  const display = formatDisplayNameOrPhone(item.name, item.number);
+                  const qMuteKey = `quiet:${item.contactKey}`;
+                  const profile = contacts[item.contactKey];
+                  const barColor =
+                    item.overdueRatio >= 3
+                      ? 'bg-[#EF4444]'
+                      : item.overdueRatio >= 2
+                        ? 'bg-[#F59E0B]'
+                        : 'bg-[#10B981]';
+                  const barWidth = Math.min(100, Math.max(18, Math.round((item.overdueRatio / 3.5) * 100)));
+                  const activeDx = swipeState?.key === item.contactKey ? swipeState.dx : 0;
+
+                  const triggerQuietCall = () => {
+                    const pts = recordQuietReconnect(item.contactKey, display).awardedPoints;
+                    if (pts > 0) showNotice(`+${pts} pts earned! Reconnect goal updated.`, 'success');
+                    onCallBack(item.number);
+                  };
+
+                  const triggerSnooze = (days: number, label: string) => {
+                    snoozeQuietContact(item.contactKey, days * 86_400_000);
+                    setOpenSnoozeKey(null);
+                    showNotice(`Snoozed ${display} for ${label}.`);
+                  };
+
                   return (
-                    <div key={item.number} className="py-3 flex items-center justify-between gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onSelectContact(item.number);
-                        }}
-                        className="min-w-0 text-left flex-1"
-                      >
-                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                          {formatDisplayNameOrPhone(item.name, item.number, privacyMode)}
-                        </p>
-                        <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                          {quietMessage(item, privacyMode)}
-                        </p>
-                      </button>
-                      <div className="flex items-center gap-1.5 shrink-0">
+                    <div
+                      key={item.contactKey}
+                      onTouchStart={(e) => {
+                        const t = e.touches[0];
+                        if (!t) return;
+                        swipeStartRef.current = { key: item.contactKey, x: t.clientX, y: t.clientY };
+                      }}
+                      onTouchMove={(e) => {
+                        const start = swipeStartRef.current;
+                        const t = e.touches[0];
+                        if (!start || start.key !== item.contactKey || !t) return;
+                        const dx = t.clientX - start.x;
+                        const dy = t.clientY - start.y;
+                        if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+                          setSwipeState({
+                            key: item.contactKey,
+                            dx: Math.max(-96, Math.min(96, dx)),
+                          });
+                        }
+                      }}
+                      onTouchEnd={() => {
+                        if (swipeState?.key === item.contactKey) {
+                          if (swipeState.dx >= 64) {
+                            triggerQuietCall();
+                          } else if (swipeState.dx <= -64) {
+                            triggerSnooze(7, '1 week');
+                          }
+                        }
+                        swipeStartRef.current = null;
+                        setSwipeState(null);
+                      }}
+                      className="py-3 space-y-2.5 transition-transform"
+                      style={
+                        activeDx !== 0
+                          ? { transform: `translateX(${activeDx * 0.45}px)` }
+                          : undefined
+                      }
+                    >
+                      <div className="flex items-start justify-between gap-2.5">
                         <button
                           type="button"
-                          onClick={() => muteAlertKey(qMuteKey)}
-                          aria-label={`Mute quiet reminders for ${item.name}`}
-                          className="min-h-[40px] min-w-[40px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#DC2626] flex items-center justify-center"
+                          onClick={() => {
+                            onClose();
+                            onSelectContact(item.number);
+                          }}
+                          className="min-w-0 text-left flex items-start gap-2.5 flex-1"
                         >
-                          <BellOff size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onCallBack(item.number)}
-                          aria-label={`Call ${item.name}`}
-                          className="min-h-[40px] min-w-[44px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap"
-                        >
-                          <Phone size={14} />
-                          Call
+                          <div
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
+                            style={{ backgroundColor: avatarColor(item.number) }}
+                          >
+                            {initials(item.name || item.number, item.number)}
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
+                                {display}
+                              </p>
+                              {item.tag && (
+                                <span className="px-1.5 py-0.5 rounded bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[10px] font-semibold text-[#FF6A00]">
+                                  {item.tag}
+                                </span>
+                              )}
+                              {item.isFavorite && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                  VIP
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              {quietMessage(item)}
+                            </p>
+                            {/* Overdue intensity bar (green -> amber -> red) */}
+                            <div className="h-1 w-full max-w-[220px] rounded-full bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${barColor} transition-all`}
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                          </div>
                         </button>
                       </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={triggerQuietCall}
+                          aria-label={`Call ${display}`}
+                          className="min-h-[36px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Phone size={13} />
+                          Call
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openWishComposer({
+                              contactNumber: item.number,
+                              contactName: display,
+                              contactKey: item.contactKey,
+                              tag: item.tag,
+                              occasionType: 'reconnect',
+                              occasionKey: `reconnect:${weekKey}`,
+                              occasionName: 'Check-in',
+                              telegramUsername: profile?.telegramUsername,
+                              instagramUsername: profile?.instagramUsername,
+                            })
+                          }
+                          className="min-h-[36px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <MessageSquare size={13} className="text-[#FF6A00]" />
+                          Message
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenSnoozeKey((prev) =>
+                              prev === item.contactKey ? null : item.contactKey,
+                            )
+                          }
+                          className="min-h-[36px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap"
+                        >
+                          <Clock size={13} />
+                          Snooze
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            muteAlertKey(qMuteKey);
+                            setMutedUndo({ key: qMuteKey, label: display });
+                          }}
+                          className="min-h-[36px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#DC2626] flex items-center gap-1 whitespace-nowrap"
+                        >
+                          <BellOff size={13} />
+                          Do not remind
+                        </button>
+                      </div>
+
+                      {openSnoozeKey === item.contactKey && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] mr-1">
+                            Snooze for:
+                          </span>
+                          {[
+                            { days: 1, label: '1 day' },
+                            { days: 7, label: '1 week' },
+                            { days: 30, label: '1 month' },
+                          ].map((opt) => (
+                            <button
+                              key={opt.days}
+                              type="button"
+                              onClick={() => triggerSnooze(opt.days, opt.label)}
+                              className="px-2.5 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
-          </div>
 
-          {mutedAlertKeys.length > 0 && (
-            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
-                  <BellOff size={13} className="text-[#FF6A00]" />
-                  Muted contact/event alerts ({mutedAlertKeys.length})
-                </span>
+            {filteredQuiet.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setShowAllQuiet((prev) => !prev)}
+                className="w-full min-h-[38px] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
+              >
+                {showAllQuiet
+                  ? 'Show top 5'
+                  : `Show more (${filteredQuiet.length - 5} more)`}
+              </button>
+            )}
+
+            {/* Collapsed Dormant (90+ days) drawer — never counted anywhere */}
+            {quietAnalysis.dormant.length > 0 && (
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setDormantOpen((prev) => !prev)}
+                  className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]"
+                >
+                  <span>Dormant (90+ days)</span>
+                  {dormantOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                </button>
+                {dormantOpen && (
+                  <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-t border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5">
+                    {quietAnalysis.dormant.map((item) => {
+                      const display = formatDisplayNameOrPhone(item.name, item.number);
+                      return (
+                        <div
+                          key={item.contactKey}
+                          className="py-2.5 flex items-center justify-between gap-2"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onSelectContact(item.number);
+                            }}
+                            className="min-w-0 text-left"
+                          >
+                            <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                              {display}
+                            </p>
+                            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              Last call {item.daysSinceLast} days ago
+                            </p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onCallBack(item.number)}
+                            className="min-h-[32px] px-2.5 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1 shrink-0"
+                          >
+                            <Phone size={12} className="text-[#FF6A00]" />
+                            Call
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {mutedAlertKeys.map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => unmuteAlertKey(key)}
-                    className="min-h-[32px] px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5"
-                  >
-                    <span className="truncate max-w-[180px]">{key}</span>
-                    <span className="text-[#FF6A00]">Unmute</span>
-                  </button>
-                ))}
+            )}
+
+            {mutedAlertKeys.length > 0 && (
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
+                    <BellOff size={13} className="text-[#FF6A00]" />
+                    Muted contact/event alerts ({mutedAlertKeys.length})
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {mutedAlertKeys.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => unmuteAlertKey(key)}
+                      className="min-h-[32px] px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5"
+                    >
+                      <span className="truncate max-w-[180px]">{key}</span>
+                      <span className="text-[#FF6A00]">Unmute</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </div>
         )}
 
@@ -1187,7 +1665,6 @@ export function RemindersModal({
                       calls,
                       tariffs,
                       simLabels,
-                      privacyMode,
                     });
                     showNotice('Formatted PDF report with charts downloaded.');
                   } catch {

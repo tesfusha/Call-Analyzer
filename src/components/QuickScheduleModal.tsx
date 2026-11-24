@@ -5,7 +5,7 @@ import { Clock, Search, X } from 'lucide-react';
 import { DateTimePicker } from '@/src/components/DateTimePicker';
 import { getContactKey } from '@/src/lib/contacts';
 import { toDateTimeLocalValue, tomorrowAtHour } from '@/src/lib/schedule';
-import { maskPhoneNumber } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactProfile } from '@/src/types/call';
@@ -19,7 +19,7 @@ export function QuickScheduleModal({
   open?: boolean;
   onClose: () => void;
 }) {
-  const { contacts, privacyMode, scheduleCall, showNotice } = useCalls();
+  const { contacts, scheduleCall, showNotice } = useCalls();
 
   const [contactQuery, setContactQuery] = useState('');
   const [number, setNumber] = useState('');
@@ -55,6 +55,16 @@ export function QuickScheduleModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isVisible, onClose]);
+
+  useBackHandler({
+    id: 'quick-schedule-modal',
+    active: isVisible,
+    priority: 55,
+    onBack: onClose,
+    hasUnsavedChanges: () =>
+      Boolean((!contact && (number.trim() || name.trim())) || note.trim()),
+    unsavedMessage: 'Discard scheduled callback draft?',
+  });
 
   const savedContacts = useMemo(() => {
     const q = contactQuery.trim().toLowerCase();
@@ -133,7 +143,7 @@ export function QuickScheduleModal({
               </h2>
               {contact ? (
                 <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums truncate">
-                  {maskPhoneNumber(contact.number, privacyMode)}
+                  {contact.number}
                   {contact.tag ? ` · ${contact.tag}` : ''}
                 </p>
               ) : (

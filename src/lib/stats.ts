@@ -61,7 +61,7 @@ export function computeTotals(calls: CallRecord[]): Totals {
     } else if (call.direction === 'outgoing') {
       outgoingCount += 1;
       outgoingDuration += call.duration;
-    } else {
+    } else if (call.direction === 'missed') {
       missedCount += 1;
     }
   });
@@ -107,7 +107,9 @@ export function dailyBuckets(calls: CallRecord[]): DailyBucket[] {
     }
     bucket.count += 1;
     bucket.duration += call.duration;
-    bucket[call.direction] += 1;
+    if (call.direction === 'incoming') bucket.incoming += 1;
+    else if (call.direction === 'outgoing') bucket.outgoing += 1;
+    else if (call.direction === 'missed') bucket.missed += 1;
   });
 
   return [...map.values()].slice(-14);
@@ -147,7 +149,9 @@ export function contactStats(calls: CallRecord[]): ContactStat[] {
     }
     stat.count += 1;
     stat.duration += call.duration;
-    stat[call.direction] += 1;
+    if (call.direction === 'incoming') stat.incoming += 1;
+    else if (call.direction === 'outgoing') stat.outgoing += 1;
+    else if (call.direction === 'missed') stat.missed += 1;
     if (call.timestamp > stat.lastTimestamp) stat.lastTimestamp = call.timestamp;
     stat.calls.push(call);
   });
@@ -188,7 +192,9 @@ export function simStats(calls: CallRecord[]): SimStat[] {
     const stat = ensure(key);
     stat.count += 1;
     stat.duration += call.duration;
-    stat[call.direction] += 1;
+    if (call.direction === 'incoming') stat.incoming += 1;
+    else if (call.direction === 'outgoing') stat.outgoing += 1;
+    else if (call.direction === 'missed') stat.missed += 1;
   });
 
   if (!map.has('SIM 1')) ensure('SIM 1');

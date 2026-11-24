@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ImportPreviewSummary, ParsedImportPackage } from '@/src/lib/import';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 export type PendingImportState = {
@@ -43,6 +44,13 @@ export function ImportPreviewModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pending, onClose]);
+
+  useBackHandler({
+    id: 'import-preview-modal',
+    active: Boolean(pending),
+    priority: 60,
+    onBack: onClose,
+  });
 
   const preview = pending?.preview ?? null;
 

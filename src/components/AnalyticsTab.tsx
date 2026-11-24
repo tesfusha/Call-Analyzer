@@ -28,6 +28,7 @@ import {
   topByDuration,
   totalSpendEtb,
 } from '@/src/lib/stats';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useCalls } from '@/src/store/CallsContext';
 import type { DateRangeFilter, TimeRange } from '@/src/types/call';
 
@@ -53,13 +54,26 @@ export function AnalyticsTab({
 }: {
   onSelectContact: (number: string) => void;
 }) {
-  const { calls, tariffs, simLabels, privacyMode, showNotice } = useCalls();
+  const { calls, tariffs, simLabels, showNotice } = useCalls();
   const [range, setRange] = useState<TimeRange>('all');
   const [customRange, setCustomRange] = useState<DateRangeFilter>(null);
   const [subTab, setSubTab] = useState<SubTab>('overview');
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useBackHandler({
+    id: 'analytics-export-menu',
+    active: exportMenuOpen,
+    priority: 35,
+    onBack: () => setExportMenuOpen(false),
+  });
+  useBackHandler({
+    id: 'analytics-subtab',
+    active: subTab !== 'overview',
+    priority: 15,
+    onBack: () => setSubTab('overview'),
+  });
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -180,7 +194,6 @@ export function AnalyticsTab({
                       calls: scoped,
                       tariffs,
                       simLabels,
-                      privacyMode,
                       title: `Call History & Analytics Report (${range.toUpperCase()})`,
                       filename: `call-report-${range}.pdf`,
                     });
@@ -207,7 +220,6 @@ export function AnalyticsTab({
                     tariffs,
                     simLabels,
                     `Call Analyzer - ETH Statement (${range})`,
-                    privacyMode,
                   );
                   const delivery = await downloadTextFile(
                     'call-statement.html',
@@ -379,7 +391,7 @@ export function AnalyticsTab({
                 {
                   label: 'Top talker',
                   value: topTalker
-                    ? `${formatDisplayNameOrPhone(topTalker.name, topTalker.number, privacyMode)} (${formatDuration(topTalker.duration)})`
+                    ? `${formatDisplayNameOrPhone(topTalker.name, topTalker.number)} (${formatDuration(topTalker.duration)})`
                     : '–',
                 },
               ].map((row) => (
@@ -405,7 +417,7 @@ export function AnalyticsTab({
                 {
                   label: 'Longest single call',
                   value: trends.longest
-                    ? `${formatDisplayNameOrPhone(trends.longest.name, trends.longest.number, privacyMode)} (${formatDuration(trends.longest.duration)})`
+                    ? `${formatDisplayNameOrPhone(trends.longest.name, trends.longest.number)} (${formatDuration(trends.longest.duration)})`
                     : '–',
                 },
               ].map((row) => (
@@ -442,7 +454,7 @@ export function AnalyticsTab({
                     className="w-full text-left rounded-xl p-2 -mx-2 hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated-70)] transition-colors"
                   >
                     <HorizontalUsageBar
-                      label={formatDisplayNameOrPhone(contact.name, contact.number, privacyMode)}
+                      label={formatDisplayNameOrPhone(contact.name, contact.number)}
                       valueLabel={`${contact.count} calls`}
                       subLabel={`${formatDuration(contact.duration)} total`}
                       percent={(contact.count / max) * 100}
@@ -472,7 +484,7 @@ export function AnalyticsTab({
                     className="w-full text-left rounded-xl p-2 -mx-2 hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated-70)] transition-colors"
                   >
                     <HorizontalUsageBar
-                      label={formatDisplayNameOrPhone(contact.name, contact.number, privacyMode)}
+                      label={formatDisplayNameOrPhone(contact.name, contact.number)}
                       valueLabel={formatDuration(contact.duration)}
                       subLabel={`${contact.count} calls`}
                       percent={(contact.duration / max) * 100}

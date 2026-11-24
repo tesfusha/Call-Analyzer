@@ -6,6 +6,8 @@ import { CustomSelect } from '@/src/components/CustomSelect';
 import { SpecialEventsEditor } from '@/src/components/SpecialEventsEditor';
 import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { getEthiopianMonthName } from '@/src/lib/ethiopianCalendar';
+import { sanitizeSocialUsername } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type {
@@ -66,6 +68,8 @@ export function SavedContactFormModal({
   const [newEvtCalendar, setNewEvtCalendar] = useState<CalendarKind>('ethiopian');
   const [newEvtMonth, setNewEvtMonth] = useState(1);
   const [newEvtDay, setNewEvtDay] = useState(1);
+  const [telegramUsername, setTelegramUsername] = useState('');
+  const [instagramUsername, setInstagramUsername] = useState('');
 
   const maxBdayMonth = bdayCalendar === 'ethiopian' ? 13 : 12;
   const maxEvtMonth = newEvtCalendar === 'ethiopian' ? 13 : 12;
@@ -82,7 +86,32 @@ export function SavedContactFormModal({
     setBdayYear('');
     setEvents([]);
     setNewEvtTitle('');
+    setTelegramUsername('');
+    setInstagramUsername('');
   };
+
+  useBackHandler({
+    id: 'saved-contact-form-modal',
+    active: open,
+    priority: 55,
+    onBack: () => {
+      resetForm();
+      onClose();
+    },
+    hasUnsavedChanges: () =>
+      Boolean(
+        name.trim() ||
+          number.trim() ||
+          tag.trim() ||
+          notes.trim() ||
+          telegramUsername.trim() ||
+          instagramUsername.trim() ||
+          hasBirthday ||
+          events.length > 0 ||
+          newEvtTitle.trim(),
+      ),
+    unsavedMessage: 'Discard unsaved contact details?',
+  });
 
   const handleAddEvent = () => {
     if (!newEvtTitle.trim()) return;
@@ -147,6 +176,9 @@ export function SavedContactFormModal({
     const cleanTag = tag.trim() || existing?.tag || '';
     if (cleanTag) addCustomTag(cleanTag);
 
+    const cleanTg = sanitizeSocialUsername(telegramUsername);
+    const cleanIg = sanitizeSocialUsername(instagramUsername);
+
     const profile: ContactProfile = {
       key,
       number: cleanNumber,
@@ -155,6 +187,8 @@ export function SavedContactFormModal({
       birthday,
       events: mergedEvents,
       notes: notes.trim() || existing?.notes || '',
+      telegramUsername: cleanTg || existing?.telegramUsername,
+      instagramUsername: cleanIg || existing?.instagramUsername,
       updatedAt: Date.now(),
     };
 
@@ -403,6 +437,33 @@ export function SavedContactFormModal({
             onAddEvent={handleAddEvent}
             variant="inset"
           />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Telegram username (optional)
+              </span>
+              <input
+                type="text"
+                value={telegramUsername}
+                onChange={(e) => setTelegramUsername(e.target.value)}
+                placeholder="@username"
+                className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Instagram username (optional)
+              </span>
+              <input
+                type="text"
+                value={instagramUsername}
+                onChange={(e) => setInstagramUsername(e.target.value)}
+                placeholder="@username"
+                className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+              />
+            </label>
+          </div>
 
           <label className="block space-y-1">
             <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">

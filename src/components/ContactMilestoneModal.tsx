@@ -10,6 +10,7 @@ import {
   shareMilestoneCardImage,
 } from '@/src/lib/milestoneShare';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactMilestoneRecord } from '@/src/types/call';
@@ -23,7 +24,7 @@ export function ContactMilestoneModal({
 }) {
   useLockBodyScroll(Boolean(milestone));
   const prefersReducedMotion = useReducedMotion();
-  const { contactStatuses, contacts, privacyMode, showNotice } = useCalls();
+  const { contactStatuses, contacts, showNotice } = useCalls();
 
   // Off by default per privacy requirement: never include phone number or real name unless opted in
   const [includeName, setIncludeName] = useState(false);
@@ -49,8 +50,8 @@ export function ContactMilestoneModal({
     if (!milestone) return '';
     const rawDisplay = contactProfile?.name || contactStatus?.displayName || milestone.contactKey;
     const rawNum = contactProfile?.number || contactStatus?.number || milestone.contactKey;
-    return formatDisplayNameOrPhone(rawDisplay, rawNum, privacyMode);
-  }, [contactProfile?.name, contactProfile?.number, contactStatus?.displayName, contactStatus?.number, milestone, privacyMode]);
+    return formatDisplayNameOrPhone(rawDisplay, rawNum);
+  }, [contactProfile?.name, contactProfile?.number, contactStatus?.displayName, contactStatus?.number, milestone]);
 
   useEffect(() => {
     if (!milestone) return;
@@ -66,6 +67,13 @@ export function ContactMilestoneModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [milestone, onClose]);
+
+  useBackHandler({
+    id: 'contact-milestone-modal',
+    active: Boolean(milestone),
+    priority: 75,
+    onBack: onClose,
+  });
 
   useEffect(() => {
     if (!milestone || !canvasRef.current) return;
@@ -146,7 +154,7 @@ export function ContactMilestoneModal({
     }
   };
 
-  const canIncludeRealName = Boolean(rawSavedName) && !privacyMode;
+  const canIncludeRealName = Boolean(rawSavedName);
 
   const modalContent = (
     <AnimatePresence>
@@ -249,11 +257,9 @@ export function ContactMilestoneModal({
                       Include name
                     </p>
                     <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      {privacyMode
-                        ? 'Disabled while Privacy Mode is on'
-                        : !rawSavedName
-                          ? 'No saved contact name — using tag or nickname instead'
-                          : 'Off by default so the shared image stays private'}
+                      {!rawSavedName
+                        ? 'No saved contact name — using tag or nickname instead'
+                        : 'Off by default so the shared image stays private'}
                     </p>
                   </div>
                   <button

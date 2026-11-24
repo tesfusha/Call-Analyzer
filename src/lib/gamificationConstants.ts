@@ -6,6 +6,8 @@ export const POINTS_CONFIG = {
   QUICK_MISSED_CALLBACK: 10,
   CALL_TAG_OR_NOTE: 3,
   STREAK_MILESTONE_BONUS: 20,
+  WISH_OPENED: 5,
+  RECONNECT_CONTACT: 10,
 } as const;
 
 export const STREAK_BONUS_DAYS = [7, 30, 100] as const;

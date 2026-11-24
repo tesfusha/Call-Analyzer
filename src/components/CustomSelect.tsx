@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useBackHandler } from '@/src/lib/backNavigation';
 
 export type CustomSelectOption = {
   value: string;
@@ -57,6 +58,13 @@ export function CustomSelect({
   const menuRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const prefersReducedMotion = useReducedMotion();
+
+  useBackHandler({
+    id: `custom-select-${listboxId}`,
+    active: open,
+    priority: 80,
+    onBack: () => setOpen(false),
+  });
 
   const selected = options.find((opt) => opt.value === value);
   const displayLabel = selected?.label ?? placeholder ?? options[0]?.label ?? 'Select';

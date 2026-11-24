@@ -21,6 +21,7 @@ import {
   openExactAlarmSettings,
   requestCallLogSyncPermissions,
 } from '@/src/lib/capacitor';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 type SetupStep = 'permissions' | 'battery';
@@ -57,6 +58,16 @@ export function AndroidPermissionsModal({
   const [status, setStatus] = useState<NativeCallLogSyncPermissionStatus | null>(null);
   const [brandInfo, setBrandInfo] = useState<NativeDeviceBrandInfo | null>(null);
   const [requesting, setRequesting] = useState(false);
+
+  useBackHandler({
+    id: 'android-permissions-modal',
+    active: open,
+    priority: 65,
+    onBack: () => {
+      if (step === 'battery') setStep('permissions');
+      else onClose();
+    },
+  });
 
   const refreshStatus = useCallback(async () => {
     const [permStatus, brand] = await Promise.all([

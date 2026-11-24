@@ -20,6 +20,7 @@ import {
   toDialableUssdHref,
   type EmergencyCategory,
 } from '@/src/lib/ethiopia';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 
@@ -66,6 +67,12 @@ export function CarrierUssdModal({
 }) {
   const { showNotice } = useCalls();
   useLockBodyScroll(open);
+  useBackHandler({
+    id: 'carrier-ussd-modal',
+    active: open,
+    priority: 55,
+    onBack: onClose,
+  });
   const prefersReducedMotion = useReducedMotion();
   const bodyScrollRef = useRef<HTMLDivElement>(null);
   const [activeCategory, setActiveCategory] = useState<UssdCategory>(initialCategory);

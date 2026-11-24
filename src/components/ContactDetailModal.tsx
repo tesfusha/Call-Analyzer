@@ -51,7 +51,9 @@ import {
   toDateTimeLocalValue,
   tomorrowAtHour,
 } from '@/src/lib/schedule';
-import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone, sanitizeSocialUsername } from '@/src/lib/security';
+import { getEatWeekKey } from '@/src/lib/reminders';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type {
@@ -83,7 +85,25 @@ const GREGORIAN_MONTHS = [
 function DirectionIcon({ direction }: { direction: CallDirection }) {
   if (direction === 'incoming') return <PhoneIncoming size={13} className="text-[#4FA3F7] shrink-0" />;
   if (direction === 'outgoing') return <PhoneOutgoing size={13} className="text-[#FF6A00] shrink-0" />;
-  return <PhoneMissed size={13} className="text-[#EF4444] shrink-0" />;
+  if (direction === 'missed') return <PhoneMissed size={13} className="text-[#EF4444] shrink-0" />;
+  return <PhoneMissed size={13} className="text-[#8A93A0] shrink-0" />;
+}
+
+function formatCallDirectionLabel(direction: CallDirection): string {
+  switch (direction) {
+    case 'incoming':
+      return 'Incoming';
+    case 'outgoing':
+      return 'Outgoing';
+    case 'rejected':
+      return 'Rejected';
+    case 'blocked':
+      return 'Blocked';
+    case 'voicemail':
+      return 'Voicemail';
+    default:
+      return 'Missed';
+  }
 }
 
 export function ContactDetailModal({
@@ -107,7 +127,6 @@ export function ContactDetailModal({
     tariffs,
     simLabels,
     calendarPrefs,
-    privacyMode,
     availableTags,
     addCustomTag,
     toggleFavorite,
@@ -118,6 +137,8 @@ export function ContactDetailModal({
     snoozeScheduledCall,
     contactStatuses,
     contactMilestones,
+    sentWishes,
+    openWishComposer,
     showNotice,
   } = useCalls();
 
@@ -153,7 +174,7 @@ export function ContactDetailModal({
       totalDuration += c.duration;
       if (c.direction === 'incoming') incoming += 1;
       else if (c.direction === 'outgoing') outgoing += 1;
-      else missed += 1;
+      else if (c.direction === 'missed') missed += 1;
       spendEtb += estimateCallCostEtb(c, tariffs);
       if (c.sim) sims.add(c.sim);
     });
@@ -196,6 +217,8 @@ export function ContactDetailModal({
   const [newEvtCalendar, setNewEvtCalendar] = useState<CalendarKind>('ethiopian');
   const [newEvtMonth, setNewEvtMonth] = useState(1);
   const [newEvtDay, setNewEvtDay] = useState(1);
+  const [telegramUsername, setTelegramUsername] = useState('');
+  const [instagramUsername, setInstagramUsername] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(() =>
     toDateTimeLocalValue(Date.now() + 60 * 60_000),
@@ -224,6 +247,8 @@ export function ContactDetailModal({
     }
     setEvents(profile?.events ?? []);
     setNewEvtTitle('');
+    setTelegramUsername(profile?.telegramUsername ?? '');
+    setInstagramUsername(profile?.instagramUsername ?? '');
     setScheduleOpen(false);
     setScheduleAt(toDateTimeLocalValue(Date.now() + 60 * 60_000));
     setScheduleNote('');
@@ -238,6 +263,32 @@ export function ContactDetailModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [contactNumber, onClose]);
+
+  useBackHandler({
+    id: 'contact-detail-modal',
+    active: Boolean(contactNumber),
+    priority: 50,
+    onBack: onClose,
+    hasUnsavedChanges: () =>
+      Boolean(
+        contactNumber &&
+          (name !== initialName ||
+            tag !== initialTag ||
+            notes !== (profile?.notes ?? '') ||
+            hasBirthday !== Boolean(profile?.birthday) ||
+            (hasBirthday &&
+              (bdayCalendar !== (profile?.birthday?.calendar ?? 'gregorian') ||
+                bdayMonth !== (profile?.birthday?.month ?? 1) ||
+                bdayDay !== (profile?.birthday?.day ?? 1) ||
+                bdayYear !== (profile?.birthday?.year ? String(profile.birthday.year) : ''))) ||
+            JSON.stringify(events) !== JSON.stringify(profile?.events ?? []) ||
+            telegramUsername !== (profile?.telegramUsername ?? '') ||
+            instagramUsername !== (profile?.instagramUsername ?? '') ||
+            Boolean(newEvtTitle.trim()) ||
+            Boolean(scheduleNote.trim())),
+      ),
+    unsavedMessage: 'Discard unsaved contact profile edits?',
+  });
 
   useEffect(() => {
     if (bodyScrollRef.current) {
@@ -256,7 +307,7 @@ export function ContactDetailModal({
   );
 
   const safeNumber = contactNumber ?? '';
-  const displayName = formatDisplayNameOrPhone(name, safeNumber, privacyMode);
+  const displayName = formatDisplayNameOrPhone(name, safeNumber);
   const isFav =
     Boolean(contactNumber) &&
     (favorites.has(safeNumber) || favorites.has(contactKey));
@@ -304,6 +355,9 @@ export function ContactDetailModal({
         ]
       : [];
 
+    const cleanTg = sanitizeSocialUsername(telegramUsername);
+    const cleanIg = sanitizeSocialUsername(instagramUsername);
+
     const nextProfile: ContactProfile = {
       key: contactKey,
       number: profile?.number || contactCalls[0]?.number || contactNumber,
@@ -312,6 +366,8 @@ export function ContactDetailModal({
       birthday,
       events: [...events, ...pendingDraftEvent],
       notes: notes.trim(),
+      telegramUsername: cleanTg || undefined,
+      instagramUsername: cleanIg || undefined,
       updatedAt: Date.now(),
     };
     upsertContactProfile(nextProfile);
@@ -412,7 +468,7 @@ export function ContactDetailModal({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={`Contact details for ${formatDisplayNameOrPhone(displayName, contactNumber, privacyMode)}`}
+            aria-label={`Contact details for ${formatDisplayNameOrPhone(displayName, contactNumber)}`}
           >
             {/* Pinned Header + Tabs */}
             <div className="shrink-0 p-5 pb-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3.5">
@@ -427,7 +483,7 @@ export function ContactDetailModal({
                   <div className="min-w-0 space-y-0.5">
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <h2 className="text-lg font-bold text-[#08246B] dark:text-white truncate">
-                        {formatDisplayNameOrPhone(displayName, contactNumber, privacyMode)}
+                        {formatDisplayNameOrPhone(displayName, contactNumber)}
                       </h2>
                       {tag.trim() && (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF6A00] shrink-0">
@@ -437,7 +493,7 @@ export function ContactDetailModal({
                       )}
                     </div>
                     <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums truncate">
-                      {maskPhoneNumber(contactCalls[0]?.number || contactNumber, privacyMode)} ·{' '}
+                      {contactCalls[0]?.number || contactNumber} ·{' '}
                       {detectCarrier(contactNumber)}
                       {stats.sims.length > 0
                         ? ` · ${stats.sims.map((s) => (s === 'SIM 1' || s === 'SIM 2' ? formatSimDisplay(s, simLabels) : s)).join(', ')}`
@@ -514,25 +570,79 @@ export function ContactDetailModal({
             <Share2 size={14} className="text-[#FF6A00]" />
             Share
           </button>
-          {canShowWishToday && (
-            <>
-              <a
-                href={`sms:${contactCalls[0]?.number || contactNumber}?body=${encodeURIComponent(suggestedWish)}`}
-                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#FF6A00]/40 bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-              >
-                <MessageSquare size={14} className="text-[#FF6A00]" />
-                {isContactBirthdayToday ? 'SMS Birthday Wish' : `SMS ${todaysHoliday?.name} Wish`}
-              </a>
-              <button
-                type="button"
-                onClick={() => void handleCopyWish()}
-                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-              >
-                <Copy size={14} />
-                Copy Wish
-              </button>
-            </>
-          )}
+          {(() => {
+            const currentYear = new Date().getFullYear();
+            const occType = isContactBirthdayToday
+              ? 'birthday'
+              : todaysHoliday
+                ? 'holiday'
+                : 'reconnect';
+            const occKey = isContactBirthdayToday
+              ? `bday-${contactKey}`
+              : todaysHoliday
+                ? todaysHoliday.key
+                : `reconnect:${getEatWeekKey()}`;
+            const occName = isContactBirthdayToday
+              ? 'Birthday'
+              : todaysHoliday
+                ? todaysHoliday.name
+                : 'Check-in';
+            const wishOpened = sentWishes.some(
+              (w) =>
+                w.contactKey === contactKey &&
+                w.occasionKey === occKey &&
+                w.year === currentYear,
+            );
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    openWishComposer({
+                      contactNumber: contactCalls[0]?.number || contactNumber,
+                      contactName: displayName,
+                      contactKey,
+                      tag: tag.trim() || undefined,
+                      occasionType: occType,
+                      occasionKey: occKey,
+                      occasionName: occName,
+                      telegramUsername: sanitizeSocialUsername(telegramUsername) || undefined,
+                      instagramUsername: sanitizeSocialUsername(instagramUsername) || undefined,
+                    })
+                  }
+                  className={`min-h-[42px] px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                    canShowWishToday
+                      ? 'border-[#FF6A00]/40 bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#08246B] dark:text-white hover:border-[#FF6A00]'
+                      : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
+                  }`}
+                >
+                  <MessageSquare size={14} className="text-[#FF6A00]" />
+                  <span>
+                    {isContactBirthdayToday
+                      ? 'Send Birthday Wish'
+                      : todaysHoliday
+                        ? `Send ${todaysHoliday.name} Wish`
+                        : 'Send Wish / Message'}
+                  </span>
+                  {wishOpened && (
+                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                      Opened · {currentYear}
+                    </span>
+                  )}
+                </button>
+                {canShowWishToday && (
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyWish()}
+                    className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                  >
+                    <Copy size={14} />
+                    Copy Wish
+                  </button>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {scheduleOpen && (
@@ -1093,6 +1203,33 @@ export function ContactDetailModal({
             variant="surface"
           />
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Telegram username (optional)
+              </span>
+              <input
+                type="text"
+                value={telegramUsername}
+                onChange={(e) => setTelegramUsername(e.target.value)}
+                placeholder="@username"
+                className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Instagram username (optional)
+              </span>
+              <input
+                type="text"
+                value={instagramUsername}
+                onChange={(e) => setInstagramUsername(e.target.value)}
+                placeholder="@username"
+                className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+              />
+            </label>
+          </div>
+
           <label className="block space-y-1">
             <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
               Contact notes
@@ -1131,7 +1268,7 @@ export function ContactDetailModal({
                   <div className="min-w-0 space-y-0.5">
                     <div className="flex items-center gap-1.5 text-xs font-medium text-[#08246B] dark:text-white tabular-nums">
                       <DirectionIcon direction={c.direction} />
-                      <span className="capitalize">{c.direction}</span>
+                      <span>{formatCallDirectionLabel(c.direction)}</span>
                       <span aria-hidden="true">·</span>
                       <span>{formatDateTime(c.timestamp)}</span>
                       <span aria-hidden="true">·</span>
@@ -1143,7 +1280,7 @@ export function ContactDetailModal({
                       <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
                         {[
                           c.sim ? formatSimDisplay(c.sim, simLabels) : '',
-                          c.note ? maskPrivateText(c.note, privacyMode) : '',
+                          c.note ? c.note : '',
                         ]
                           .filter(Boolean)
                           .join(' · ')}

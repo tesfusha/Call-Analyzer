@@ -17,12 +17,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isVerifiedUser()
-        && (
-          ('email' in request.auth.token
-            && request.auth.token.email is string
-            && request.auth.token.email.lower() == 'tesfutilahun33@gmail.com')
-          || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-        );
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
     function isValidId(id) {
@@ -92,20 +87,24 @@ service cloud.firestore {
           'callbackDelayMinutes',
           'missedCallReminderEnabled',
           'missedCallReminderDelayMinutes',
+          'onlySavedContactsReminder',
+          'weeklyReconnectGoal',
           'eventLeadDays',
           'quietContactDays',
           'quietHoursEnabled',
           'quietStartHour',
           'quietEndHour'
         ])
-        && r.callbackDelayMinutes is int && r.callbackDelayMinutes >= 5 && r.callbackDelayMinutes <= 1440
+        && r.callbackDelayMinutes is number && r.callbackDelayMinutes >= 5 && r.callbackDelayMinutes <= 1440
         && r.missedCallReminderEnabled is bool
-        && r.missedCallReminderDelayMinutes is int && r.missedCallReminderDelayMinutes in [5, 10]
-        && r.eventLeadDays is int && r.eventLeadDays >= 0 && r.eventLeadDays <= 60
-        && r.quietContactDays is int && r.quietContactDays >= 3 && r.quietContactDays <= 180
+        && r.missedCallReminderDelayMinutes is number && r.missedCallReminderDelayMinutes in [5, 7, 10]
+        && (!('onlySavedContactsReminder' in r) || r.onlySavedContactsReminder is bool)
+        && (!('weeklyReconnectGoal' in r) || (r.weeklyReconnectGoal is number && r.weeklyReconnectGoal >= 1 && r.weeklyReconnectGoal <= 14))
+        && r.eventLeadDays is number && r.eventLeadDays >= 0 && r.eventLeadDays <= 60
+        && r.quietContactDays is number && r.quietContactDays >= 3 && r.quietContactDays <= 180
         && r.quietHoursEnabled is bool
-        && r.quietStartHour is int && r.quietStartHour >= 0 && r.quietStartHour <= 23
-        && r.quietEndHour is int && r.quietEndHour >= 0 && r.quietEndHour <= 23;
+        && r.quietStartHour is number && r.quietStartHour >= 0 && r.quietStartHour <= 23
+        && r.quietEndHour is number && r.quietEndHour >= 0 && r.quietEndHour <= 23;
     }
 
     function isValidVoiceBundleSlot(b) {
@@ -116,8 +115,8 @@ service cloud.firestore {
         && isBoundedString(b.name, 0, 60)
         && b.totalMinutes is number && b.totalMinutes >= 0 && b.totalMinutes <= 100000
         && b.priceEtb is number && b.priceEtb >= 0 && b.priceEtb <= 1000000
-        && b.startedAt is int && b.startedAt >= 0
-        && b.expiresAt is int && b.expiresAt >= 0;
+        && b.startedAt is number && b.startedAt >= 0
+        && b.expiresAt is number && b.expiresAt >= 0;
     }
 
     function isValidVoiceBundles(vb) {
@@ -135,7 +134,6 @@ service cloud.firestore {
           'email',
           'theme',
           'notificationsEnabled',
-          'privacyMode',
           'tariffs',
           'simLabels',
           'calendarPrefs',
@@ -152,7 +150,6 @@ service cloud.firestore {
           'termsAcceptedAt',
           'theme',
           'notificationsEnabled',
-          'privacyMode',
           'tariffs',
           'simLabels',
           'calendarPrefs',
@@ -168,10 +165,9 @@ service cloud.firestore {
         && (!('phone' in data) || isNullableString(data.phone, 40))
         && (!('photoURL' in data) || isNullableString(data.photoURL, 500))
         && (!('termsAccepted' in data) || data.termsAccepted is bool)
-        && (!('termsAcceptedAt' in data) || data.termsAcceptedAt == null || (data.termsAcceptedAt is int && data.termsAcceptedAt >= 0))
+        && (!('termsAcceptedAt' in data) || data.termsAcceptedAt == null || (data.termsAcceptedAt is number && data.termsAcceptedAt >= 0))
         && data.theme in ['dark', 'dark-gray', 'light']
         && data.notificationsEnabled is bool
-        && data.privacyMode is bool
         && isValidTariffs(data.tariffs)
         && isValidSimLabels(data.simLabels)
         && isValidCalendarPrefs(data.calendarPrefs)
@@ -278,9 +274,10 @@ service cloud.firestore {
       allow update: if isValidId(userId)
         && isOwner(userId)
         && isValidUserWorkspace(incoming(), userId)
-        && (!('uid' in existing()) || existing().uid == request.auth.uid)
+        && (!('uid' in existing()) || existing().uid == null || existing().uid == '' || existing().uid == request.auth.uid)
         && incoming().uid == request.auth.uid
         && incoming().diff(existing()).addedKeys().hasOnly([
+          'uid',
           'displayName',
           'email',
           'phone',
@@ -289,7 +286,6 @@ service cloud.firestore {
           'termsAcceptedAt',
           'theme',
           'notificationsEnabled',
-          'privacyMode',
           'tariffs',
           'simLabels',
           'calendarPrefs',
@@ -297,24 +293,45 @@ service cloud.firestore {
           'voiceBundles',
           'syncedAt'
         ])
-        && incoming().diff(existing()).changedKeys().hasOnly([
-          'displayName',
-          'email',
-          'phone',
-          'photoURL',
-          'termsAccepted',
-          'termsAcceptedAt',
-          'theme',
-          'notificationsEnabled',
-          'privacyMode',
-          'tariffs',
-          'simLabels',
-          'calendarPrefs',
-          'reminderPrefs',
-          'voiceBundles',
-          'syncedAt'
-        ]);
-      allow delete: if isValidId(userId) && isOwner(userId) && (!('uid' in existing()) || existing().uid == request.auth.uid);
+        && (
+          incoming().diff(existing()).changedKeys().hasOnly([
+            'displayName',
+            'email',
+            'phone',
+            'photoURL',
+            'termsAccepted',
+            'termsAcceptedAt',
+            'theme',
+            'notificationsEnabled',
+            'tariffs',
+            'simLabels',
+            'calendarPrefs',
+            'reminderPrefs',
+            'voiceBundles',
+            'syncedAt'
+          ])
+          || (
+            (!('uid' in existing()) || existing().uid == null || existing().uid == '')
+            && incoming().diff(existing()).changedKeys().hasOnly([
+              'uid',
+              'displayName',
+              'email',
+              'phone',
+              'photoURL',
+              'termsAccepted',
+              'termsAcceptedAt',
+              'theme',
+              'notificationsEnabled',
+              'tariffs',
+              'simLabels',
+              'calendarPrefs',
+              'reminderPrefs',
+              'voiceBundles',
+              'syncedAt'
+            ])
+          )
+        );
+      allow delete: if isValidId(userId) && isOwner(userId) && (!('uid' in existing()) || existing().uid == null || existing().uid == '' || existing().uid == request.auth.uid);
     }
   }
 }

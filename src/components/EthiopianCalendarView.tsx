@@ -20,11 +20,11 @@ import {
   type CalendarGridCell,
   type CalendarLang,
 } from '@/src/lib/ethiopianCalendar';
-import { dayKey, formatDuration, formatTime } from '@/src/lib/format';
+import { dayKey, formatTime } from '@/src/lib/format';
 import { formatScheduledCountdown } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
-import type { CallRecord, ScheduledCall } from '@/src/types/call';
+import type { ScheduledCall } from '@/src/types/call';
 
 const MONTHS_1_TO_13 = Array.from({ length: 13 }, (_, idx) => idx + 1);
 
@@ -32,8 +32,8 @@ type CalendarCategory = 'month' | 'holidays' | 'prefs';
 
 const CALENDAR_META: Record<CalendarCategory, { title: string; description: string }> = {
   month: {
-    title: 'Ethiopian Month & Daily Activity',
-    description: '13-month Ethiopian calendar grid with daily calls, birthdays, and schedules',
+    title: 'Ethiopian Month & Events',
+    description: '13-month Ethiopian calendar grid with birthdays, holidays, and scheduled calls',
   },
   holidays: {
     title: 'Upcoming Ethiopian Holidays',
@@ -46,15 +46,13 @@ const CALENDAR_META: Record<CalendarCategory, { title: string; description: stri
 };
 
 export function EthiopianCalendarView({
-  onSelectCall,
   onSelectContact,
   onOpenWishes,
 }: {
-  onSelectCall: (call: CallRecord) => void;
   onSelectContact: (number: string) => void;
   onOpenWishes: () => void;
 }) {
-  const { calls, contacts, scheduledCalls, calendarPrefs, privacyMode } = useCalls();
+  const { contacts, scheduledCalls, calendarPrefs } = useCalls();
   const todayEc = useMemo(() => toEthiopianDate(new Date()), []);
 
   const [activeCategory, setActiveCategory] = useState<CalendarCategory>('month');
@@ -73,18 +71,6 @@ export function EthiopianCalendarView({
     () => getEthiopianMonthCalendar(viewYear, viewMonth, { lang, useGeez }),
     [viewYear, viewMonth, lang, useGeez],
   );
-
-  // Index calls by Gregorian YYYY-MM-DD
-  const callsByDay = useMemo(() => {
-    const map = new Map<string, CallRecord[]>();
-    calls.forEach((c) => {
-      const k = dayKey(c.timestamp);
-      const list = map.get(k) ?? [];
-      list.push(c);
-      map.set(k, list);
-    });
-    return map;
-  }, [calls]);
 
   // Index pending scheduled calls by Gregorian YYYY-MM-DD
   const scheduledByDay = useMemo(() => {
@@ -106,7 +92,7 @@ export function EthiopianCalendarView({
     const ecMap = new Map<string, Array<{ name: string; number: string; label: string; tag: string }>>();
 
     Object.values(contacts).forEach((profile) => {
-      const display = formatDisplayNameOrPhone(profile.name, profile.number, privacyMode);
+      const display = formatDisplayNameOrPhone(profile.name, profile.number);
       if (profile.birthday) {
         const key = `${profile.birthday.month}-${profile.birthday.day}`;
         const entry = {
@@ -132,7 +118,7 @@ export function EthiopianCalendarView({
     });
 
     return { gcMap, ecMap };
-  }, [contacts, privacyMode]);
+  }, [contacts]);
 
   const cellKeyFromGc = (gc: { year: number; month: number; day: number }) =>
     `${gc.year}-${String(gc.month).padStart(2, '0')}-${String(gc.day).padStart(2, '0')}`;
@@ -144,12 +130,6 @@ export function EthiopianCalendarView({
     }
     return grid.days.find((d): d is CalendarGridCell => d !== null) ?? null;
   }, [grid.days, selectedDayKey]);
-
-  const selectedCellCalls = useMemo(() => {
-    if (!selectedCell) return [];
-    const k = cellKeyFromGc(selectedCell.gregorian);
-    return [...(callsByDay.get(k) ?? [])].sort((a, b) => b.timestamp - a.timestamp);
-  }, [selectedCell, callsByDay]);
 
   const selectedCellScheduled = useMemo(() => {
     if (!selectedCell) return [];
@@ -322,7 +302,6 @@ export function EthiopianCalendarView({
               }
               const gcKey = cellKeyFromGc(cell.gregorian);
               const isSelected = selectedCell && cellKeyFromGc(selectedCell.gregorian) === gcKey;
-              const dayCallsCount = callsByDay.get(gcKey)?.length ?? 0;
               const dayScheduledCount = scheduledByDay.get(gcKey)?.length ?? 0;
               const ecEventKey = `${cell.ethiopian.month}-${cell.ethiopian.day}`;
               const gcEventKey = `${cell.gregorian.month}-${cell.gregorian.day}`;
@@ -380,11 +359,6 @@ export function EthiopianCalendarView({
                         />
                       )}
                     </div>
-                    {dayCallsCount > 0 && (
-                      <span className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                        {dayCallsCount}c
-                      </span>
-                    )}
                   </div>
                 </button>
               );
@@ -400,7 +374,11 @@ export function EthiopianCalendarView({
               <span className="w-2 h-2 rounded-full bg-[#4FA3F7]" />
               Birthday / Event
             </span>
-            <span>Top-left = EC · Top-right = GC · Bottom = calls</span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+              Scheduled call
+            </span>
+            <span>Top-left = EC · Top-right = GC</span>
           </div>
         </div>
 
@@ -515,7 +493,7 @@ export function EthiopianCalendarView({
                         <div className="flex items-center gap-2 min-w-0">
                           <Clock size={14} className="text-[#10B981] shrink-0" />
                           <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                            {formatDisplayNameOrPhone(item.name, item.number, privacyMode)}
+                            {formatDisplayNameOrPhone(item.name, item.number)}
                           </span>
                         </div>
                         <span className="text-[11px] font-mono text-[#FF6A00] tabular-nums shrink-0">
@@ -527,41 +505,7 @@ export function EthiopianCalendarView({
                 </div>
               )}
 
-              {/* Calls on selected date */}
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Calls on this day ({selectedCellCalls.length})
-                </p>
-                {selectedCellCalls.length === 0 ? (
-                  <p className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
-                    No calls logged on this date.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                    {selectedCellCalls.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => onSelectCall(c)}
-                        className="w-full py-2 flex items-center justify-between gap-2 text-left hover:opacity-80"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                            {formatDisplayNameOrPhone(c.name, c.number, privacyMode)}
-                          </p>
-                          <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] capitalize tabular-nums">
-                            {c.direction} · {formatTime(c.timestamp)}
-                          </p>
-                        </div>
-                        <span className="text-xs font-mono tabular-nums text-[#08246B] dark:text-white shrink-0">
-                          {formatDuration(c.duration)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
+              </>
           ) : null}
         </div>
       </div>

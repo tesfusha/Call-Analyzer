@@ -10,7 +10,7 @@ import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { computeScoreFromHistory } from '@/src/lib/gamification';
 import { CURRENT_BACKUP_SCHEMA_VERSION } from '@/src/lib/import';
-import { formatDisplayNameOrPhone, maskPhoneNumber, maskPrivateText } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { carrierStats, computeTotals, contactStats, totalSpendEtb } from '@/src/lib/stats';
 import type {
   BackupSettingsSnapshot,
@@ -19,9 +19,12 @@ import type {
   ContactMilestoneRecord,
   ContactProfile,
   PointsHistoryEntry,
+  ReconnectProgressRecord,
   ScheduledCall,
+  SentWishRecord,
   SimLabels,
   StreakRecord,
+  WishTemplateMap,
 } from '@/src/types/call';
 
 function escapeCsvCell(value: string): string {
@@ -40,23 +43,22 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-export function callsToCsv(calls: CallRecord[], privacyMode = false): string {
+export function callsToCsv(calls: CallRecord[]): string {
   const header = ['number', 'name', 'direction', 'sim', 'timestamp', 'duration', 'note', 'tag'];
   const lines = [header.join(',')];
   const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
   sorted.forEach((call) => {
-    const maskedNumber = maskPhoneNumber(call.number, privacyMode);
-    const displayName = call.name ? formatDisplayNameOrPhone(call.name, call.number, privacyMode) : '';
+    const displayName = call.name ? formatDisplayNameOrPhone(call.name, call.number) : '';
     lines.push(
       [
-        maskedNumber,
+        call.number,
         displayName,
         call.direction,
         call.sim ?? '',
         new Date(call.timestamp).toISOString(),
         String(call.duration),
-        call.note ? maskPrivateText(call.note, privacyMode) : '',
-        call.tag ? maskPrivateText(call.tag, privacyMode) : '',
+        call.note ?? '',
+        call.tag ?? '',
       ]
         .map(escapeCsvCell)
         .join(','),
@@ -79,49 +81,16 @@ export type VersionedBackupInput = {
   favorites?: string[];
   dismissedMissedIds?: string[];
   mutedAlertKeys?: string[];
+  wishTemplates?: WishTemplateMap;
+  sentWishes?: SentWishRecord[];
+  snoozedQuietUntil?: Record<string, number>;
+  reconnectProgress?: ReconnectProgressRecord;
 };
 
-export function buildVersionedBackupJson(
-  input: VersionedBackupInput,
-  privacyMode = false,
-): string {
-  const sortedCalls = [...input.calls]
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .map((call) =>
-      privacyMode
-        ? {
-            ...call,
-            number: maskPhoneNumber(call.number, true),
-            name: call.name ? formatDisplayNameOrPhone(call.name, call.number, true) : null,
-            note: call.note ? maskPrivateText(call.note, true) : null,
-            tag: call.tag ? maskPrivateText(call.tag, true) : null,
-          }
-        : call,
-    );
-
-  const contactsList = (input.contacts ?? []).map((contact) =>
-    privacyMode
-      ? {
-          ...contact,
-          number: maskPhoneNumber(contact.number, true),
-          name: formatDisplayNameOrPhone(contact.name, contact.number, true),
-          notes: contact.notes ? maskPrivateText(contact.notes, true) : '',
-          tag: contact.tag ? maskPrivateText(contact.tag, true) : '',
-        }
-      : contact,
-  );
-
-  const scheduledList = (input.scheduledCalls ?? []).map((item) =>
-    privacyMode
-      ? {
-          ...item,
-          number: maskPhoneNumber(item.number, true),
-          name: item.name ? formatDisplayNameOrPhone(item.name, item.number, true) : null,
-          note: item.note ? maskPrivateText(item.note, true) : null,
-        }
-      : item,
-  );
-
+export function buildVersionedBackupJson(input: VersionedBackupInput): string {
+  const sortedCalls = [...input.calls].sort((a, b) => b.timestamp - a.timestamp);
+  const contactsList = input.contacts ?? [];
+  const scheduledList = input.scheduledCalls ?? [];
   const tags = Array.from(
     new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean)),
   );
@@ -131,16 +100,6 @@ export function buildVersionedBackupJson(
     typeof input.score === 'number' && Number.isFinite(input.score)
       ? Math.max(0, Math.round(input.score))
       : computeScoreFromHistory(pointsHistory);
-
-  const milestoneList = (input.contactMilestones ?? []).map((item) =>
-    privacyMode
-      ? {
-          ...item,
-          id: `${maskPhoneNumber(item.contactKey, true)}:${item.days}:${item.streakStartDate}`,
-          contactKey: maskPhoneNumber(item.contactKey, true),
-        }
-      : item,
-  );
 
   const payload = {
     schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
@@ -159,20 +118,22 @@ export function buildVersionedBackupJson(
     score,
     pointsHistory,
     badges: input.badges ?? [],
-    contactMilestones: milestoneList,
+    contactMilestones: input.contactMilestones ?? [],
     scheduledCalls: scheduledList,
-    favorites: privacyMode
-      ? (input.favorites ?? []).map((fav) => maskPhoneNumber(fav, true))
-      : (input.favorites ?? []),
+    favorites: input.favorites ?? [],
     dismissedMissedIds: input.dismissedMissedIds ?? [],
     mutedAlertKeys: input.mutedAlertKeys ?? [],
+    wishTemplates: input.wishTemplates ?? {},
+    sentWishes: input.sentWishes ?? [],
+    snoozedQuietUntil: input.snoozedQuietUntil ?? {},
+    reconnectProgress: input.reconnectProgress ?? { weekKey: '', contactedKeys: [] },
   };
 
   return JSON.stringify(payload, null, 2);
 }
 
-export function callsToJson(calls: CallRecord[], privacyMode = false): string {
-  return buildVersionedBackupJson({ calls }, privacyMode);
+export function callsToJson(calls: CallRecord[]): string {
+  return buildVersionedBackupJson({ calls });
 }
 
 export function callsToHtmlReport(
@@ -180,7 +141,6 @@ export function callsToHtmlReport(
   tariffs: TariffConfig,
   simLabels: SimLabels,
   title = 'Call Analyzer - ETH Statement',
-  privacyMode = false,
 ): string {
   const sorted = [...calls].sort((a, b) => b.timestamp - a.timestamp);
   const totals = computeTotals(sorted);
@@ -200,7 +160,7 @@ export function callsToHtmlReport(
   const topRows = topContacts
     .map(
       (c) =>
-        `<tr><td>${escapeHtml(formatDisplayNameOrPhone(c.name, c.number, privacyMode))}</td><td>${escapeHtml(maskPhoneNumber(c.number, privacyMode))}</td><td>${c.count}</td><td>${escapeHtml(formatDuration(c.duration))}</td></tr>`,
+        `<tr><td>${escapeHtml(formatDisplayNameOrPhone(c.name, c.number))}</td><td>${escapeHtml(c.number)}</td><td>${c.count}</td><td>${escapeHtml(formatDuration(c.duration))}</td></tr>`,
     )
     .join('');
 
@@ -208,7 +168,7 @@ export function callsToHtmlReport(
     .slice(0, 250)
     .map(
       (c) =>
-        `<tr><td>${escapeHtml(formatDisplayNameOrPhone(c.name, c.number, privacyMode))}</td><td>${escapeHtml(maskPhoneNumber(c.number, privacyMode))}</td><td>${escapeHtml(c.direction)}</td><td>${escapeHtml(c.sim ? formatSimDisplay(c.sim, simLabels) : '—')}</td><td>${escapeHtml(formatDateTime(c.timestamp))} (${escapeHtml(formatEthiopianShort(c.timestamp))} EC)</td><td>${escapeHtml(formatDuration(c.duration))}</td><td>${escapeHtml(c.direction === 'outgoing' && c.duration > 0 ? formatEtb(estimateCallCostEtb(c, tariffs)) : '—')}</td><td>${escapeHtml(c.tag ? maskPrivateText(c.tag, privacyMode) : '')}</td></tr>`,
+        `<tr><td>${escapeHtml(formatDisplayNameOrPhone(c.name, c.number))}</td><td>${escapeHtml(c.number)}</td><td>${escapeHtml(c.direction)}</td><td>${escapeHtml(c.sim ? formatSimDisplay(c.sim, simLabels) : '—')}</td><td>${escapeHtml(formatDateTime(c.timestamp))} (${escapeHtml(formatEthiopianShort(c.timestamp))} EC)</td><td>${escapeHtml(formatDuration(c.duration))}</td><td>${escapeHtml(c.direction === 'outgoing' && c.duration > 0 ? formatEtb(estimateCallCostEtb(c, tariffs)) : '—')}</td><td>${escapeHtml(c.tag ?? '')}</td></tr>`,
     )
     .join('');
 

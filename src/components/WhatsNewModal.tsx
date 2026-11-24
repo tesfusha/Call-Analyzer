@@ -20,6 +20,7 @@ import {
   APP_VERSION,
   LATEST_RELEASE_NOTES,
 } from '@/src/lib/appInfo';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 const NOTE_ICONS = {
@@ -52,6 +53,13 @@ export function WhatsNewModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  useBackHandler({
+    id: 'whats-new-modal',
+    active: open,
+    priority: 70,
+    onBack: onClose,
+  });
 
   const modalContent = (
     <AnimatePresence>

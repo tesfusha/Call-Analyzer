@@ -29,8 +29,9 @@ import {
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { formatDisplayNameOrPhone, maskPhoneNumber } from '@/src/lib/security';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { contactStats, filterByRange, simStats, totalSpendEtb } from '@/src/lib/stats';
+import { useBackHandler } from '@/src/lib/backNavigation';
 import { useCalls } from '@/src/store/CallsContext';
 import type { CallDirection, CallRecord, DateRangeFilter, TimeRange } from '@/src/types/call';
 
@@ -71,7 +72,6 @@ export function UsageTab({
     simLabels,
     voiceBundles,
     setVoiceBundles,
-    privacyMode,
     mergeContacts,
     showNotice,
   } = useCalls();
@@ -91,6 +91,19 @@ export function UsageTab({
   const [ussdInitialCategory, setUssdInitialCategory] = useState<UssdCategory>('all');
   const [editingBundleSlot, setEditingBundleSlot] = useState<'sim1' | 'sim2' | null>(null);
   const [visibleUsageContacts, setVisibleUsageContacts] = useState(6);
+
+  useBackHandler({
+    id: 'usage-bundle-editor',
+    active: Boolean(editingBundleSlot),
+    priority: 25,
+    onBack: () => setEditingBundleSlot(null),
+  });
+  useBackHandler({
+    id: 'usage-subtab',
+    active: activeCategory !== 'sim',
+    priority: 15,
+    onBack: () => setActiveCategory('sim'),
+  });
 
   const openUssd = (initialCategory: UssdCategory = 'all') => {
     setUssdInitialCategory(initialCategory);
@@ -245,6 +258,9 @@ export function UsageTab({
                       { value: 'incoming', label: 'Incoming' },
                       { value: 'outgoing', label: 'Outgoing' },
                       { value: 'missed', label: 'Missed' },
+                      { value: 'rejected', label: 'Rejected' },
+                      { value: 'blocked', label: 'Blocked' },
+                      { value: 'voicemail', label: 'Voicemail' },
                     ]}
                     onChange={(v) => {
                       triggerHaptic('tap');
@@ -340,7 +356,6 @@ export function UsageTab({
                         const displayContactLabel = formatDisplayNameOrPhone(
                           contact.name,
                           contact.number,
-                          privacyMode,
                         );
 
                         return (
@@ -802,8 +817,8 @@ export function UsageTab({
                       searchPlaceholder="Search caller..."
                       options={allCallContacts.map((c) => ({
                         value: c.number,
-                        label: `From: ${formatDisplayNameOrPhone(c.name, c.number, privacyMode)}`,
-                        sublabel: maskPhoneNumber(c.number, privacyMode),
+                        label: `From: ${formatDisplayNameOrPhone(c.name, c.number)}`,
+                        sublabel: c.number,
                       }))}
                       onChange={setMergeSource}
                     />
@@ -816,8 +831,8 @@ export function UsageTab({
                       searchPlaceholder="Search target..."
                       options={allCallContacts.map((c) => ({
                         value: c.number,
-                        label: `Into: ${formatDisplayNameOrPhone(c.name, c.number, privacyMode)}`,
-                        sublabel: maskPhoneNumber(c.number, privacyMode),
+                        label: `Into: ${formatDisplayNameOrPhone(c.name, c.number)}`,
+                        sublabel: c.number,
                       }))}
                       onChange={(val) => {
                         setMergeTarget(val);

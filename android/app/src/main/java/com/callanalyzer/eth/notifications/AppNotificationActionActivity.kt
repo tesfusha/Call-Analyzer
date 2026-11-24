@@ -23,6 +23,8 @@ class AppNotificationActionActivity : Activity() {
         val eventId = intent?.getStringExtra(AppNotificationDisplay.EXTRA_EVENT_ID)
         val muteKey = intent?.getStringExtra(AppNotificationDisplay.EXTRA_MUTE_KEY)
         val wishText = intent?.getStringExtra(AppNotificationDisplay.EXTRA_WISH_TEXT)
+        val occasionType = intent?.getStringExtra(AppNotificationDisplay.EXTRA_OCCASION_TYPE)
+        val occasionKey = intent?.getStringExtra(AppNotificationDisplay.EXTRA_OCCASION_KEY)
 
         if (id >= 0) {
             NotificationHelper.cancelNotification(this, id)
@@ -49,20 +51,8 @@ class AppNotificationActionActivity : Activity() {
             }
 
             "wish" -> {
-                if (!number.isNullOrEmpty() && !wishText.isNullOrBlank()) {
-                    val smsIntent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", number, null)).apply {
-                        putExtra("sms_body", wishText)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    try {
-                        startActivity(smsIntent)
-                        handledNatively = true
-                    } catch (_: Exception) {
-                        openMainApp()
-                    }
-                } else {
-                    openMainApp()
-                }
+                // Open the in-app WishComposer pre-filled with the contact and occasion
+                openMainApp()
             }
 
             else -> {
@@ -83,7 +73,9 @@ class AppNotificationActionActivity : Activity() {
             muteKey = muteKey,
             wishText = wishText,
             timestamp = System.currentTimeMillis(),
-            handledNatively = handledNatively
+            handledNatively = handledNatively,
+            occasionType = occasionType,
+            occasionKey = occasionKey
         )
         AppNotificationsPlugin.dispatchAction(applicationContext, eventJson)
         finish()
