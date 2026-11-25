@@ -302,6 +302,88 @@ export function buildBirthdayWish(
   return `Warm wishes on your ${eventTitle}, ${firstName}! Wishing you all the best today and always.`;
 }
 
+export type OtherWishPresetKey =
+  | 'greeting'
+  | 'checkin'
+  | 'thanks'
+  | 'congrats'
+  | 'getwell'
+  | 'custom';
+
+export const OTHER_WISH_PRESETS: Array<{
+  key: OtherWishPresetKey;
+  label: string;
+  occasionEn: string;
+  occasionAm: string;
+  english: string;
+  amharic: string;
+}> = [
+  {
+    key: 'greeting',
+    label: 'Warm Greeting',
+    occasionEn: 'Warm Greetings',
+    occasionAm: 'ሰላምታ',
+    english: 'Selam {name}! Wishing you peace, good health, and a wonderful day ahead.',
+    amharic: 'ሰላም {name}! ዛሬ መልካም ቀን፣ ጤናና ደስታ እንዲሆንልዎት እመኛለሁ።',
+  },
+  {
+    key: 'checkin',
+    label: 'Check-in',
+    occasionEn: 'Check-in',
+    occasionAm: 'ሰላምታ',
+    english: 'Hey {name}, just checking in to say hello and hope you are doing well!',
+    amharic: 'ሰላም {name}፣ እንዴት ነዎት? ሁሉም ነገር ደህና ነው? ትንሽ ልጠይቅዎት ብዬ ነው።',
+  },
+  {
+    key: 'thanks',
+    label: 'Thank You',
+    occasionEn: 'Thank You',
+    occasionAm: 'ምስጋና',
+    english: 'Thank you so much, {name}! Truly appreciate your kindness and support.',
+    amharic: 'እጅግ በጣም አመሰግናለሁ {name}! ለመልካምነትዎና ለድጋፍዎ ሁሉ ምስጋናዬ የላቀ ነው።',
+  },
+  {
+    key: 'congrats',
+    label: 'Congrats',
+    occasionEn: 'Congratulations',
+    occasionAm: 'እንኳን ደስ ያለዎት',
+    english: 'Congratulations, {name}! Wishing you continued success and happiness.',
+    amharic: 'እንኳን ደስ ያለዎት {name}! ሁልጊዜ ስኬትና ደስታ እንዲከተልዎት እመኛለሁ።',
+  },
+  {
+    key: 'getwell',
+    label: 'Get Well',
+    occasionEn: 'Get Well Soon',
+    occasionAm: 'ፈጣን ፈውስ',
+    english: 'Wishing you a quick and full recovery, {name}. Take good care of yourself!',
+    amharic: '{name} ፈጣን ፈውስና ሙሉ ጤንነት እመኝልዎታለሁ። እራስዎን ይጠብቁ።',
+  },
+  {
+    key: 'custom',
+    label: 'Custom',
+    occasionEn: 'Special Day',
+    occasionAm: 'መልካም ምኞት',
+    english: 'Warm wishes for {occasion}, {name}! Wishing you all the very best today and always.',
+    amharic: 'መልካም {occasion} {name}! ሁልጊዜ ሰላም፣ ጤናና ደስታ ይብዛልዎት።',
+  },
+];
+
+export function getOtherWishTemplate(
+  presetKey: OtherWishPresetKey = 'greeting',
+  lang: CalendarLang = 'english',
+  tag?: string,
+): string {
+  const cleanTag = (tag ?? '').toLowerCase();
+  if (
+    presetKey === 'checkin' &&
+    (cleanTag === 'business' || cleanTag === 'work' || cleanTag === 'coworkers')
+  ) {
+    return getBusinessReconnectTemplate(lang);
+  }
+  const found = OTHER_WISH_PRESETS.find((p) => p.key === presetKey) ?? OTHER_WISH_PRESETS[0];
+  return lang === 'amharic' ? found.amharic : found.english;
+}
+
 export function getBusinessReconnectTemplate(lang: CalendarLang = 'english'): string {
   if (lang === 'amharic') {
     return 'ሰላም {name}፣ እንዴት ነዎት? ሁሉም ነገር ደህና ነው? የሚያስፈልግዎት ነገር ካለ ያሳውቁኝ።';
@@ -313,10 +395,12 @@ export function getDefaultWishTemplate({
   occasionType,
   tag,
   lang = 'english',
+  otherPreset = 'greeting',
 }: {
-  occasionType: 'holiday' | 'birthday' | 'reconnect';
+  occasionType: 'holiday' | 'birthday' | 'other' | 'reconnect';
   tag?: string;
   lang?: CalendarLang;
+  otherPreset?: OtherWishPresetKey;
 }): string {
   const cleanTag = (tag ?? '').toLowerCase();
   if (occasionType === 'reconnect') {
@@ -327,6 +411,10 @@ export function getDefaultWishTemplate({
       return 'ሰላም {name}፣ ቆየን ከተገናኘን! እንዴት ነህ/ነሽ? ትንሽ ልጠይቅህ ብዬ ነው።';
     }
     return 'Hey {name}, it has been a while! Just checking in to say hello and hope you are doing well.';
+  }
+
+  if (occasionType === 'other') {
+    return getOtherWishTemplate(otherPreset, lang, tag);
   }
 
   if (occasionType === 'birthday') {

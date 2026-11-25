@@ -1,8 +1,11 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '2.6.0';
-export const APP_VERSION_CODE = 7;
+export const APP_VERSION_NAME = '1.0.0';
+export const APP_VERSION_CODE = 8;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Wish Composer, Smarter Reconnects & Collapsible Settings';
+export const APP_RELEASE_LABEL = 'Public Launch · Dual-SIM Analytics, Wishes & Call Streaks';
+export const APP_CONTACT_EMAIL = 'tesfutilahun33@gmail.com';
+export const APP_TELEGRAM_HANDLE = 't.me/callanalyzer_eth';
+export const APP_TELEGRAM_URL = 'https://t.me/callanalyzer_eth';
 export const GUIDE_SEEN_KEY = 'callanalyzer.guideSeen.v1';
 export const WHATS_NEW_SEEN_KEY = 'callanalyzer.whatsNewVersion.v1';
 export const UPDATE_VERSION_URL = 'https://youthful-limiter-kjk7s.web.app/version.json';
@@ -13,28 +16,28 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
+    id: 'clean-call-logs',
+    title: 'Dual-SIM Sync, Costing & PDF Statements',
+    detail:
+      'Sync Ethio Telecom and Safaricom call logs on Android or import CSV/JSON/TXT files, inspect peak hours and airtime spend, and export clean PDF or HTML reports.',
+  },
+  {
     id: 'smart-rules',
-    title: 'Wish Composer & Saved Templates',
+    title: 'Ethiopian Calendar, Wishes & Follow-ups',
     detail:
-      'Write and customize birthday, holiday, and follow-up wishes with live GSM-7/Unicode SMS counting, save templates per occasion, and send via SMS, WhatsApp, Telegram, Instagram, or Copy.',
+      'Track Ethiopian holidays, saved contact birthdays, quiet contacts, and missed-call reminders, and send custom wishes via SMS, WhatsApp, or Telegram.',
   },
   {
-    id: 'notification-actions',
-    title: 'Smarter Quiet Contacts & Weekly Reconnect Goal',
+    id: 'streak-counting',
+    title: 'Daily Streaks, Milestones & Share Cards',
     detail:
-      'Quiet suggestions now learn real call rhythms, separate Dormant contacts, support swipe-to-call and swipe-to-snooze, and track your weekly reconnect goal without cluttering the main bell badge.',
-  },
-  {
-    id: 'mobile-modals',
-    title: 'Collapsible Settings & 5/7/10m Missed-Call Alerts',
-    detail:
-      'Settings sections now collapse cleanly with live summaries and search, alongside 5/7/10-minute missed-call delays, "Only remind for saved contacts", and a 10-second test alert.',
+      'Build daily and per-contact call streaks, unlock badges, and export PNG milestone share cards with customizable nicknames.',
   },
   {
     id: 'brand-launcher',
-    title: 'Hardened Screen Lock & Full Call Types',
+    title: 'On-Device Privacy & 4-Digit Screen Lock',
     detail:
-      '4-digit screen lock now uses salted PBKDF2 hashing with lockout backoff, while Calls and Usage clearly distinguish Rejected, Blocked, and Voicemail entries.',
+      'All call history and contact details stay strictly on your phone, protected with optional PBKDF2-hashed 4-digit PIN lock and encrypted local storage.',
   },
 ] as const;
 

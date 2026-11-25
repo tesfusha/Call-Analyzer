@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Clock, FileText, Phone, Plus, Star, Tag, Trash2, User, X } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
-import { DateTimePicker } from '@/src/components/DateTimePicker';
+import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
 import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
-import { toDateTimeLocalValue, tomorrowAtHour } from '@/src/lib/schedule';
+import { toDateTimeLocalValue } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
@@ -55,7 +55,7 @@ export function CallDetailModal({
   const [applyTagToContact, setApplyTagToContact] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(() =>
-    toDateTimeLocalValue(Date.now() + 30 * 60_000),
+    toDateTimeLocalValue(Date.now() + 60 * 60_000),
   );
   const [scheduleNote, setScheduleNote] = useState('');
 
@@ -68,7 +68,7 @@ export function CallDetailModal({
     setTag(call.tag?.trim() || contactProfile?.tag?.trim() || '');
     setApplyTagToContact(true);
     setConfirmDelete(false);
-    setScheduleAt(toDateTimeLocalValue(Date.now() + 30 * 60_000));
+    setScheduleAt(toDateTimeLocalValue(Date.now() + 60 * 60_000));
     setScheduleNote(call.direction === 'missed' ? 'Return missed call' : '');
   }, [call, contacts]);
 
@@ -411,7 +411,7 @@ export function CallDetailModal({
           )}
 
           {activeCategory === 'schedule' && (
-            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-3">
+            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-[#08246B] dark:text-white">
                 <Clock size={14} className="text-[#FF6A00]" />
                 <span>
@@ -419,79 +419,43 @@ export function CallDetailModal({
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5">
-                {[
-                  { label: 'In 15m', ts: () => Date.now() + 15 * 60_000 },
-                  { label: 'In 1h', ts: () => Date.now() + 60 * 60_000 },
-                  { label: 'Tomorrow 9 AM', ts: () => tomorrowAtHour(9) },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => {
-                      scheduleCall({
-                        number: call.number,
-                        name: name.trim() || call.name,
-                        scheduledFor: preset.ts(),
-                        note:
-                          scheduleNote ||
-                          (call.direction === 'missed' ? 'Return missed call' : null),
-                        sourceCallId: call.direction === 'missed' ? call.id : null,
-                      });
-                      onClose();
-                    }}
-                    className="min-h-[36px] px-3 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
+              <SimpleScheduleTimePicker
+                value={scheduleAt}
+                onChange={setScheduleAt}
+                variant="surface"
+                ariaLabel="Callback date and time"
+                resetKey={call.id}
+              />
 
-              <div className="space-y-1">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Custom date &amp; time
-                </span>
-                <DateTimePicker
-                  value={scheduleAt}
-                  onChange={setScheduleAt}
-                  variant="surface"
-                  ariaLabel="Callback date and time"
-                />
-              </div>
+              <input
+                type="text"
+                value={scheduleNote}
+                onChange={(e) => setScheduleNote(e.target.value)}
+                placeholder="Note or topic (optional)"
+                aria-label="Callback topic"
+                className="w-full min-h-[42px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+              />
 
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Callback topic (optional)
-                </span>
-                <input
-                  type="text"
-                  value={scheduleNote}
-                  onChange={(e) => setScheduleNote(e.target.value)}
-                  placeholder="Topic or follow-up note..."
-                  className="w-full rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
-                />
-              </label>
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const parsed = Date.parse(scheduleAt);
-                    if (Number.isNaN(parsed)) return;
-                    scheduleCall({
-                      number: call.number,
-                      name: name.trim() || call.name,
-                      scheduledFor: parsed,
-                      note: scheduleNote || null,
-                      sourceCallId: call.direction === 'missed' ? call.id : null,
-                    });
-                    onClose();
-                  }}
-                  className="min-h-[40px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap"
-                >
-                  Set reminder
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const parsed = Date.parse(scheduleAt);
+                  if (Number.isNaN(parsed)) return;
+                  scheduleCall({
+                    number: call.number,
+                    name: name.trim() || call.name,
+                    scheduledFor: parsed,
+                    note:
+                      scheduleNote.trim() ||
+                      (call.direction === 'missed' ? 'Return missed call' : null),
+                    sourceCallId: call.direction === 'missed' ? call.id : null,
+                  });
+                  onClose();
+                }}
+                className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap"
+              >
+                Schedule Call
+              </button>
             </div>
           )}
         </CategoryPanel>

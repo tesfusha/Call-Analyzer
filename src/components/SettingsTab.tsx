@@ -11,6 +11,7 @@ import {
   Contact,
   Download,
   Edit3,
+  ExternalLink,
   FileDown,
   FileText,
   Flame,
@@ -19,12 +20,14 @@ import {
   Lock,
   LogIn,
   LogOut,
+  Mail,
   Minus,
   Palette,
   PlayCircle,
   Plus,
   RefreshCw,
   Search,
+  Send,
   Share2,
   ShieldCheck,
   Signal,
@@ -46,10 +49,13 @@ import { ImportPreviewModal, type PendingImportState } from '@/src/components/Im
 import { ProfileEditModal } from '@/src/components/ProfileEditModal';
 import { BADGE_DEFINITIONS, POINTS_CONFIG } from '@/src/lib/gamificationConstants';
 import {
+  APP_CONTACT_EMAIL,
   APP_FEATURES,
   APP_NAME,
   APP_PRIVACY_NOTE,
   APP_RELEASE_LABEL,
+  APP_TELEGRAM_HANDLE,
+  APP_TELEGRAM_URL,
   APP_VERSION,
   APP_VERSION_CODE,
 } from '@/src/lib/appInfo';
@@ -164,9 +170,9 @@ const ACCORDION_SECTIONS: AccordionSectionMeta[] = [
   },
   {
     id: 'about',
-    title: 'About App, Updates & Guide',
+    title: 'About App, Updates & Contact',
     icon: Info,
-    keywords: 'about version build updates whats new guide features privacy',
+    keywords: 'about version build updates whats new guide features privacy contact email telegram channel support',
   },
 ];
 
@@ -1825,6 +1831,67 @@ export function SettingsTab({
                   </p>
                 </div>
               ))}
+            </div>
+
+            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                  Contact &amp; Community
+                </p>
+                <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Support, feedback &amp; APK updates
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <a
+                  href={`mailto:${APP_CONTACT_EMAIL}`}
+                  className="min-h-[48px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center justify-between gap-2.5 transition-colors group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <Mail size={15} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Email
+                      </p>
+                      <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                        {APP_CONTACT_EMAIL}
+                      </p>
+                    </div>
+                  </div>
+                  <ExternalLink
+                    size={14}
+                    className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] group-hover:text-[#FF6A00] shrink-0 transition-colors"
+                  />
+                </a>
+
+                <a
+                  href={APP_TELEGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-h-[48px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center justify-between gap-2.5 transition-colors group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-lg bg-[#EEF2F6] dark:bg-[#08246B]/35 text-[#08246B] dark:text-[#7FA6FF] flex items-center justify-center shrink-0">
+                      <Send size={15} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Telegram Channel
+                      </p>
+                      <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                        {APP_TELEGRAM_HANDLE}
+                      </p>
+                    </div>
+                  </div>
+                  <ExternalLink
+                    size={14}
+                    className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] group-hover:text-[#FF6A00] shrink-0 transition-colors"
+                  />
+                </a>
+              </div>
             </div>
 
             <div className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 flex flex-wrap items-center justify-between gap-3">

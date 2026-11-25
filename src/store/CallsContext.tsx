@@ -1570,7 +1570,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         setSyncStatus('syncing');
         if (useUpdateDoc) {
           try {
-            await updateDoc(userDocRef, payload);
+            const { uid: _omitUid, ...updatePayload } = payload;
+            await updateDoc(userDocRef, updatePayload);
           } catch (updateErr) {
             const code = (updateErr as { code?: string })?.code ?? '';
             if (code === 'not-found') {

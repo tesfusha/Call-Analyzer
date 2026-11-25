@@ -16,6 +16,7 @@ import {
   HeartPulse,
   Layers,
   ListFilter,
+  Loader2,
   Phone,
   PhoneIncoming,
   PhoneMissed,
@@ -137,12 +138,14 @@ function callStatusTextClass(direction: CallDirection): string {
 }
 
 export const CallsTab = memo(function CallsTab({
+  isActive = true,
   onSelectCall,
   onSelectContact,
   onCallBack,
   onOpenReminders,
   onOpenAnalytics,
 }: {
+  isActive?: boolean;
   onSelectCall: (call: CallRecord) => void;
   onSelectContact: (number: string) => void;
   onCallBack: (number: string) => void;
@@ -161,6 +164,7 @@ export const CallsTab = memo(function CallsTab({
     reminderPrefs,
     profileName,
     authUser,
+    needsEmailVerification,
     isGuest,
     openAuthPrompt,
     toggleFavorite,
@@ -168,6 +172,7 @@ export const CallsTab = memo(function CallsTab({
     importBackupPackage,
     canSyncPhoneCalls,
     syncPhoneCalls,
+    refreshNotificationPermission,
     scheduleCall,
     completeScheduledCall,
     snoozeScheduledCall,
@@ -201,7 +206,17 @@ export const CallsTab = memo(function CallsTab({
   const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const [syncingPhone, setSyncingPhone] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const pullDistanceRef = useRef(0);
+  const pullRefreshingRef = useRef(false);
+  const pullStartRef = useRef<{
+    x: number;
+    y: number;
+    active: boolean;
+    hapticFired: boolean;
+  } | null>(null);
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(quickActionsOpen);
   useBackHandler({
@@ -287,6 +302,154 @@ export const CallsTab = memo(function CallsTab({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [quickActionsOpen]);
+
+  const PULL_THRESHOLD = 64;
+  const PULL_MAX = 96;
+
+  const triggerPullRefresh = useCallback(async () => {
+    if (pullRefreshingRef.current || syncingPhone) return;
+    pullRefreshingRef.current = true;
+    setPullRefreshing(true);
+    setPullDistance(52);
+    triggerHaptic('tap');
+
+    const minSpin = new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 480);
+    });
+
+    try {
+      if (canSyncPhoneCalls && authUser && !needsEmailVerification) {
+        await Promise.all([syncPhoneCalls({ fullResync: false }), minSpin]);
+      } else {
+        await Promise.all([
+          refreshNotificationPermission().catch(() => undefined),
+          minSpin,
+        ]);
+        showNotice('Calls refreshed.', 'tap');
+      }
+    } finally {
+      pullRefreshingRef.current = false;
+      setPullRefreshing(false);
+      pullDistanceRef.current = 0;
+      setPullDistance(0);
+    }
+  }, [
+    authUser,
+    canSyncPhoneCalls,
+    needsEmailVerification,
+    refreshNotificationPermission,
+    showNotice,
+    syncPhoneCalls,
+    syncingPhone,
+  ]);
+
+  useEffect(() => {
+    if (!isActive || typeof window === 'undefined') return;
+
+    const isBlockedByOverlay = (target: EventTarget | null) => {
+      if (
+        document.body.style.position === 'fixed' ||
+        quickActionsOpen ||
+        quickScheduleOpen ||
+        ussdOpen ||
+        achievementsOpen ||
+        pendingImport !== null
+      ) {
+        return true;
+      }
+      if (
+        target instanceof Element &&
+        target.closest('[role="dialog"], [aria-modal="true"], input, textarea, select')
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || pullRefreshingRef.current) return;
+      if (window.scrollY > 2 || isBlockedByOverlay(e.target)) {
+        pullStartRef.current = null;
+        return;
+      }
+      pullStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        active: false,
+        hapticFired: false,
+      };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const start = pullStartRef.current;
+      if (!start || e.touches.length !== 1 || pullRefreshingRef.current) return;
+      if (isBlockedByOverlay(e.target)) {
+        pullStartRef.current = null;
+        if (pullDistanceRef.current !== 0) {
+          pullDistanceRef.current = 0;
+          setPullDistance(0);
+        }
+        return;
+      }
+
+      const dx = e.touches[0].clientX - start.x;
+      const dy = e.touches[0].clientY - start.y;
+
+      if (!start.active) {
+        if (window.scrollY > 2 || dy < -6 || (Math.abs(dx) > 10 && Math.abs(dx) >= Math.abs(dy))) {
+          pullStartRef.current = null;
+          return;
+        }
+        if (dy > 8 && dy > Math.abs(dx) * 1.2 && window.scrollY <= 2) {
+          start.active = true;
+        } else {
+          return;
+        }
+      }
+
+      if (e.cancelable) e.preventDefault();
+      const clamped = Math.max(0, Math.min(PULL_MAX, Math.round(dy * 0.55)));
+      pullDistanceRef.current = clamped;
+      setPullDistance(clamped);
+
+      if (clamped >= PULL_THRESHOLD && !start.hapticFired) {
+        start.hapticFired = true;
+        triggerHaptic('tap');
+      }
+    };
+
+    const finishPull = () => {
+      const start = pullStartRef.current;
+      pullStartRef.current = null;
+      if (!start?.active || pullRefreshingRef.current) return;
+      if (pullDistanceRef.current >= PULL_THRESHOLD) {
+        void triggerPullRefresh();
+      } else {
+        pullDistanceRef.current = 0;
+        setPullDistance(0);
+      }
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', finishPull, { passive: true });
+    window.addEventListener('touchcancel', finishPull, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', finishPull);
+      window.removeEventListener('touchcancel', finishPull);
+    };
+  }, [
+    isActive,
+    quickActionsOpen,
+    quickScheduleOpen,
+    ussdOpen,
+    achievementsOpen,
+    pendingImport,
+    triggerPullRefresh,
+  ]);
 
   const dismissBanner = () => {
     setBannerDismissed(true);
@@ -587,7 +750,77 @@ export const CallsTab = memo(function CallsTab({
   };
 
   return (
-    <div className="space-y-5 pb-16 md:pb-14">
+    <div className="relative pb-16 md:pb-14">
+      {(pullDistance > 0 || pullRefreshing) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none relative z-20 flex h-0 justify-center overflow-visible"
+        >
+          <motion.div
+            initial={false}
+            animate={{
+              y: pullRefreshing ? 4 : Math.min(40, Math.round(pullDistance * 0.5)) - 12,
+              opacity: pullRefreshing ? 1 : Math.min(1, pullDistance / 34),
+              scale: pullRefreshing ? 1 : 0.78 + Math.min(0.22, (pullDistance / PULL_THRESHOLD) * 0.22),
+            }}
+            transition={
+              pullRefreshing || pullDistance === 0
+                ? { type: 'spring', stiffness: 420, damping: 30 }
+                : { duration: 0 }
+            }
+            className="w-9 h-9 rounded-full bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-md flex items-center justify-center"
+          >
+            {pullRefreshing ? (
+              <Loader2 size={17} className="animate-spin text-[#FF6A00]" aria-hidden="true" />
+            ) : (
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+                className={`transition-colors ${
+                  pullDistance >= PULL_THRESHOLD
+                    ? 'text-[#FF6A00]'
+                    : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                }`}
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="8.5"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray="53.4"
+                  strokeDashoffset={Math.max(
+                    12,
+                    53.4 - Math.min(1, pullDistance / PULL_THRESHOLD) * 41,
+                  )}
+                  transform={`rotate(${Math.round((pullDistance / PULL_THRESHOLD) * 240 - 90)} 12 12)`}
+                />
+              </svg>
+            )}
+            <span className="sr-only">
+              {pullRefreshing ? 'Refreshing calls' : 'Pull down to refresh calls'}
+            </span>
+          </motion.div>
+        </div>
+      )}
+
+      <motion.div
+        initial={false}
+        animate={{
+          y: pullRefreshing ? 44 : Math.round(pullDistance * 0.48),
+        }}
+        transition={
+          pullDistance > 0 && !pullRefreshing
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 420, damping: 32 }
+        }
+        className="space-y-5"
+      >
       <input
         ref={fileInputRef}
         type="file"
@@ -721,29 +954,27 @@ export const CallsTab = memo(function CallsTab({
         );
       })()}
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="min-w-0 space-y-0.5">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-xl font-bold text-[#08246B] dark:text-white">Calls</h1>
-              <CustomSelect
-                value={activeCategory}
-                options={categoryDropdownOptions}
-                onChange={(v) => {
-                  triggerHaptic('tap');
-                  setActiveCategory(v as CallsCategory);
-                }}
-                ariaLabel="Calls view filter"
-                icon={activeCategoryIcon}
-                compact
-              />
-            </div>
-            <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
-              {activeMeta.description} · {formatEthiopianShort(new Date())} EC
-            </p>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <h1 className="text-lg sm:text-xl font-bold text-[#08246B] dark:text-white shrink-0">
+              Calls
+            </h1>
+            <CustomSelect
+              value={activeCategory}
+              options={categoryDropdownOptions}
+              onChange={(v) => {
+                triggerHaptic('tap');
+                setActiveCategory(v as CallsCategory);
+              }}
+              ariaLabel="Calls view filter"
+              icon={activeCategoryIcon}
+              compact
+              className="min-w-0"
+            />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {canSyncPhoneCalls && (
               <button
                 type="button"
@@ -752,25 +983,30 @@ export const CallsTab = memo(function CallsTab({
                   setSyncingPhone(true);
                   void syncPhoneCalls({ fullResync: true }).finally(() => setSyncingPhone(false));
                 }}
-                className="min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                aria-label={syncingPhone ? 'Syncing phone calls' : 'Sync phone calls'}
+                className="min-h-[40px] px-2.5 sm:px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
               >
                 <RefreshCw
                   size={14}
-                  className={syncingPhone ? 'animate-spin text-[#FF6A00]' : 'text-[#FF6A00]'}
+                  className={syncingPhone ? 'animate-spin text-[#FF6A00] shrink-0' : 'text-[#FF6A00] shrink-0'}
                 />
-                {syncingPhone ? 'Syncing...' : 'Sync Phone'}
+                <span className="sm:hidden">{syncingPhone ? 'Sync...' : 'Sync'}</span>
+                <span className="hidden sm:inline">{syncingPhone ? 'Syncing...' : 'Sync Phone'}</span>
               </button>
             )}
             <button
               type="button"
               onClick={triggerCallImport}
-              className="min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              className="min-h-[40px] px-2.5 sm:px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
             >
-              <Upload size={14} />
-              Import
+              <Upload size={14} className="shrink-0" />
+              <span>Import</span>
             </button>
           </div>
         </div>
+        <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+          {activeMeta.description} · {formatEthiopianShort(new Date())} EC
+        </p>
       </div>
 
       <CategoryPanel activeKey={activeCategory} label={activeMeta.title}>
@@ -2061,6 +2297,7 @@ export const CallsTab = memo(function CallsTab({
           </div>
         )}
       </CategoryPanel>
+      </motion.div>
 
       <AnimatePresence>
         {quickActionsOpen && (

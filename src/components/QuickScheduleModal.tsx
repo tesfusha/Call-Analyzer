@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Clock, Search, X } from 'lucide-react';
-import { DateTimePicker } from '@/src/components/DateTimePicker';
-import { getContactKey } from '@/src/lib/contacts';
-import { toDateTimeLocalValue, tomorrowAtHour } from '@/src/lib/schedule';
+import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
+import { avatarColor, initials } from '@/src/lib/format';
+import { triggerHaptic } from '@/src/lib/haptics';
+import { toDateTimeLocalValue } from '@/src/lib/schedule';
+import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
@@ -21,8 +23,8 @@ export function QuickScheduleModal({
 }) {
   const { contacts, scheduleCall, showNotice } = useCalls();
 
-  const [contactQuery, setContactQuery] = useState('');
-  const [number, setNumber] = useState('');
+  const [pickedContact, setPickedContact] = useState<ContactProfile | null>(null);
+  const [queryOrNumber, setQueryOrNumber] = useState('');
   const [name, setName] = useState('');
   const [scheduledAt, setScheduledAt] = useState(() =>
     toDateTimeLocalValue(Date.now() + 60 * 60_000),
@@ -37,14 +39,9 @@ export function QuickScheduleModal({
     if (!isVisible) return;
     setScheduledAt(toDateTimeLocalValue(Date.now() + 60 * 60_000));
     setNote('');
-    setContactQuery('');
-    if (contact) {
-      setNumber(contact.number);
-      setName(contact.name);
-    } else {
-      setNumber('');
-      setName('');
-    }
+    setQueryOrNumber('');
+    setPickedContact(contact ?? null);
+    setName(contact ? contact.name : '');
   }, [contact, isVisible]);
 
   useEffect(() => {
@@ -62,50 +59,53 @@ export function QuickScheduleModal({
     priority: 55,
     onBack: onClose,
     hasUnsavedChanges: () =>
-      Boolean((!contact && (number.trim() || name.trim())) || note.trim()),
+      Boolean((!contact && (queryOrNumber.trim() || name.trim())) || note.trim()),
     unsavedMessage: 'Discard scheduled callback draft?',
   });
 
-  const savedContacts = useMemo(() => {
-    const q = contactQuery.trim().toLowerCase();
-    const list = Object.values(contacts);
-    const filtered = !q
-      ? list
-      : list.filter(
-          (c) =>
-            c.name.toLowerCase().includes(q) ||
-            c.number.toLowerCase().includes(q) ||
-            c.tag.toLowerCase().includes(q),
-        );
+  const savedList = useMemo(() => {
     const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
-    return filtered.slice(0, 60).sort((a, b) => collator.compare(a.name, b.name));
-  }, [contacts, contactQuery]);
+    return Object.values(contacts).sort((a, b) => collator.compare(a.name, b.name));
+  }, [contacts]);
 
-  const targetNumber = (contact ? contact.number : number).trim();
-  const targetName = (contact ? contact.name : name).trim();
+  const matchingContacts = useMemo(() => {
+    const q = queryOrNumber.trim().toLowerCase();
+    if (!q) return savedList.slice(0, 5);
+    return savedList
+      .filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.number.toLowerCase().includes(q),
+      )
+      .slice(0, 5);
+  }, [savedList, queryOrNumber]);
 
-  const schedulePreset = (timestamp: number) => {
-    if (!targetNumber) {
-      showNotice('Enter a phone number or pick a contact first.');
-      return;
-    }
-    scheduleCall({
-      number: targetNumber,
-      name: targetName || null,
-      scheduledFor: timestamp,
-      note: note.trim() || null,
-    });
-    onClose();
-  };
+  const activeContact = contact ?? pickedContact;
+  const trimmedInput = queryOrNumber.trim();
+  const looksLikePhone = /[0-9+]/.test(trimmedInput) && trimmedInput.replace(/\D/g, '').length >= 3;
+
+  const targetNumber = activeContact ? activeContact.number : trimmedInput;
+  const targetName = activeContact ? activeContact.name : name.trim();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!targetNumber) {
+      showNotice('Pick a contact or enter a phone number.');
+      return;
+    }
     const parsed = Date.parse(scheduledAt);
     if (Number.isNaN(parsed)) {
       showNotice('Choose a valid date and time.');
       return;
     }
-    schedulePreset(parsed);
+    triggerHaptic('success');
+    scheduleCall({
+      number: targetNumber,
+      name: targetName || null,
+      scheduledFor: parsed,
+      note: note.trim() || null,
+    });
+    onClose();
   };
 
   const modalContent = (
@@ -130,180 +130,178 @@ export function QuickScheduleModal({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={contact ? `Schedule call with ${contact.name}` : 'Schedule new call'}
+            aria-label={activeContact ? `Schedule call with ${activeContact.name}` : 'Schedule call'}
           >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-              <Clock size={18} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-[#08246B] dark:text-white truncate">
-                {contact ? `Schedule call with ${contact.name}` : 'Schedule new call'}
-              </h2>
-              {contact ? (
-                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums truncate">
-                  {contact.number}
-                  {contact.tag ? ` · ${contact.tag}` : ''}
-                </p>
-              ) : (
-                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Pick a saved contact or enter a number
-                </p>
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close schedule dialog"
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
-          >
-            <X size={18} />
-          </button>
-        </div>
+            <div className="w-10 h-1 rounded-full bg-[#DDE4EA] dark:bg-[var(--dark-border)] mx-auto sm:hidden" />
 
-        {!contact && Object.keys(contacts).length > 0 && (
-          <div className="space-y-2">
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A93A0] pointer-events-none"
-              />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Clock size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-[#08246B] dark:text-white truncate">
+                    Schedule Call
+                  </h2>
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Pick who and when — takes 2 taps
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close schedule dialog"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Step 1: Who */}
+              <div className="space-y-2">
+                <span className="block text-xs font-semibold text-[#08246B] dark:text-white">
+                  Who to call
+                </span>
+
+                {activeContact ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                        style={{ backgroundColor: avatarColor(activeContact.number) }}
+                      >
+                        {initials(activeContact.name, activeContact.number)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                          {formatDisplayNameOrPhone(activeContact.name, activeContact.number)}
+                        </p>
+                        <p className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                          {activeContact.number}
+                        </p>
+                      </div>
+                    </div>
+                    {!contact && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPickedContact(null);
+                          setQueryOrNumber('');
+                          setName('');
+                        }}
+                        className="min-h-[34px] px-2.5 rounded-lg text-xs font-semibold text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0"
+                      >
+                        Change
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search
+                        size={15}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A93A0] pointer-events-none"
+                      />
+                      <input
+                        type="text"
+                        value={queryOrNumber}
+                        onChange={(e) => setQueryOrNumber(e.target.value)}
+                        placeholder={
+                          savedList.length > 0
+                            ? 'Search contact or enter phone (+251...)'
+                            : 'Enter phone number (+251...)'
+                        }
+                        className="w-full min-h-[44px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] pl-9 pr-3 py-2 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                      />
+                    </div>
+
+                    {matchingContacts.length > 0 && (
+                      <div className="rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] overflow-hidden">
+                        {matchingContacts.map((c) => (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tap');
+                              setPickedContact(c);
+                              setQueryOrNumber(c.number);
+                              setName(c.name);
+                            }}
+                            className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 text-left bg-white dark:bg-[var(--dark-surface)] hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated)] transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                style={{ backgroundColor: avatarColor(c.number) }}
+                              >
+                                {initials(c.name, c.number)}
+                              </div>
+                              <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                                {c.name}
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] shrink-0">
+                              {c.number}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {(looksLikePhone || savedList.length === 0) && (
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Contact name (optional)"
+                        className="w-full min-h-[42px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: When */}
+              <div className="space-y-2">
+                <span className="block text-xs font-semibold text-[#08246B] dark:text-white">
+                  When
+                </span>
+                <SimpleScheduleTimePicker
+                  value={scheduledAt}
+                  onChange={setScheduledAt}
+                  variant="inset"
+                  resetKey={isVisible ? 'open' : 'closed'}
+                />
+              </div>
+
+              {/* Step 3: Optional Note */}
               <input
-                type="search"
-                value={contactQuery}
-                onChange={(e) => setContactQuery(e.target.value)}
-                placeholder="Search saved contacts..."
-                className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] pl-8 pr-3 py-2 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Note or topic (optional)"
+                aria-label="Reminder note"
+                className="w-full min-h-[42px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
               />
-            </div>
-            <div className="max-h-28 overflow-y-auto flex flex-wrap gap-1.5">
-              {savedContacts.length === 0 ? (
-                <span className="text-[11px] text-[#8A93A0] dark:text-[var(--dark-text-muted)]">
-                  No saved contacts match.
-                </span>
-              ) : (
-                savedContacts.slice(0, 12).map((c) => {
-                  const selected =
-                    getContactKey(number) === c.key && number.trim() !== '';
-                  return (
-                    <button
-                      key={c.key}
-                      type="button"
-                      onClick={() => {
-                        setNumber(c.number);
-                        setName(c.name);
-                      }}
-                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                        selected
-                          ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
-                          : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
-                      }`}
-                    >
-                      {c.name}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {!contact && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Phone number *
-                </span>
-                <input
-                  type="tel"
-                  required
-                  value={number}
-                  onChange={(e) => setNumber(e.target.value)}
-                  placeholder="+251911..."
-                  className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs font-mono text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Contact name
-                </span>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Optional name"
-                  className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-                />
-              </label>
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Quick presets
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[
-                { label: 'In 15m', ts: () => Date.now() + 15 * 60_000 },
-                { label: 'In 1h', ts: () => Date.now() + 60 * 60_000 },
-                { label: 'Tomorrow 9 AM', ts: () => tomorrowAtHour(9) },
-              ].map((preset) => (
+              <div className="flex items-center gap-2 pt-1">
                 <button
-                  key={preset.label}
                   type="button"
-                  onClick={() => schedulePreset(preset.ts())}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] whitespace-nowrap"
+                  onClick={onClose}
+                  className="min-h-[46px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap"
                 >
-                  {preset.label}
+                  Cancel
                 </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Date &amp; time
-            </span>
-            <DateTimePicker
-              value={scheduledAt}
-              onChange={setScheduledAt}
-              variant="inset"
-              ariaLabel="Scheduled date and time"
-            />
-          </div>
-
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Topic / reminder note (optional)
-            </span>
-            <input
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. Confirm holiday plans or follow-up"
-              className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
-            />
-          </label>
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="min-h-[44px] px-5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap"
-            >
-              Save schedule
-            </button>
-          </div>
-        </form>
+                <button
+                  type="submit"
+                  className="min-h-[46px] flex-1 px-5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap"
+                >
+                  Schedule Call
+                </button>
+              </div>
+            </form>
           </motion.div>
         </motion.div>
       )}

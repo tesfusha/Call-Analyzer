@@ -4,6 +4,12 @@ import { APP_NAME } from '@/src/lib/appInfo';
 import { isNativeCapacitor } from '@/src/lib/capacitor';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { saveAndShareBytes } from '@/src/lib/export';
+import { formatDuration } from '@/src/lib/format';
+import type {
+  ContactBadgeItem,
+  ContactMilestoneRecord,
+  ContactStreakStatus,
+} from '@/src/types/call';
 
 export type MilestoneCardRenderOptions = {
   milestoneDays: number;
@@ -14,7 +20,70 @@ export type MilestoneCardRenderOptions = {
   contactName?: string | null;
   nickname?: string | null;
   relationshipTag?: string | null;
+  totalDurationSeconds?: number;
+  dateRangeLabel?: string;
+  isStreakOnly?: boolean;
 };
+
+export function buildContactMilestoneShareRecord(
+  status: ContactStreakStatus,
+  existingMilestones: ContactMilestoneRecord[],
+  specificBadge?: ContactBadgeItem,
+): ContactMilestoneRecord | null {
+  const badge =
+    specificBadge && specificBadge.earned
+      ? specificBadge
+      : [...status.badges].reverse().find((b) => b.earned);
+
+  if (badge) {
+    const existing = existingMilestones.find(
+      (m) => m.contactKey === status.contactKey && m.days === badge.days,
+    );
+    const matchingRun = status.milestoneRuns?.find((r) => r.days === badge.days);
+    const reachedDate =
+      existing?.reachedDate ??
+      matchingRun?.reachedDate ??
+      badge.unlockedEatDate ??
+      status.lastConnectedDate ??
+      '';
+    const streakStartDate =
+      existing?.streakStartDate ??
+      matchingRun?.streakStartDate ??
+      status.currentStreakStartDate ??
+      reachedDate;
+    return (
+      existing ?? {
+        id: `${status.contactKey}:${badge.days}:${streakStartDate}`,
+        contactKey: status.contactKey,
+        days: badge.days,
+        streakStartDate,
+        reachedDate,
+        badgeId: badge.id,
+        badgeTitle: badge.title,
+        points: badge.points,
+        awardedAt: Date.now(),
+        celebratedAt: Date.now(),
+      }
+    );
+  }
+
+  const days = status.currentStreak > 0 ? status.currentStreak : status.longestStreak;
+  if (days <= 0) return null;
+  const reachedDate = status.lastConnectedDate ?? '';
+  const streakStartDate = status.currentStreakStartDate ?? reachedDate;
+  return {
+    id: `${status.contactKey}:streak:${days}:${streakStartDate}`,
+    contactKey: status.contactKey,
+    days,
+    streakStartDate,
+    reachedDate,
+    badgeId: `streak-${days}`,
+    badgeTitle: days === 1 ? '1-Day Streak' : `${days}-Day Streak`,
+    points: status.contactScore,
+    awardedAt: Date.now(),
+    celebratedAt: Date.now(),
+  };
+}
 
 export type MilestoneShareResult = 'capacitor-share' | 'web-share' | 'downloaded' | 'cancelled';
 
@@ -92,6 +161,57 @@ function parseEatDateForEc(eatDate: string): string {
   if (!m) return eatDate;
   const utc = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
   return formatEthiopianShort(new Date(utc));
+}
+
+function parseEatDateToNoonMs(eatDate: string | undefined): number | null {
+  if (!eatDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(eatDate.trim());
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 9, 0, 0);
+}
+
+export function formatMilestoneDateRange(
+  startTs: number | null,
+  endTs: number | null,
+  fallbackStartEat?: string,
+  fallbackEndEat?: string,
+): string {
+  const effectiveStart = startTs ?? parseEatDateToNoonMs(fallbackStartEat);
+  const effectiveEnd = endTs ?? parseEatDateToNoonMs(fallbackEndEat) ?? effectiveStart;
+  if (effectiveStart === null || effectiveEnd === null) {
+    return 'All calls';
+  }
+  const lo = Math.min(effectiveStart, effectiveEnd);
+  const hi = Math.max(effectiveStart, effectiveEnd);
+  const startDate = new Date(lo);
+  const endDate = new Date(hi);
+
+  const sameYear = startDate.getFullYear() === endDate.getFullYear();
+  const sameDay =
+    sameYear &&
+    startDate.getMonth() === endDate.getMonth() &&
+    startDate.getDate() === endDate.getDate();
+
+  if (sameDay) {
+    return startDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
+  if (sameYear) {
+    const a = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const b = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${a} – ${b}`;
+  }
+
+  const formatWithShortYear = (d: Date) => {
+    const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const yr = String(d.getFullYear()).slice(-2);
+    return `${md} '${yr}`;
+  };
+  return `${formatWithShortYear(startDate)} – ${formatWithShortYear(endDate)}`;
 }
 
 export function drawMilestoneCardCanvas(
@@ -226,9 +346,21 @@ export function drawMilestoneCardCanvas(
 
   const colWidth = (SIZE - 176) / 3;
   const stats: Array<{ value: string; label: string; accent?: boolean }> = [
-    { value: `+${options.pointsAwarded} pts`, label: 'Milestone Reward', accent: true },
-    { value: `${options.milestoneDays}d Badge`, label: 'Contact Badge' },
-    { value: 'EAT UTC+3', label: 'Daily Streak Time' },
+    {
+      value: `+${options.pointsAwarded} pts`,
+      label: options.isStreakOnly ? 'Contact Score' : 'Milestone Reward',
+      accent: true,
+    },
+    {
+      value: options.isStreakOnly
+        ? `${options.milestoneDays}d Streak`
+        : `${options.milestoneDays}d Badge`,
+      label: options.isStreakOnly ? 'Call Streak' : 'Contact Badge',
+    },
+    {
+      value: formatDuration(options.totalDurationSeconds ?? 0),
+      label: options.dateRangeLabel?.trim() || 'Total Talk Time',
+    },
   ];
 
   stats.forEach((stat, idx) => {
@@ -244,11 +376,11 @@ export function drawMilestoneCardCanvas(
     ctx.textBaseline = 'middle';
     ctx.fillStyle = stat.accent ? '#FF8A33' : '#FFFFFF';
     ctx.font = '700 30px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.fillText(stat.value, sx, 902);
+    ctx.fillText(stat.value, sx, 902, colWidth - 24);
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
     ctx.font = '500 21px system-ui, -apple-system, "Segoe UI", sans-serif';
-    ctx.fillText(stat.label, sx, 942);
+    ctx.fillText(stat.label, sx, 942, colWidth - 24);
   });
   ctx.restore();
 }

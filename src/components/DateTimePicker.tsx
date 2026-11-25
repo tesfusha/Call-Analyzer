@@ -7,6 +7,7 @@ import { toDateTimeLocalValue } from '@/src/lib/schedule';
 import { useBackHandler } from '@/src/lib/backNavigation';
 
 type PopoverCoords = {
+  centered: boolean;
   top?: number;
   bottom?: number;
   left: number;
@@ -129,6 +130,22 @@ function useAnchoredPopover(
     const viewportH = window.innerHeight;
     const margin = 12;
 
+    const spaceBelow = viewportH - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const isNarrowMobile = viewportW < 640;
+    const neitherSideFits = spaceBelow < Math.min(340, desiredHeight) && spaceAbove < Math.min(340, desiredHeight);
+
+    if (isNarrowMobile || neitherSideFits) {
+      setCoords({
+        centered: true,
+        left: margin,
+        width: Math.min(340, viewportW - margin * 2),
+        maxHeight: Math.max(260, viewportH - margin * 2),
+        openUpward: false,
+      });
+      return;
+    }
+
     const width = Math.min(
       Math.max(rect.width, desiredMinWidth),
       viewportW - margin * 2,
@@ -138,24 +155,24 @@ function useAnchoredPopover(
       Math.max(margin, viewportW - width - margin),
     );
 
-    const spaceBelow = viewportH - rect.bottom - margin;
-    const spaceAbove = rect.top - margin;
-    const openUpward = spaceBelow < Math.min(280, desiredHeight) && spaceAbove > spaceBelow;
+    const openUpward = spaceBelow < Math.min(320, desiredHeight) && spaceAbove > spaceBelow;
 
     if (openUpward) {
       setCoords({
+        centered: false,
         bottom: viewportH - rect.top + 6,
         left,
         width,
-        maxHeight: Math.max(200, Math.min(desiredHeight, spaceAbove - 6)),
+        maxHeight: Math.max(240, Math.min(desiredHeight, spaceAbove - 6)),
         openUpward: true,
       });
     } else {
       setCoords({
+        centered: false,
         top: rect.bottom + 6,
         left,
         width,
-        maxHeight: Math.max(200, Math.min(desiredHeight, spaceBelow - 6)),
+        maxHeight: Math.max(240, Math.min(desiredHeight, spaceBelow - 6)),
         openUpward: false,
       });
     }
@@ -245,8 +262,8 @@ export function DateTimePicker({
   const { containerRef, triggerRef, menuRef, coords } = useAnchoredPopover(
     open,
     closePopover,
-    300,
-    430,
+    320,
+    450,
   );
 
   const cells = useMemo(() => buildCalendarCells(viewYear, viewMonth), [viewYear, viewMonth]);
@@ -321,224 +338,265 @@ export function DateTimePicker({
 
   const triggerSizing = compact ? 'min-h-[40px] px-3 py-1.5 text-xs' : 'min-h-[42px] px-3 py-2 text-xs';
 
+  const popoverDialog =
+    open && coords ? (
+      <motion.div
+        ref={menuRef}
+        id={dialogId}
+        role="dialog"
+        aria-label={ariaLabel}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        initial={
+          prefersReducedMotion
+            ? { opacity: 0 }
+            : coords.centered
+              ? { opacity: 0, scale: 0.96, y: 8 }
+              : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
+        }
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={
+          prefersReducedMotion
+            ? { opacity: 0 }
+            : coords.centered
+              ? { opacity: 0, scale: 0.96, y: 8 }
+              : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
+        }
+        transition={{ duration: prefersReducedMotion ? 0.08 : 0.14, ease: [0.22, 1, 0.36, 1] }}
+        style={
+          coords.centered
+            ? { width: coords.width, maxHeight: coords.maxHeight }
+            : {
+                position: 'fixed',
+                top: coords.top,
+                bottom: coords.bottom,
+                left: coords.left,
+                width: coords.width,
+                maxHeight: coords.maxHeight,
+              }
+        }
+        className={`z-[95] overflow-y-auto overflow-x-hidden rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-2xl p-3.5 space-y-3 ${
+          coords.centered
+            ? 'origin-center'
+            : coords.openUpward
+              ? 'origin-bottom'
+              : 'origin-top'
+        }`}
+      >
+        {/* Month header */}
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={goPrevMonth}
+            aria-label="Previous month"
+            className="w-9 h-9 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
+          >
+            <ChevronLeft size={16} className="shrink-0" />
+          </button>
+          <div className="text-center min-w-0">
+            <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+              {MONTHS[viewMonth]} {viewYear}
+            </p>
+            <p className="text-[11px] text-[#FF6A00] font-medium tabular-nums truncate">
+              {formatEthiopianShort(currentDate)} EC
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={goNextMonth}
+            aria-label="Next month"
+            className="w-9 h-9 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
+          >
+            <ChevronRight size={16} className="shrink-0" />
+          </button>
+        </div>
+
+        {/* Weekday row + Calendar grid */}
+        <div className="space-y-1">
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {WEEKDAYS.map((wd) => (
+              <span
+                key={wd}
+                className="text-[10px] font-semibold text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-0.5"
+              >
+                {wd}
+              </span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, idx) => {
+              if (day === null) {
+                return <span key={`empty-${idx}`} className="h-8" />;
+              }
+              const isSelected = viewYear === selY && viewMonth === selM && day === selD;
+              const isToday = viewYear === todayY && viewMonth === todayM && day === todayD;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => selectDay(day)}
+                  className={`h-8 rounded-lg text-xs font-semibold tabular-nums transition-colors ${
+                    isSelected
+                      ? 'bg-[#FF6A00] text-white'
+                      : isToday
+                        ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] border border-[#FF6A00]/40'
+                        : 'text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
+                  }`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Time selector */}
+        <div className="pt-2.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              <Clock size={12} className="text-[#FF6A00] shrink-0" />
+              Time
+            </span>
+            <span className="text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+              {pad2(hour12)}:{pad2(minute)} {isPm ? 'PM' : 'AM'}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1 min-w-0">
+              <div className="flex items-center rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-1 py-0.5">
+                <button
+                  type="button"
+                  onClick={() => setHour12(hour12 - 1)}
+                  aria-label="Decrease hour"
+                  className="w-7 h-7 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
+                >
+                  -
+                </button>
+                <span className="w-6 text-center text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                  {pad2(hour12)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHour12(hour12 + 1)}
+                  aria-label="Increase hour"
+                  className="w-7 h-7 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
+                >
+                  +
+                </button>
+              </div>
+              <span className="text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                :
+              </span>
+              <div className="flex items-center rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-1 py-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMinuteVal(minute - 5)}
+                  aria-label="Decrease minutes"
+                  className="w-7 h-7 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
+                >
+                  -
+                </button>
+                <span className="w-6 text-center text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                  {pad2(minute)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMinuteVal(minute + 5)}
+                  aria-label="Increase minutes"
+                  className="w-7 h-7 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 p-0.5 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shrink-0">
+              {(['AM', 'PM'] as const).map((period) => {
+                const active = (period === 'PM') === isPm;
+                return (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => setPeriod(period === 'PM')}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${
+                      active
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                    }`}
+                  >
+                    {period}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Quick minute chips + Done */}
+          <div className="flex flex-wrap items-center gap-1">
+            {[0, 15, 30, 45].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMinuteVal(m)}
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-semibold tabular-nums transition-colors ${
+                  minute === m
+                    ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] border border-[#FF6A00]/40'
+                    : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
+                }`}
+              >
+                :{pad2(m)}
+              </button>
+            ))}
+            {presets &&
+              presets.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    onChange(toDateTimeLocalValue(p.getTimestamp()));
+                    setOpen(false);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
+                >
+                  {p.label}
+                </button>
+              ))}
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="ml-auto px-3.5 py-1.5 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    ) : null;
+
   const popover =
     typeof document !== 'undefined'
       ? createPortal(
           <AnimatePresence>
             {open && coords && (
-              <motion.div
-                ref={menuRef}
-                id={dialogId}
-                role="dialog"
-                aria-label={ariaLabel}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                initial={
-                  prefersReducedMotion
-                    ? { opacity: 0 }
-                    : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
-                }
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={
-                  prefersReducedMotion
-                    ? { opacity: 0 }
-                    : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
-                }
-                transition={{ duration: prefersReducedMotion ? 0.06 : 0.12, ease: [0.22, 1, 0.36, 1] }}
-                style={{
-                  position: 'fixed',
-                  top: coords.top,
-                  bottom: coords.bottom,
-                  left: coords.left,
-                  width: coords.width,
-                  maxHeight: coords.maxHeight,
-                }}
-                className={`z-[90] overflow-y-auto rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-xl p-3 space-y-3 ${
-                  coords.openUpward ? 'origin-bottom' : 'origin-top'
-                }`}
-              >
-                {/* Month header */}
-                <div className="flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={goPrevMonth}
-                    aria-label="Previous month"
-                    className="w-8 h-8 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
-                  >
-                    <ChevronLeft size={15} className="shrink-0" />
-                  </button>
-                  <div className="text-center min-w-0">
-                    <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
-                      {MONTHS[viewMonth]} {viewYear}
-                    </p>
-                    <p className="text-[10px] text-[#FF6A00] font-medium tabular-nums truncate">
-                      {formatEthiopianShort(currentDate)} EC
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={goNextMonth}
-                    aria-label="Next month"
-                    className="w-8 h-8 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
-                  >
-                    <ChevronRight size={15} className="shrink-0" />
-                  </button>
-                </div>
-
-                {/* Weekday row + Calendar grid */}
-                <div className="space-y-1">
-                  <div className="grid grid-cols-7 gap-1 text-center">
-                    {WEEKDAYS.map((wd) => (
-                      <span
-                        key={wd}
-                        className="text-[10px] font-semibold text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-0.5"
-                      >
-                        {wd}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {cells.map((day, idx) => {
-                      if (day === null) {
-                        return <span key={`empty-${idx}`} className="h-8" />;
-                      }
-                      const isSelected = viewYear === selY && viewMonth === selM && day === selD;
-                      const isToday = viewYear === todayY && viewMonth === todayM && day === todayD;
-                      return (
-                        <button
-                          key={day}
-                          type="button"
-                          onClick={() => selectDay(day)}
-                          className={`h-8 rounded-lg text-xs font-semibold tabular-nums transition-colors ${
-                            isSelected
-                              ? 'bg-[#FF6A00] text-white'
-                              : isToday
-                                ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] border border-[#FF6A00]/40'
-                                : 'text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
-                          }`}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Time selector */}
-                <div className="pt-2.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      <Clock size={12} className="text-[#FF6A00] shrink-0" />
-                      Time
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex items-center rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-1 py-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setHour12(hour12 - 1)}
-                          aria-label="Decrease hour"
-                          className="w-6 h-6 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
-                        >
-                          -
-                        </button>
-                        <span className="w-7 text-center text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                          {pad2(hour12)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setHour12(hour12 + 1)}
-                          aria-label="Increase hour"
-                          className="w-6 h-6 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
-                        >
-                          +
-                        </button>
-                      </div>
-                      <span className="text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                        :
-                      </span>
-                      <div className="flex items-center rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-1 py-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setMinuteVal(minute - 5)}
-                          aria-label="Decrease minutes"
-                          className="w-6 h-6 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
-                        >
-                          -
-                        </button>
-                        <span className="w-7 text-center text-xs font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                          {pad2(minute)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setMinuteVal(minute + 5)}
-                          aria-label="Increase minutes"
-                          className="w-6 h-6 rounded-lg text-xs font-bold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#FF6A00]"
-                        >
-                          +
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 p-0.5 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                        {(['AM', 'PM'] as const).map((period) => {
-                          const active = (period === 'PM') === isPm;
-                          return (
-                            <button
-                              key={period}
-                              type="button"
-                              onClick={() => setPeriod(period === 'PM')}
-                              className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                                active
-                                  ? 'bg-[#FF6A00] text-white'
-                                  : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                              }`}
-                            >
-                              {period}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quick minute pills */}
-                  <div className="flex flex-wrap items-center gap-1">
-                    {[0, 15, 30, 45].map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setMinuteVal(m)}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-mono font-semibold tabular-nums transition-colors ${
-                          minute === m
-                            ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] border border-[#FF6A00]/40'
-                            : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
-                        }`}
-                      >
-                        :{pad2(m)}
-                      </button>
-                    ))}
-                    {presets &&
-                      presets.map((p) => (
-                        <button
-                          key={p.label}
-                          type="button"
-                          onClick={() => {
-                            onChange(toDateTimeLocalValue(p.getTimestamp()));
-                            setOpen(false);
-                          }}
-                          className="px-2 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    <button
-                      type="button"
-                      onClick={() => setOpen(false)}
-                      className="ml-auto px-3 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[11px] font-semibold"
-                    >
-                      Done
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
+              coords.centered ? (
+                <motion.div
+                  key="datetime-centered-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: prefersReducedMotion ? 0.08 : 0.14 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(false);
+                  }}
+                  className="fixed inset-0 z-[94] flex items-center justify-center bg-[#08246B]/45 dark:bg-black/65 backdrop-blur-[2px] p-3"
+                >
+                  {popoverDialog}
+                </motion.div>
+              ) : (
+                popoverDialog
+              )
             )}
           </AnimatePresence>,
           document.body,
@@ -654,139 +712,173 @@ export function DatePickerField({
       ? 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00]/60'
       : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00]/60';
 
+  const dateDialog =
+    open && coords ? (
+      <motion.div
+        ref={menuRef}
+        id={dialogId}
+        role="dialog"
+        aria-label={ariaLabel}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        initial={
+          prefersReducedMotion
+            ? { opacity: 0 }
+            : coords.centered
+              ? { opacity: 0, scale: 0.96, y: 8 }
+              : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
+        }
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={
+          prefersReducedMotion
+            ? { opacity: 0 }
+            : coords.centered
+              ? { opacity: 0, scale: 0.96, y: 8 }
+              : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
+        }
+        transition={{ duration: prefersReducedMotion ? 0.08 : 0.14, ease: [0.22, 1, 0.36, 1] }}
+        style={
+          coords.centered
+            ? { width: coords.width, maxHeight: coords.maxHeight }
+            : {
+                position: 'fixed',
+                top: coords.top,
+                bottom: coords.bottom,
+                left: coords.left,
+                width: coords.width,
+                maxHeight: coords.maxHeight,
+              }
+        }
+        className={`z-[95] overflow-y-auto overflow-x-hidden rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-2xl p-3.5 space-y-2.5 ${
+          coords.centered
+            ? 'origin-center'
+            : coords.openUpward
+              ? 'origin-bottom'
+              : 'origin-top'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={goPrevMonth}
+            aria-label="Previous month"
+            className="w-9 h-9 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
+          >
+            <ChevronLeft size={16} className="shrink-0" />
+          </button>
+          <div className="text-center min-w-0">
+            <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+              {MONTHS[viewMonth]} {viewYear}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={goNextMonth}
+            aria-label="Next month"
+            className="w-9 h-9 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
+          >
+            <ChevronRight size={16} className="shrink-0" />
+          </button>
+        </div>
+
+        <div className="space-y-1">
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {WEEKDAYS.map((wd) => (
+              <span
+                key={wd}
+                className="text-[10px] font-semibold text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-0.5"
+              >
+                {wd}
+              </span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, idx) => {
+              if (day === null) return <span key={`empty-${idx}`} className="h-8" />;
+              const candidate = toYmd(viewYear, viewMonth, day);
+              const disabled =
+                (Boolean(minDate) && candidate < (minDate ?? '')) ||
+                (Boolean(maxDate) && candidate > (maxDate ?? ''));
+              const isSelected = candidate === value;
+              const isToday = viewYear === todayY && viewMonth === todayM && day === todayD;
+
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    onChange(candidate);
+                    setOpen(false);
+                  }}
+                  className={`h-8 rounded-lg text-xs font-semibold tabular-nums transition-colors disabled:opacity-30 ${
+                    isSelected
+                      ? 'bg-[#FF6A00] text-white'
+                      : isToday
+                        ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] border border-[#FF6A00]/40'
+                        : 'text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
+                  }`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const ymd = toYmd(todayY, todayM, todayD);
+              const valid =
+                (!minDate || ymd >= minDate) && (!maxDate || ymd <= maxDate);
+              if (valid) {
+                onChange(ymd);
+                setOpen(false);
+              } else {
+                setViewYear(todayY);
+                setViewMonth(todayM);
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="px-3.5 py-1.5 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold"
+          >
+            Close
+          </button>
+        </div>
+      </motion.div>
+    ) : null;
+
   const popover =
     typeof document !== 'undefined'
       ? createPortal(
           <AnimatePresence>
             {open && coords && (
-              <motion.div
-                ref={menuRef}
-                id={dialogId}
-                role="dialog"
-                aria-label={ariaLabel}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                initial={
-                  prefersReducedMotion
-                    ? { opacity: 0 }
-                    : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
-                }
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={
-                  prefersReducedMotion
-                    ? { opacity: 0 }
-                    : { opacity: 0, y: coords.openUpward ? 4 : -4, scale: 0.98 }
-                }
-                transition={{ duration: prefersReducedMotion ? 0.06 : 0.12, ease: [0.22, 1, 0.36, 1] }}
-                style={{
-                  position: 'fixed',
-                  top: coords.top,
-                  bottom: coords.bottom,
-                  left: coords.left,
-                  width: coords.width,
-                  maxHeight: coords.maxHeight,
-                }}
-                className={`z-[90] overflow-y-auto rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-xl p-3 space-y-2.5 ${
-                  coords.openUpward ? 'origin-bottom' : 'origin-top'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={goPrevMonth}
-                    aria-label="Previous month"
-                    className="w-8 h-8 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
-                  >
-                    <ChevronLeft size={15} className="shrink-0" />
-                  </button>
-                  <div className="text-center min-w-0">
-                    <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
-                      {MONTHS[viewMonth]} {viewYear}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={goNextMonth}
-                    aria-label="Next month"
-                    className="w-8 h-8 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
-                  >
-                    <ChevronRight size={15} className="shrink-0" />
-                  </button>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="grid grid-cols-7 gap-1 text-center">
-                    {WEEKDAYS.map((wd) => (
-                      <span
-                        key={wd}
-                        className="text-[10px] font-semibold text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-0.5"
-                      >
-                        {wd}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {cells.map((day, idx) => {
-                      if (day === null) return <span key={`empty-${idx}`} className="h-8" />;
-                      const candidate = toYmd(viewYear, viewMonth, day);
-                      const disabled =
-                        (Boolean(minDate) && candidate < (minDate ?? '')) ||
-                        (Boolean(maxDate) && candidate > (maxDate ?? ''));
-                      const isSelected = candidate === value;
-                      const isToday = viewYear === todayY && viewMonth === todayM && day === todayD;
-
-                      return (
-                        <button
-                          key={day}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => {
-                            onChange(candidate);
-                            setOpen(false);
-                          }}
-                          className={`h-8 rounded-lg text-xs font-semibold tabular-nums transition-colors disabled:opacity-30 ${
-                            isSelected
-                              ? 'bg-[#FF6A00] text-white'
-                              : isToday
-                                ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] border border-[#FF6A00]/40'
-                                : 'text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
-                          }`}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ymd = toYmd(todayY, todayM, todayD);
-                      const valid =
-                        (!minDate || ymd >= minDate) && (!maxDate || ymd <= maxDate);
-                      if (valid) {
-                        onChange(ymd);
-                        setOpen(false);
-                      } else {
-                        setViewYear(todayY);
-                        setViewMonth(todayM);
-                      }
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="px-3 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[11px] font-semibold"
-                  >
-                    Close
-                  </button>
-                </div>
-              </motion.div>
+              coords.centered ? (
+                <motion.div
+                  key="date-centered-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: prefersReducedMotion ? 0.08 : 0.14 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(false);
+                  }}
+                  className="fixed inset-0 z-[94] flex items-center justify-center bg-[#08246B]/45 dark:bg-black/65 backdrop-blur-[2px] p-3"
+                >
+                  {dateDialog}
+                </motion.div>
+              ) : (
+                dateDialog
+              )
             )}
           </AnimatePresence>,
           document.body,

@@ -228,7 +228,7 @@ export type AlertTypePrefs = {
 
 export type WishChannel = 'sms' | 'whatsapp' | 'telegram' | 'instagram' | 'copy';
 
-export type WishOccasionType = 'holiday' | 'birthday' | 'reconnect';
+export type WishOccasionType = 'holiday' | 'birthday' | 'other' | 'reconnect';
 
 export type WishTemplateMap = Record<string, string>;
 

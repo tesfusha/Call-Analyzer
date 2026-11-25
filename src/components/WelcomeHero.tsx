@@ -78,14 +78,20 @@ export function WelcomeHero({
   const greeting = getTimeGreeting(displayName);
   const activeHighlight = highlights[tickerIndex % highlights.length];
 
+  const todayEc = `${formatEthiopianShort(new Date(), defaultLang)} EC`;
+
   return (
     <motion.section
       initial={prefersReducedMotion ? false : { opacity: 0.75, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-      className="relative overflow-hidden rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#FFF8F2] via-white to-[#F2F6FC] dark:from-[#1E1814] dark:via-[var(--dark-surface)] dark:to-[#131A26] border border-[#FF6A00]/25 dark:border-[#FF6A00]/30 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
     >
-      <div className="flex items-center gap-4 min-w-0">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-14 -right-10 w-44 h-44 rounded-full bg-[#FF6A00]/12 dark:bg-[#FF6A00]/15 blur-2xl"
+      />
+      <div className="relative z-10 flex items-center gap-4 min-w-0">
         {/* Animated Logo Signal Emblem */}
         <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
           {!prefersReducedMotion && (
@@ -119,7 +125,7 @@ export function WelcomeHero({
             whileHover={prefersReducedMotion ? undefined : { scale: 1.05, rotate: -2 }}
             whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 480, damping: 28 }}
-            className="relative z-10 rounded-2xl p-1 bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-sm"
+            className="relative z-10 rounded-2xl p-1 bg-white dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-sm"
           >
             <BrandLogo size={48} />
           </motion.div>
@@ -166,6 +172,22 @@ export function WelcomeHero({
             >
               {activeHighlight}
             </motion.p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
+            <span className="text-[#FF6A00] font-semibold">{todayEc}</span>
+            <span aria-hidden="true">·</span>
+            <span>{callsCount.toLocaleString()} calls</span>
+            <span aria-hidden="true">·</span>
+            <span>{savedContactsCount.toLocaleString()} contacts</span>
+            {unreturnedCount > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-[#FF6A00] font-semibold">
+                  {unreturnedCount} callback{unreturnedCount === 1 ? '' : 's'} due
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>

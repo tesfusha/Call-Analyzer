@@ -175,7 +175,7 @@ export function CustomSelect({
 
   const triggerWidthClass = fullWidth
     ? 'w-full justify-between'
-    : 'max-w-[165px] sm:max-w-[195px]';
+    : 'max-w-[min(100%,165px)] sm:max-w-[min(100%,195px)]';
 
   const triggerSizingClass = compact
     ? 'min-h-[40px] px-2.5 py-1.5 text-xs'

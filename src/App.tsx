@@ -30,6 +30,7 @@ import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { ErrorBoundary } from '@/src/components/ErrorBoundary';
 import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
+import { LandingHero } from '@/src/components/LandingHero';
 import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
 import { UpdateNoticeModal } from '@/src/components/UpdateNoticeModal';
@@ -547,7 +548,7 @@ function AppShell() {
       const atBottom = maxScroll > 0 && scrollY >= maxScroll - 2;
 
       if (pullAnchorY === null) {
-        if ((atTop && stepY > 0) || (atBottom && stepY < 0)) {
+        if ((atTop && stepY > 0 && activeTabRef.current !== 'calls') || (atBottom && stepY < 0)) {
           pullAnchorY = y;
         } else {
           return;
@@ -555,7 +556,7 @@ function AppShell() {
       }
 
       const rawPull = y - pullAnchorY;
-      if ((atTop && rawPull > 0) || (atBottom && rawPull < 0)) {
+      if ((atTop && rawPull > 0 && activeTabRef.current !== 'calls') || (atBottom && rawPull < 0)) {
         const damped = Math.sign(rawPull) * Math.min(28, Math.pow(Math.abs(rawPull), 0.72) * 1.25);
         currentOffset = damped;
         el.style.transition = 'none';
@@ -825,29 +826,29 @@ function AppShell() {
   if (!authUser && !isGuest) {
     return (
       <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-        <header className="px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+        <header className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <BrandLogo size={34} />
-            <span className="text-base font-bold tracking-tight text-[#08246B] dark:text-white truncate">
+            <span className="text-base font-bold tracking-tight text-[#08246B] dark:text-white whitespace-nowrap truncate">
               Call Analyzer - ETH
             </span>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setGuideOpen(true)}
               aria-label="Open app guide"
-              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap"
+              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap transition-colors"
             >
               <HelpCircle size={15} className="text-[#FF6A00]" />
-              Guide
+              <span>Guide</span>
             </button>
             <DarkModeToggle isDark={isDark} mode={themePreference} onToggle={toggleTheme} compact />
           </div>
         </header>
 
-        <main className="flex-1 flex items-center justify-center px-4 pb-10">
-          <AuthForm allowGuest onOpenGuide={() => setGuideOpen(true)} />
+        <main className="flex-1 flex items-center justify-center pb-10">
+          <LandingHero onOpenGuide={() => setGuideOpen(true)} />
         </main>
 
         <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />
@@ -1147,6 +1148,7 @@ function AppShell() {
           {visitedTabs.has('calls') && (
             <div className={activeTab === 'calls' ? 'block' : 'hidden'}>
               <CallsTab
+                isActive={activeTab === 'calls'}
                 onSelectCall={handleSelectCall}
                 onSelectContact={handleSelectContact}
                 onCallBack={handleCallBack}

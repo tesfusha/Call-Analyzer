@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Award, Check, Download, Flame, Share2, ShieldCheck, Trophy, X } from 'lucide-react';
+import { getContactKey } from '@/src/lib/contacts';
 import { triggerHaptic } from '@/src/lib/haptics';
 import {
   downloadMilestoneCardPng,
   drawMilestoneCardCanvas,
+  formatMilestoneDateRange,
   looksLikePhoneNumber,
   shareMilestoneCardImage,
 } from '@/src/lib/milestoneShare';
@@ -24,10 +26,10 @@ export function ContactMilestoneModal({
 }) {
   useLockBodyScroll(Boolean(milestone));
   const prefersReducedMotion = useReducedMotion();
-  const { contactStatuses, contacts, showNotice } = useCalls();
+  const { calls, contactStatuses, contacts, showNotice } = useCalls();
 
-  // Off by default per privacy requirement: never include phone number or real name unless opted in
-  const [includeName, setIncludeName] = useState(false);
+  // Contact name is selected by default when available; user can toggle off for privacy
+  const [includeName, setIncludeName] = useState(true);
   const [nickname, setNickname] = useState('');
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -36,26 +38,73 @@ export function ContactMilestoneModal({
   const contactStatus = milestone ? contactStatuses[milestone.contactKey] ?? null : null;
   const contactProfile = milestone ? contacts[milestone.contactKey] ?? null : null;
 
+  const { totalDurationSeconds, dateRangeLabel, latestCallName } = useMemo(() => {
+    if (!milestone) {
+      return { totalDurationSeconds: 0, dateRangeLabel: '', latestCallName: '' };
+    }
+    let durationSum = 0;
+    let minTs: number | null = null;
+    let maxTs: number | null = null;
+    let newestNamedTs = -1;
+    let foundCallName = '';
+
+    for (const call of calls) {
+      if (getContactKey(call.number) !== milestone.contactKey) continue;
+      durationSum += Math.max(0, call.duration);
+      if (minTs === null || call.timestamp < minTs) minTs = call.timestamp;
+      if (maxTs === null || call.timestamp > maxTs) maxTs = call.timestamp;
+      const trimmedName = call.name?.trim() ?? '';
+      if (trimmedName && !looksLikePhoneNumber(trimmedName) && call.timestamp > newestNamedTs) {
+        newestNamedTs = call.timestamp;
+        foundCallName = trimmedName;
+      }
+    }
+
+    return {
+      totalDurationSeconds: durationSum,
+      dateRangeLabel: formatMilestoneDateRange(
+        minTs,
+        maxTs,
+        milestone.streakStartDate,
+        milestone.reachedDate,
+      ),
+      latestCallName: foundCallName,
+    };
+  }, [calls, milestone]);
+
   const relationshipTag = useMemo(() => {
     return (contactProfile?.tag || contactStatus?.tag || '').trim();
   }, [contactProfile?.tag, contactStatus?.tag]);
 
   const rawSavedName = useMemo(() => {
-    const candidate = (contactProfile?.name || contactStatus?.displayName || '').trim();
+    const candidate = (
+      contactProfile?.name ||
+      contactStatus?.displayName ||
+      latestCallName ||
+      ''
+    ).trim();
     if (!candidate || looksLikePhoneNumber(candidate)) return '';
     return candidate;
-  }, [contactProfile?.name, contactStatus?.displayName]);
+  }, [contactProfile?.name, contactStatus?.displayName, latestCallName]);
 
   const headerContactLabel = useMemo(() => {
     if (!milestone) return '';
-    const rawDisplay = contactProfile?.name || contactStatus?.displayName || milestone.contactKey;
+    const rawDisplay =
+      contactProfile?.name || contactStatus?.displayName || latestCallName || milestone.contactKey;
     const rawNum = contactProfile?.number || contactStatus?.number || milestone.contactKey;
     return formatDisplayNameOrPhone(rawDisplay, rawNum);
-  }, [contactProfile?.name, contactProfile?.number, contactStatus?.displayName, contactStatus?.number, milestone]);
+  }, [
+    contactProfile?.name,
+    contactProfile?.number,
+    contactStatus?.displayName,
+    contactStatus?.number,
+    latestCallName,
+    milestone,
+  ]);
 
   useEffect(() => {
     if (!milestone) return;
-    setIncludeName(false);
+    setIncludeName(true);
     setNickname('');
   }, [milestone?.id]);
 
@@ -75,6 +124,8 @@ export function ContactMilestoneModal({
     onBack: onClose,
   });
 
+  const isStreakOnly = Boolean(milestone?.badgeId.startsWith('streak-'));
+
   useEffect(() => {
     if (!milestone || !canvasRef.current) return;
     drawMilestoneCardCanvas(canvasRef.current, {
@@ -86,8 +137,20 @@ export function ContactMilestoneModal({
       contactName: rawSavedName,
       nickname,
       relationshipTag,
+      totalDurationSeconds,
+      dateRangeLabel,
+      isStreakOnly,
     });
-  }, [milestone, includeName, rawSavedName, nickname, relationshipTag]);
+  }, [
+    milestone,
+    includeName,
+    rawSavedName,
+    nickname,
+    relationshipTag,
+    totalDurationSeconds,
+    dateRangeLabel,
+    isStreakOnly,
+  ]);
 
   const handleShare = async () => {
     if (!milestone || !canvasRef.current || sharing) return;
@@ -103,6 +166,9 @@ export function ContactMilestoneModal({
         contactName: rawSavedName,
         nickname,
         relationshipTag,
+        totalDurationSeconds,
+        dateRangeLabel,
+        isStreakOnly,
       });
       const filename = `call-analyzer-${milestone.days}d-milestone.png`;
       const result = await shareMilestoneCardImage(canvasRef.current, {
@@ -136,6 +202,9 @@ export function ContactMilestoneModal({
         contactName: rawSavedName,
         nickname,
         relationshipTag,
+        totalDurationSeconds,
+        dateRangeLabel,
+        isStreakOnly,
       });
       const delivery = await downloadMilestoneCardPng(
         canvasRef.current,
@@ -166,7 +235,7 @@ export function ContactMilestoneModal({
           exit={{ opacity: 0 }}
           transition={{ duration: prefersReducedMotion ? 0.1 : 0.16 }}
           onClick={onClose}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#08246B]/60 dark:bg-black/75 p-0 sm:p-4 overscroll-contain"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-[#08246B]/60 dark:bg-black/75 p-0 sm:p-4 overscroll-contain"
         >
           <motion.div
             key="contact-milestone-dialog"
@@ -178,20 +247,20 @@ export function ContactMilestoneModal({
             role="dialog"
             aria-modal="true"
             aria-label={`${milestone.badgeTitle} celebration`}
-            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[92dvh] overflow-hidden shadow-2xl"
+            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90vh] max-h-[90dvh] overflow-hidden shadow-2xl"
           >
             {/* Header */}
-            <div className="px-5 py-4 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-11 h-11 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/20 text-[#FF6A00] flex items-center justify-center shrink-0">
                   <Trophy size={21} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold text-[#FF6A00] tabular-nums">
-                    {milestone.days}-Day Streak Milestone · {milestone.reachedDate} EAT
+                  <p className="text-[11px] font-semibold text-[#FF6A00] tabular-nums truncate">
+                    {milestone.days}-Day Streak{isStreakOnly ? '' : ' Milestone'} · {dateRangeLabel || milestone.reachedDate}
                   </p>
                   <h2 className="text-base font-bold text-[#08246B] dark:text-white truncate">
-                    You made {milestone.days} days!
+                    You made {milestone.days} {milestone.days === 1 ? 'day' : 'days'}!
                   </h2>
                 </div>
               </div>
@@ -206,7 +275,7 @@ export function ContactMilestoneModal({
             </div>
 
             {/* Body */}
-            <div className="p-5 overflow-y-auto overscroll-contain space-y-4 flex-1 min-h-0">
+            <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] space-y-4 flex-1 min-h-0">
               {/* Earned Points & Badge Summary */}
               <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 <div className="min-w-0 space-y-0.5">
@@ -224,7 +293,7 @@ export function ContactMilestoneModal({
                   </p>
                   <p className="text-[11px] text-[#10B981] font-semibold flex items-center justify-end gap-1">
                     <Award size={12} />
-                    <span>Badge unlocked</span>
+                    <span>{isStreakOnly ? 'Call streak' : 'Badge unlocked'}</span>
                   </p>
                 </div>
               </div>
@@ -243,7 +312,7 @@ export function ContactMilestoneModal({
                 <div className="rounded-2xl overflow-hidden border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#0D1B3E] flex items-center justify-center">
                   <canvas
                     ref={canvasRef}
-                    className="w-full max-w-[320px] aspect-square block"
+                    className="w-full max-w-[260px] sm:max-w-[300px] aspect-square block"
                     aria-label={`${milestone.badgeTitle} share card preview`}
                   />
                 </div>
@@ -259,7 +328,7 @@ export function ContactMilestoneModal({
                     <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                       {!rawSavedName
                         ? 'No saved contact name — using tag or nickname instead'
-                        : 'Off by default so the shared image stays private'}
+                        : 'Picked by default — toggle off to hide the contact name'}
                     </p>
                   </div>
                   <button
@@ -307,33 +376,33 @@ export function ContactMilestoneModal({
             </div>
 
             {/* Footer Actions */}
-            <div className="px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-3.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/85 dark:bg-[var(--dark-canvas)]/75 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-4 sm:px-5 pt-3.5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-4 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/90 dark:bg-[var(--dark-canvas)]/85 grid grid-cols-3 gap-2 sm:flex sm:items-center sm:justify-between shrink-0">
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => void handleDownload()}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                className="min-h-[44px] px-2.5 sm:px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] disabled:opacity-50 flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
               >
-                <Download size={14} className="text-[#FF6A00]" />
+                <Download size={14} className="text-[#FF6A00] shrink-0" />
                 <span>{saving ? 'Saving…' : 'Save PNG'}</span>
               </button>
 
-              <div className="flex items-center gap-2 ml-auto">
+              <div className="contents sm:flex sm:items-center sm:gap-2 sm:ml-auto">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  className="min-h-[44px] px-2.5 sm:px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                 >
-                  <Check size={14} />
+                  <Check size={14} className="shrink-0" />
                   <span>Done</span>
                 </button>
                 <button
                   type="button"
                   disabled={sharing}
                   onClick={() => void handleShare()}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                  className="min-h-[44px] px-2.5 sm:px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                 >
-                  <Share2 size={14} />
+                  <Share2 size={14} className="shrink-0" />
                   <span>{sharing ? 'Sharing…' : 'Share Card'}</span>
                 </button>
               </div>

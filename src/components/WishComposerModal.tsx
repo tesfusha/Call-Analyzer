@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
   BookmarkCheck,
+  Cake,
   Check,
   Copy,
   Instagram,
@@ -14,6 +15,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { CustomSelect } from '@/src/components/CustomSelect';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import {
   getInstalledMessagingApps,
@@ -23,15 +25,20 @@ import {
 import { getContactKey } from '@/src/lib/contacts';
 import { toWhatsAppPhoneDigits } from '@/src/lib/ethiopia';
 import {
+  OTHER_WISH_PRESETS,
   getDefaultWishTemplate,
+  getHolidaysInGregorianYearOrUpcoming,
   resolveWishTemplatePlaceholders,
   type CalendarLang,
+  type OtherWishPresetKey,
 } from '@/src/lib/ethiopianCalendar';
 import { triggerHaptic } from '@/src/lib/haptics';
 import { measureSmsLength } from '@/src/lib/smsUtils';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { WishChannel, WishOccasionType } from '@/src/types/call';
+
+type ComposerCategory = 'holiday' | 'birthday' | 'other';
 
 function getTemplateCategory(tag?: string): string {
   const lower = (tag ?? '').trim().toLowerCase();
@@ -43,11 +50,15 @@ function getTemplateCategory(tag?: string): string {
 }
 
 function buildTemplateKey(
-  occasionType: WishOccasionType,
+  category: ComposerCategory,
   tag: string | undefined,
   lang: CalendarLang,
+  otherPreset?: OtherWishPresetKey,
 ): string {
-  return `${occasionType}:${getTemplateCategory(tag)}:${lang}`;
+  if (category === 'other' && otherPreset) {
+    return `other:${otherPreset}:${getTemplateCategory(tag)}:${lang}`;
+  }
+  return `${category}:${getTemplateCategory(tag)}:${lang}`;
 }
 
 function getInitials(name: string): string {
@@ -58,6 +69,12 @@ function getInitials(name: string): string {
     return `${words[0][0] ?? ''}${words[1][0] ?? ''}`.toUpperCase();
   }
   return clean.slice(0, 2).toUpperCase();
+}
+
+function toComposerCategory(t: WishOccasionType): ComposerCategory {
+  if (t === 'birthday') return 'birthday';
+  if (t === 'holiday') return 'holiday';
+  return 'other';
 }
 
 export function WishComposerModal() {
@@ -79,6 +96,10 @@ export function WishComposerModal() {
   const prefersReducedMotion = useReducedMotion();
 
   const [lang, setLang] = useState<CalendarLang>(calendarPrefs.defaultLang);
+  const [category, setCategory] = useState<ComposerCategory>('holiday');
+  const [selectedHolidayUid, setSelectedHolidayUid] = useState<string>('');
+  const [otherPreset, setOtherPreset] = useState<OtherWishPresetKey>('greeting');
+  const [customOccasionTitle, setCustomOccasionTitle] = useState('');
   const [message, setMessage] = useState('');
   const [baselineMessage, setBaselineMessage] = useState('');
   const [isDirty, setIsDirty] = useState(false);
@@ -93,6 +114,19 @@ export function WishComposerModal() {
 
   const currentYear = new Date().getFullYear();
 
+  const holidays = useMemo(
+    () => getHolidaysInGregorianYearOrUpcoming(new Date(), 366, lang),
+    [lang],
+  );
+
+  const holidayUid = (h: (typeof holidays)[number]) =>
+    `${h.key}-${h.ethiopian.year}-${h.ethiopian.month}-${h.ethiopian.day}`;
+
+  const activeHoliday = useMemo(
+    () => holidays.find((h) => holidayUid(h) === selectedHolidayUid) ?? holidays[0] ?? null,
+    [holidays, selectedHolidayUid],
+  );
+
   const contactKey = useMemo(() => {
     if (!wishComposerRequest) return '';
     return wishComposerRequest.contactKey || getContactKey(wishComposerRequest.contactNumber);
@@ -105,28 +139,111 @@ export function WishComposerModal() {
   const instagramUsername =
     wishComposerRequest?.instagramUsername || matchedProfile?.instagramUsername || '';
 
+  const activeOtherMeta = useMemo(
+    () => OTHER_WISH_PRESETS.find((p) => p.key === otherPreset) ?? OTHER_WISH_PRESETS[0],
+    [otherPreset],
+  );
+
+  const effectiveOccasionName = useMemo(() => {
+    if (category === 'holiday') {
+      return activeHoliday?.name || wishComposerRequest?.occasionName || 'Holiday';
+    }
+    if (category === 'birthday') {
+      return wishComposerRequest?.occasionType === 'birthday' && wishComposerRequest.occasionName
+        ? wishComposerRequest.occasionName
+        : 'Birthday';
+    }
+    if (otherPreset === 'custom') {
+      return customOccasionTitle.trim() || (lang === 'amharic' ? activeOtherMeta.occasionAm : activeOtherMeta.occasionEn);
+    }
+    return lang === 'amharic' ? activeOtherMeta.occasionAm : activeOtherMeta.occasionEn;
+  }, [
+    activeHoliday,
+    activeOtherMeta,
+    category,
+    customOccasionTitle,
+    lang,
+    otherPreset,
+    wishComposerRequest,
+  ]);
+
+  const effectiveOccasionKey = useMemo(() => {
+    if (category === 'holiday') {
+      return activeHoliday?.key || wishComposerRequest?.occasionKey || 'holiday';
+    }
+    if (category === 'birthday') {
+      return wishComposerRequest?.occasionType === 'birthday'
+        ? wishComposerRequest.occasionKey
+        : `bday-${contactKey || 'wish'}`;
+    }
+    if (otherPreset === 'checkin' && wishComposerRequest?.occasionType === 'reconnect') {
+      return wishComposerRequest.occasionKey;
+    }
+    return `other:${otherPreset}`;
+  }, [activeHoliday, category, contactKey, otherPreset, wishComposerRequest]);
+
   const templateKey = useMemo(() => {
     if (!wishComposerRequest) return '';
-    return buildTemplateKey(wishComposerRequest.occasionType, resolvedTag, lang);
-  }, [wishComposerRequest, resolvedTag, lang]);
+    return buildTemplateKey(category, resolvedTag, lang, category === 'other' ? otherPreset : undefined);
+  }, [wishComposerRequest, category, resolvedTag, lang, otherPreset]);
 
-  const computeInitialMessage = useCallback(
-    (targetLang: CalendarLang, preferExplicitInitial: boolean) => {
+  const resolveAutoText = useCallback(
+    (opts: {
+      targetCategory: ComposerCategory;
+      targetLang: CalendarLang;
+      targetHolidayName?: string;
+      targetOtherPreset?: OtherWishPresetKey;
+      targetCustomTitle?: string;
+      preferExplicitInitial?: boolean;
+    }) => {
       if (!wishComposerRequest) return '';
-      const key = buildTemplateKey(wishComposerRequest.occasionType, resolvedTag, targetLang);
+      const {
+        targetCategory,
+        targetLang,
+        targetHolidayName,
+        targetOtherPreset = 'greeting',
+        targetCustomTitle = '',
+        preferExplicitInitial = false,
+      } = opts;
+
+      const key = buildTemplateKey(
+        targetCategory,
+        resolvedTag,
+        targetLang,
+        targetCategory === 'other' ? targetOtherPreset : undefined,
+      );
       const savedTpl = wishTemplates[key];
+
+      const occasionLabel =
+        targetCategory === 'holiday'
+          ? targetHolidayName || 'Holiday'
+          : targetCategory === 'birthday'
+            ? wishComposerRequest.occasionType === 'birthday' && wishComposerRequest.occasionName
+              ? wishComposerRequest.occasionName
+              : 'Birthday'
+            : targetOtherPreset === 'custom' && targetCustomTitle.trim()
+              ? targetCustomTitle.trim()
+              : (() => {
+                  const p =
+                    OTHER_WISH_PRESETS.find((x) => x.key === targetOtherPreset) ??
+                    OTHER_WISH_PRESETS[0];
+                  return targetLang === 'amharic' ? p.occasionAm : p.occasionEn;
+                })();
+
       const tpl =
         savedTpl ||
         (preferExplicitInitial && wishComposerRequest.initialText?.trim()
           ? wishComposerRequest.initialText.trim()
           : getDefaultWishTemplate({
-              occasionType: wishComposerRequest.occasionType,
+              occasionType: targetCategory,
               tag: resolvedTag,
               lang: targetLang,
+              otherPreset: targetOtherPreset,
             }));
+
       return resolveWishTemplatePlaceholders(tpl, {
         name: wishComposerRequest.contactName,
-        occasion: wishComposerRequest.occasionName,
+        occasion: occasionLabel,
       });
     },
     [resolvedTag, wishComposerRequest, wishTemplates],
@@ -135,8 +252,31 @@ export function WishComposerModal() {
   useEffect(() => {
     if (!wishComposerRequest) return;
     const startLang = calendarPrefs.defaultLang;
+    const startCat = toComposerCategory(wishComposerRequest.occasionType);
+    const startOtherPreset: OtherWishPresetKey =
+      wishComposerRequest.occasionType === 'reconnect' ? 'checkin' : 'greeting';
+
+    const langHolidays = getHolidaysInGregorianYearOrUpcoming(new Date(), 366, startLang);
+    const matchedHoliday =
+      langHolidays.find(
+        (h) =>
+          h.key === wishComposerRequest.occasionKey ||
+          h.name.toLowerCase() === wishComposerRequest.occasionName.toLowerCase(),
+      ) ?? langHolidays[0];
+
     setLang(startLang);
-    const initial = computeInitialMessage(startLang, true);
+    setCategory(startCat);
+    setSelectedHolidayUid(matchedHoliday ? holidayUid(matchedHoliday) : '');
+    setOtherPreset(startOtherPreset);
+    setCustomOccasionTitle('');
+
+    const initial = resolveAutoText({
+      targetCategory: startCat,
+      targetLang: startLang,
+      targetHolidayName: matchedHoliday?.name ?? wishComposerRequest.occasionName,
+      targetOtherPreset: startOtherPreset,
+      preferExplicitInitial: true,
+    });
     setMessage(initial);
     setBaselineMessage(initial);
     setIsDirty(false);
@@ -149,7 +289,7 @@ export function WishComposerModal() {
     } else {
       setInstalledApps({ whatsapp: true, telegram: true, instagram: true });
     }
-    // Only re-initialize when a new request arrives
+    // Only re-initialize when a new composer request arrives
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wishComposerRequest]);
 
@@ -185,12 +325,84 @@ export function WishComposerModal() {
     unsavedMessage: 'Discard your edited wish message?',
   });
 
+  const handleCategoryChange = (nextCat: ComposerCategory) => {
+    if (nextCat === category) return;
+    triggerHaptic('tap');
+    setCategory(nextCat);
+    const nextText = resolveAutoText({
+      targetCategory: nextCat,
+      targetLang: lang,
+      targetHolidayName: activeHoliday?.name,
+      targetOtherPreset: otherPreset,
+      targetCustomTitle: customOccasionTitle,
+    });
+    setMessage(nextText);
+    setBaselineMessage(nextText);
+    setIsDirty(false);
+  };
+
+  const handleHolidayChange = (uid: string) => {
+    triggerHaptic('tap');
+    setSelectedHolidayUid(uid);
+    const found = holidays.find((h) => holidayUid(h) === uid);
+    const nextText = resolveAutoText({
+      targetCategory: 'holiday',
+      targetLang: lang,
+      targetHolidayName: found?.name ?? 'Holiday',
+    });
+    setMessage(nextText);
+    setBaselineMessage(nextText);
+    setIsDirty(false);
+  };
+
+  const handleOtherPresetChange = (presetKey: OtherWishPresetKey) => {
+    triggerHaptic('tap');
+    setOtherPreset(presetKey);
+    const nextText = resolveAutoText({
+      targetCategory: 'other',
+      targetLang: lang,
+      targetOtherPreset: presetKey,
+      targetCustomTitle: customOccasionTitle,
+    });
+    setMessage(nextText);
+    setBaselineMessage(nextText);
+    setIsDirty(false);
+  };
+
+  const handleCustomTitleChange = (title: string) => {
+    setCustomOccasionTitle(title);
+    if (!isDirty && category === 'other' && otherPreset === 'custom') {
+      const nextText = resolveAutoText({
+        targetCategory: 'other',
+        targetLang: lang,
+        targetOtherPreset: 'custom',
+        targetCustomTitle: title,
+      });
+      setMessage(nextText);
+      setBaselineMessage(nextText);
+    }
+  };
+
   const handleLangChange = (nextLang: CalendarLang) => {
     if (nextLang === lang) return;
     triggerHaptic('tap');
     setLang(nextLang);
+    const nextHolidays = getHolidaysInGregorianYearOrUpcoming(new Date(), 366, nextLang);
+    const matched =
+      (activeHoliday
+        ? nextHolidays.find((h) => h.key === activeHoliday.key)
+        : undefined) ?? nextHolidays[0];
+    if (matched) {
+      setSelectedHolidayUid(holidayUid(matched));
+    }
     if (!isDirty) {
-      const nextText = computeInitialMessage(nextLang, false);
+      const nextText = resolveAutoText({
+        targetCategory: category,
+        targetLang: nextLang,
+        targetHolidayName: matched?.name ?? activeHoliday?.name,
+        targetOtherPreset: otherPreset,
+        targetCustomTitle: customOccasionTitle,
+      });
       setMessage(nextText);
       setBaselineMessage(nextText);
     }
@@ -201,24 +413,26 @@ export function WishComposerModal() {
     triggerHaptic('tap');
     const resetText = resolveWishTemplatePlaceholders(
       getDefaultWishTemplate({
-        occasionType: wishComposerRequest.occasionType,
+        occasionType: category,
         tag: resolvedTag,
         lang,
+        otherPreset,
       }),
       {
         name: wishComposerRequest.contactName,
-        occasion: wishComposerRequest.occasionName,
+        occasion: effectiveOccasionName,
       },
     );
     setMessage(resetText);
-    setIsDirty(resetText !== baselineMessage);
+    setBaselineMessage(resetText);
+    setIsDirty(false);
   };
 
   const handleSaveTemplate = () => {
     if (!wishComposerRequest || !templateKey || !message.trim()) return;
     const nameClean = wishComposerRequest.contactName.trim();
     const firstName = nameClean.split(/\s+/)[0] || '';
-    const occasionClean = wishComposerRequest.occasionName.trim();
+    const occasionClean = effectiveOccasionName.trim();
     let tokenized = message.trim();
     if (nameClean) {
       tokenized = tokenized.split(nameClean).join('{name}');
@@ -242,11 +456,11 @@ export function WishComposerModal() {
       sentWishes.find(
         (w) =>
           w.contactKey === contactKey &&
-          w.occasionKey === wishComposerRequest.occasionKey &&
+          w.occasionKey === effectiveOccasionKey &&
           w.year === currentYear,
       ) ?? null
     );
-  }, [contactKey, currentYear, sentWishes, wishComposerRequest]);
+  }, [contactKey, currentYear, effectiveOccasionKey, sentWishes, wishComposerRequest]);
 
   const smsStats = useMemo(() => measureSmsLength(message), [message]);
   const waDigits = wishComposerRequest ? toWhatsAppPhoneDigits(wishComposerRequest.contactNumber) : '';
@@ -256,14 +470,17 @@ export function WishComposerModal() {
     if (!wishComposerRequest) return;
     const wishRes = recordWishOpened({
       contactKey,
-      occasionKey: wishComposerRequest.occasionKey,
+      occasionKey: effectiveOccasionKey,
       year: currentYear,
       channel,
-      occasionName: wishComposerRequest.occasionName,
+      occasionName: effectiveOccasionName,
       contactName: wishComposerRequest.contactName,
     });
     let reconnectAward = 0;
-    if (wishComposerRequest.occasionType === 'reconnect') {
+    if (
+      wishComposerRequest.occasionType === 'reconnect' ||
+      (category === 'other' && otherPreset === 'checkin')
+    ) {
       reconnectAward = recordQuietReconnect(contactKey, wishComposerRequest.contactName).awardedPoints;
     }
     const totalAward = wishRes.awardedPoints + reconnectAward;
@@ -309,7 +526,7 @@ export function WishComposerModal() {
     if (isNativeCapacitor()) {
       try {
         await Share.share({
-          title: wishComposerRequest.occasionName,
+          title: effectiveOccasionName,
           text: message,
           dialogTitle: 'Share wish via Telegram',
         });
@@ -334,7 +551,7 @@ export function WishComposerModal() {
     if (isNativeCapacitor()) {
       try {
         await Share.share({
-          title: wishComposerRequest.occasionName,
+          title: effectiveOccasionName,
           text: message,
           dialogTitle: 'Share wish via Instagram',
         });
@@ -396,14 +613,14 @@ export function WishComposerModal() {
                     {existingWishThisYear && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/12 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                         <Check size={11} />
-                        Opened · {currentYear}
+                        Sent · {currentYear}
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
                     <span className="font-mono tabular-nums">{wishComposerRequest.contactNumber}</span>
                     {resolvedTag ? ` · ${resolvedTag}` : ''}
-                    {` · ${wishComposerRequest.occasionName}`}
+                    {` · ${effectiveOccasionName}`}
                   </p>
                 </div>
               </div>
@@ -416,6 +633,95 @@ export function WishComposerModal() {
                 <X size={18} />
               </button>
             </div>
+
+            {/* 3-Tab Wish Occasion Type Selector */}
+            <div
+              role="tablist"
+              aria-label="Wish occasion type"
+              className="grid grid-cols-3 gap-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] p-1 border border-[#DDE4EA] dark:border-[var(--dark-border)]"
+            >
+              {(
+                [
+                  { key: 'holiday', label: 'Holiday', icon: Sparkles },
+                  { key: 'birthday', label: 'Birthday', icon: Cake },
+                  { key: 'other', label: 'Other', icon: MessageSquare },
+                ] as const
+              ).map(({ key, label, icon: Icon }) => {
+                const active = category === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => handleCategoryChange(key)}
+                    className={`min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors ${
+                      active
+                        ? 'bg-[#FF6A00] text-white shadow-sm'
+                        : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
+                    }`}
+                  >
+                    <Icon size={13} className="shrink-0" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Occasion Sub-controls */}
+            {category === 'holiday' && holidays.length > 0 && (
+              <div className="space-y-1">
+                <span className="block text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Select holiday
+                </span>
+                <CustomSelect
+                  ariaLabel="Choose Ethiopian holiday"
+                  value={activeHoliday ? holidayUid(activeHoliday) : ''}
+                  variant="inset"
+                  fullWidth
+                  options={holidays.map((h) => ({
+                    value: holidayUid(h),
+                    label: h.name,
+                    sublabel: h.isToday ? 'Today' : `In ${h.daysUntil}d`,
+                  }))}
+                  onChange={handleHolidayChange}
+                />
+              </div>
+            )}
+
+            {category === 'other' && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {OTHER_WISH_PRESETS.map((preset) => {
+                    const active = otherPreset === preset.key;
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        onClick={() => handleOtherPresetChange(preset.key)}
+                        className={`min-h-[34px] px-3 py-1 rounded-xl border text-xs font-semibold whitespace-nowrap transition-colors ${
+                          active
+                            ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#FF6A00]'
+                            : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]/70'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {otherPreset === 'custom' && (
+                  <input
+                    type="text"
+                    value={customOccasionTitle}
+                    onChange={(e) => handleCustomTitleChange(e.target.value)}
+                    placeholder="Occasion name (e.g. Graduation, New Baby, Safe Trip)"
+                    aria-label="Custom occasion name"
+                    className="w-full min-h-[40px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                  />
+                )}
+              </div>
+            )}
 
             {/* Language switcher + template actions */}
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -476,7 +782,7 @@ export function WishComposerModal() {
                   ) : (
                     <>
                       <BookmarkCheck size={13} className="text-[#FF6A00]" />
-                      Save as my template
+                      Save template
                     </>
                   )}
                 </button>
@@ -488,7 +794,7 @@ export function WishComposerModal() {
               <div className="flex items-center justify-between text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                 <span className="inline-flex items-center gap-1 font-medium">
                   <Sparkles size={12} className="text-[#FF6A00]" />
-                  {hasSavedCustomTemplate ? 'Using your saved template' : 'Editable message'}
+                  {hasSavedCustomTemplate ? 'Using your saved template' : 'Default text · edit freely'}
                 </span>
                 <span className="font-mono tabular-nums">
                   {smsStats.charCount} chars · {smsStats.smsSegments} SMS ({smsStats.encoding})
@@ -502,7 +808,7 @@ export function WishComposerModal() {
                   setMessage(nextVal);
                   setIsDirty(nextVal !== baselineMessage);
                 }}
-                placeholder="Write your personalized message..."
+                placeholder="Write or edit your wish message..."
                 className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-3 text-sm text-[#08246B] dark:text-white leading-relaxed resize-y focus:outline-none focus:border-[#FF6A00]"
               />
               {smsStats.isMultiSmsUnicode && (

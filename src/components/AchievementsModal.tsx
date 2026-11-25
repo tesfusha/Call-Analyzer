@@ -11,12 +11,14 @@ import {
   Lock,
   PhoneCall,
   RefreshCw,
+  Share2,
   Sparkles,
   Tag,
   Trophy,
   Users,
   X,
 } from 'lucide-react';
+import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, initials } from '@/src/lib/format';
 import {
@@ -28,10 +30,12 @@ import {
   type BadgeDefinition,
 } from '@/src/lib/gamificationConstants';
 import { triggerHaptic } from '@/src/lib/haptics';
+import { buildContactMilestoneShareRecord } from '@/src/lib/milestoneShare';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
+import type { ContactMilestoneRecord } from '@/src/types/call';
 
 function BadgeIcon({
   icon,
@@ -76,6 +80,7 @@ export function AchievementsModal({
     badges,
     pointsHistory,
     topContactStatuses,
+    contactMilestones,
     rebuildScore,
     calendarPrefs,
     reminderPrefs,
@@ -90,6 +95,7 @@ const LIST_PAGE_STEP = 12;
   const [contactsLimit, setContactsLimit] = useState(INITIAL_LIST_LIMIT);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({});
+  const [shareMilestone, setShareMilestone] = useState<ContactMilestoneRecord | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -98,6 +104,7 @@ const LIST_PAGE_STEP = 12;
       setContactsLimit(INITIAL_LIST_LIMIT);
       setHowItWorksOpen(false);
       setExpandedContacts({});
+      setShareMilestone(null);
     }
   }, [open, initialTab]);
 
@@ -755,49 +762,87 @@ const LIST_PAGE_STEP = 12;
                                       )}
 
                                       <div className="grid grid-cols-4 gap-1.5">
-                                        {status.badges.map((badge) => (
-                                          <div
-                                            key={badge.id}
-                                            className={`rounded-lg border px-2 py-1.5 text-center ${
-                                              badge.earned
-                                                ? 'bg-white dark:bg-[var(--dark-surface)] border-[#FF6A00]/45'
-                                                : 'bg-white/50 dark:bg-[var(--dark-surface)]/40 border-[#DDE4EA] dark:border-[var(--dark-border)] opacity-65'
-                                            }`}
-                                          >
-                                            <div className="flex items-center justify-center gap-1">
-                                              <span className="text-[11px] font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
-                                                {badge.days}d
-                                              </span>
-                                              {badge.earned ? (
-                                                <CheckCircle2 size={10} className="text-[#10B981] shrink-0" />
-                                              ) : (
-                                                <Lock size={9} className="text-[#8A93A0] shrink-0" />
-                                              )}
-                                            </div>
-                                            <p className="text-[9px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                                              {badge.title}
-                                            </p>
-                                          </div>
-                                        ))}
+                                        {status.badges.map((badge) => {
+                                          const badgeShareRecord = badge.earned
+                                            ? buildContactMilestoneShareRecord(
+                                                status,
+                                                contactMilestones,
+                                                badge,
+                                              )
+                                            : null;
+                                          return (
+                                            <button
+                                              key={badge.id}
+                                              type="button"
+                                              disabled={!badgeShareRecord}
+                                              onClick={() => {
+                                                if (!badgeShareRecord) return;
+                                                triggerHaptic('tap');
+                                                setShareMilestone(badgeShareRecord);
+                                              }}
+                                              className={`rounded-lg border px-2 py-1.5 text-center transition-colors ${
+                                                badge.earned
+                                                  ? 'bg-white dark:bg-[var(--dark-surface)] border-[#FF6A00]/45 hover:border-[#FF6A00]'
+                                                  : 'bg-white/50 dark:bg-[var(--dark-surface)]/40 border-[#DDE4EA] dark:border-[var(--dark-border)] opacity-65 cursor-default'
+                                              }`}
+                                            >
+                                              <div className="flex items-center justify-center gap-1">
+                                                <span className="text-[11px] font-mono font-bold tabular-nums text-[#08246B] dark:text-white">
+                                                  {badge.days}d
+                                                </span>
+                                                {badge.earned ? (
+                                                  <CheckCircle2 size={10} className="text-[#10B981] shrink-0" />
+                                                ) : (
+                                                  <Lock size={9} className="text-[#8A93A0] shrink-0" />
+                                                )}
+                                              </div>
+                                              <p className="text-[9px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                                                {badge.title}
+                                              </p>
+                                            </button>
+                                          );
+                                        })}
                                       </div>
 
-                                      {canOpen && (
-                                        <div className="flex justify-end pt-0.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              if (!onSelectContact) return;
-                                              triggerHaptic('tap');
-                                              onClose();
-                                              onSelectContact(status.number);
-                                            }}
-                                            className="min-h-[34px] px-3 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                                          >
-                                            <span>Open Contact</span>
-                                            <ChevronRight size={14} />
-                                          </button>
-                                        </div>
-                                      )}
+                                      {(() => {
+                                        const shareRecord = buildContactMilestoneShareRecord(
+                                          status,
+                                          contactMilestones,
+                                        );
+                                        if (!shareRecord && !canOpen) return null;
+                                        return (
+                                          <div className="flex flex-wrap items-center justify-end gap-2 pt-0.5">
+                                            {shareRecord && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  triggerHaptic('tap');
+                                                  setShareMilestone(shareRecord);
+                                                }}
+                                                className="min-h-[36px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-[#08246B] dark:text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                                              >
+                                                <Share2 size={13} className="text-[#FF6A00] shrink-0" />
+                                                <span>Share Card</span>
+                                              </button>
+                                            )}
+                                            {canOpen && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!onSelectContact) return;
+                                                  triggerHaptic('tap');
+                                                  onClose();
+                                                  onSelectContact(status.number);
+                                                }}
+                                                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap transition-colors"
+                                              >
+                                                <span>Open Contact</span>
+                                                <ChevronRight size={14} />
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   </motion.div>
                                 )}
@@ -879,6 +924,24 @@ const LIST_PAGE_STEP = 12;
     </AnimatePresence>
   );
 
-  if (typeof document === 'undefined') return modalContent;
-  return createPortal(modalContent, document.body);
+  if (typeof document === 'undefined') {
+    return (
+      <>
+        {modalContent}
+        <ContactMilestoneModal
+          milestone={shareMilestone}
+          onClose={() => setShareMilestone(null)}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      {createPortal(modalContent, document.body)}
+      <ContactMilestoneModal
+        milestone={shareMilestone}
+        onClose={() => setShareMilestone(null)}
+      />
+    </>
+  );
 }

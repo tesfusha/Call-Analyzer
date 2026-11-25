@@ -36,6 +36,42 @@ export function tomorrowAtHour(hour = 9, now: Date = new Date()): number {
   return d.getTime();
 }
 
+export function nextOccurrenceAtHour(hour = 18, minute = 0, now: Date = new Date()): number {
+  const d = new Date(now);
+  d.setHours(hour, minute, 0, 0);
+  if (d.getTime() <= now.getTime() + 5 * 60_000) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d.getTime();
+}
+
+export function formatScheduleSummary(timestamp: number, nowMs: number = Date.now()): string {
+  if (!Number.isFinite(timestamp)) return 'Select date & time';
+  const target = new Date(timestamp);
+  const now = new Date(nowMs);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  const dayDiff = Math.round((startOfTarget - startOfToday) / 86_400_000);
+
+  const timePart = target.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  const dayPart =
+    dayDiff === 0
+      ? 'Today'
+      : dayDiff === 1
+        ? 'Tomorrow'
+        : target.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+          });
+
+  return `${dayPart} · ${timePart} · ${formatEthiopianShort(timestamp)} EC`;
+}
+
 export function buildScheduledCallIcs(item: ScheduledCall): string {
   const start = new Date(item.scheduledFor);
   const end = new Date(item.scheduledFor + 15 * 60_000);

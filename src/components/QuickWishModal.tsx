@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Copy, MessageSquare, Send, Sparkles, X } from 'lucide-react';
-import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { Cake, Copy, MessageSquare, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { toWhatsAppPhoneDigits } from '@/src/lib/ethiopia';
 import {
+  OTHER_WISH_PRESETS,
   buildBirthdayWish,
   buildHolidayWish,
+  getDefaultWishTemplate,
   getHolidaysInGregorianYearOrUpcoming,
+  resolveWishTemplatePlaceholders,
+  type CalendarLang,
+  type OtherWishPresetKey,
 } from '@/src/lib/ethiopianCalendar';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
 import type { ContactProfile } from '@/src/types/call';
 
-type WishMode = 'holiday' | 'birthday';
+type WishMode = 'holiday' | 'birthday' | 'other';
 
 export function QuickWishModal({
   contact,
@@ -28,34 +32,81 @@ export function QuickWishModal({
   useLockBodyScroll(Boolean(contact));
   const prefersReducedMotion = useReducedMotion();
 
+  const [lang, setLang] = useState<CalendarLang>(calendarPrefs.defaultLang);
   const holidays = useMemo(
-    () => getHolidaysInGregorianYearOrUpcoming(new Date(), 366, calendarPrefs.defaultLang),
-    [calendarPrefs.defaultLang],
+    () => getHolidaysInGregorianYearOrUpcoming(new Date(), 366, lang),
+    [lang],
   );
 
   const [mode, setMode] = useState<WishMode>('holiday');
   const [selectedHolidayKey, setSelectedHolidayKey] = useState<string>('');
+  const [otherPreset, setOtherPreset] = useState<OtherWishPresetKey>('greeting');
+  const [customOccasion, setCustomOccasion] = useState('');
   const [message, setMessage] = useState('');
   const [isDirty, setIsDirty] = useState(false);
 
   const holidayUid = (h: (typeof holidays)[number]) =>
     `${h.key}-${h.ethiopian.year}-${h.ethiopian.month}-${h.ethiopian.day}`;
 
+  const activeHoliday =
+    holidays.find((h) => holidayUid(h) === selectedHolidayKey) ?? holidays[0] ?? null;
+
+  const computeMessage = (
+    targetMode: WishMode,
+    targetLang: CalendarLang,
+    holidayName: string,
+    preset: OtherWishPresetKey,
+    customTitle: string,
+  ) => {
+    if (!contact) return '';
+    if (targetMode === 'birthday') {
+      return buildBirthdayWish(contact.name, 'Birthday', contact.tag, targetLang);
+    }
+    if (targetMode === 'holiday') {
+      return buildHolidayWish(holidayName, contact.name, contact.tag, targetLang);
+    }
+    const meta = OTHER_WISH_PRESETS.find((p) => p.key === preset) ?? OTHER_WISH_PRESETS[0];
+    const occLabel =
+      preset === 'custom' && customTitle.trim()
+        ? customTitle.trim()
+        : targetLang === 'amharic'
+          ? meta.occasionAm
+          : meta.occasionEn;
+    return resolveWishTemplatePlaceholders(
+      getDefaultWishTemplate({
+        occasionType: 'other',
+        tag: contact.tag,
+        lang: targetLang,
+        otherPreset: preset,
+      }),
+      { name: contact.name, occasion: occLabel },
+    );
+  };
+
   useEffect(() => {
     if (!contact) return;
-    const defaultHoliday = holidays[0];
+    const startLang = calendarPrefs.defaultLang;
+    setLang(startLang);
+    const list = getHolidaysInGregorianYearOrUpcoming(new Date(), 366, startLang);
+    const defaultHoliday = list[0];
     setSelectedHolidayKey(defaultHoliday ? holidayUid(defaultHoliday) : '');
     const startMode: WishMode = contact.birthday ? 'birthday' : 'holiday';
     setMode(startMode);
+    setOtherPreset('greeting');
+    setCustomOccasion('');
     setIsDirty(false);
-    if (startMode === 'birthday') {
-      setMessage(buildBirthdayWish(contact.name, 'Birthday', contact.tag));
-    } else {
-      setMessage(
-        buildHolidayWish(defaultHoliday?.name ?? 'Holiday', contact.name, contact.tag),
-      );
-    }
-  }, [contact, holidays]);
+    setMessage(
+      startMode === 'birthday'
+        ? buildBirthdayWish(contact.name, 'Birthday', contact.tag, startLang)
+        : buildHolidayWish(
+            defaultHoliday?.name ?? 'Holiday',
+            contact.name,
+            contact.tag,
+            startLang,
+          ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact]);
 
   useEffect(() => {
     if (!contact) return;
@@ -75,20 +126,19 @@ export function QuickWishModal({
     unsavedMessage: 'Discard your edited wish message?',
   });
 
-  const activeHoliday =
-    holidays.find((h) => holidayUid(h) === selectedHolidayKey) ?? holidays[0] ?? null;
-
   const switchMode = (nextMode: WishMode) => {
     if (!contact) return;
     setMode(nextMode);
     setIsDirty(false);
-    if (nextMode === 'birthday') {
-      setMessage(buildBirthdayWish(contact.name, 'Birthday', contact.tag));
-    } else {
-      setMessage(
-        buildHolidayWish(activeHoliday?.name ?? 'Holiday', contact.name, contact.tag),
-      );
-    }
+    setMessage(
+      computeMessage(
+        nextMode,
+        lang,
+        activeHoliday?.name ?? 'Holiday',
+        otherPreset,
+        customOccasion,
+      ),
+    );
   };
 
   const handleHolidayChange = (holidayKey: string) => {
@@ -97,7 +147,33 @@ export function QuickWishModal({
     const found = holidays.find((h) => holidayUid(h) === holidayKey);
     setMode('holiday');
     setIsDirty(false);
-    setMessage(buildHolidayWish(found?.name ?? 'Holiday', contact.name, contact.tag));
+    setMessage(
+      computeMessage('holiday', lang, found?.name ?? 'Holiday', otherPreset, customOccasion),
+    );
+  };
+
+  const handleOtherPreset = (preset: OtherWishPresetKey) => {
+    if (!contact) return;
+    setOtherPreset(preset);
+    setMode('other');
+    setIsDirty(false);
+    setMessage(
+      computeMessage('other', lang, activeHoliday?.name ?? 'Holiday', preset, customOccasion),
+    );
+  };
+
+  const handleLangSwitch = (nextLang: CalendarLang) => {
+    if (nextLang === lang || !contact) return;
+    setLang(nextLang);
+    const list = getHolidaysInGregorianYearOrUpcoming(new Date(), 366, nextLang);
+    const found =
+      (activeHoliday ? list.find((h) => h.key === activeHoliday.key) : undefined) ?? list[0];
+    if (found) setSelectedHolidayKey(holidayUid(found));
+    if (!isDirty) {
+      setMessage(
+        computeMessage(mode, nextLang, found?.name ?? 'Holiday', otherPreset, customOccasion),
+      );
+    }
   };
 
   const copyMessage = async () => {
@@ -109,11 +185,6 @@ export function QuickWishModal({
       showNotice('Clipboard unavailable in this browser.');
     }
   };
-
-  const categories: Array<CategoryItem<WishMode>> = [
-    { key: 'holiday', label: 'Ethiopian Holiday' },
-    { key: 'birthday', label: 'Birthday Wish' },
-  ];
 
   const modalContent = (
     <AnimatePresence>
@@ -164,55 +235,160 @@ export function QuickWishModal({
               </button>
             </div>
 
-            <CategoryTabs
-              items={categories}
-              activeKey={mode}
-              onChange={switchMode}
-              ariaLabel="Wish occasion type"
-              variant="inset"
-            />
-
-            <CategoryPanel
-              activeKey={mode}
-              label={mode === 'holiday' ? 'Ethiopian Holiday' : 'Birthday Wish'}
-              transitionStyle="fade"
-              className="space-y-3"
+            <div
+              role="tablist"
+              aria-label="Wish occasion type"
+              className="grid grid-cols-3 gap-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] p-1 border border-[#DDE4EA] dark:border-[var(--dark-border)]"
             >
-              {mode === 'holiday' && holidays.length > 0 && (
-                <div className="space-y-1">
-                  <span className="block text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Occasion
-                  </span>
-                  <CustomSelect
-                    ariaLabel="Choose Ethiopian holiday occasion"
-                    value={activeHoliday ? holidayUid(activeHoliday) : ''}
-                    variant="inset"
-                    fullWidth
-                    options={holidays.map((h) => ({
-                      value: holidayUid(h),
-                      label: h.name,
-                      sublabel: h.isToday ? 'Today' : `In ${h.daysUntil}d`,
-                    }))}
-                    onChange={handleHolidayChange}
-                  />
-                </div>
-              )}
+              {(
+                [
+                  { key: 'holiday', label: 'Holiday', icon: Sparkles },
+                  { key: 'birthday', label: 'Birthday', icon: Cake },
+                  { key: 'other', label: 'Other', icon: MessageSquare },
+                ] as const
+              ).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === key}
+                  onClick={() => switchMode(key)}
+                  className={`min-h-[38px] px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors ${
+                    mode === key
+                      ? 'bg-[#FF6A00] text-white shadow-sm'
+                      : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                  }`}
+                >
+                  <Icon size={13} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
 
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Message preview
+            {mode === 'holiday' && holidays.length > 0 && (
+              <div className="space-y-1">
+                <span className="block text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Select holiday
                 </span>
-                <textarea
-                  rows={4}
-                  value={message}
-                  onChange={(e) => {
-                    setMessage(e.target.value);
-                    setIsDirty(true);
-                  }}
-                  className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-xs text-[#08246B] dark:text-white resize-none focus:outline-none focus:border-[#FF6A00]"
+                <CustomSelect
+                  ariaLabel="Choose Ethiopian holiday occasion"
+                  value={activeHoliday ? holidayUid(activeHoliday) : ''}
+                  variant="inset"
+                  fullWidth
+                  options={holidays.map((h) => ({
+                    value: holidayUid(h),
+                    label: h.name,
+                    sublabel: h.isToday ? 'Today' : `In ${h.daysUntil}d`,
+                  }))}
+                  onChange={handleHolidayChange}
                 />
-              </label>
-            </CategoryPanel>
+              </div>
+            )}
+
+            {mode === 'other' && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {OTHER_WISH_PRESETS.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => handleOtherPreset(preset.key)}
+                      className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-xs font-semibold whitespace-nowrap ${
+                        otherPreset === preset.key
+                          ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#FF6A00]'
+                          : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                {otherPreset === 'custom' && (
+                  <input
+                    type="text"
+                    value={customOccasion}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomOccasion(val);
+                      if (!isDirty) {
+                        setMessage(
+                          computeMessage(
+                            'other',
+                            lang,
+                            activeHoliday?.name ?? 'Holiday',
+                            'custom',
+                            val,
+                          ),
+                        );
+                      }
+                    }}
+                    placeholder="Occasion name (optional)"
+                    className="w-full min-h-[38px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+                  />
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2">
+              <div className="inline-flex rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] p-1 border border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                <button
+                  type="button"
+                  onClick={() => handleLangSwitch('english')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                    lang === 'english'
+                      ? 'bg-white dark:bg-[var(--dark-surface)] text-[#08246B] dark:text-white shadow-sm'
+                      : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                  }`}
+                >
+                  English
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLangSwitch('amharic')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                    lang === 'amharic'
+                      ? 'bg-white dark:bg-[var(--dark-surface)] text-[#08246B] dark:text-white shadow-sm'
+                      : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                  }`}
+                >
+                  አማርኛ
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDirty(false);
+                  setMessage(
+                    computeMessage(
+                      mode,
+                      lang,
+                      activeHoliday?.name ?? 'Holiday',
+                      otherPreset,
+                      customOccasion,
+                    ),
+                  );
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
+              >
+                <RotateCcw size={12} />
+                Default
+              </button>
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Default message (edit freely)
+              </span>
+              <textarea
+                rows={4}
+                value={message}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  setIsDirty(true);
+                }}
+                className="w-full rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 text-xs text-[#08246B] dark:text-white resize-none focus:outline-none focus:border-[#FF6A00]"
+              />
+            </label>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button

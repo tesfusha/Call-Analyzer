@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
-import { DateTimePicker } from '@/src/components/DateTimePicker';
+import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
 import {
   DEFAULT_RELATIONSHIP_TAGS,
   getContactKey,
@@ -56,7 +56,6 @@ import {
   formatScheduledCountdown,
   formatScheduledLabel,
   toDateTimeLocalValue,
-  tomorrowAtHour,
 } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useBackHandler } from '@/src/lib/backNavigation';
@@ -148,7 +147,7 @@ export function RemindersModal({
   const [schedNumber, setSchedNumber] = useState('');
   const [schedName, setSchedName] = useState('');
   const [schedAt, setSchedAt] = useState(() =>
-    toDateTimeLocalValue(Date.now() + 30 * 60_000),
+    toDateTimeLocalValue(Date.now() + 60 * 60_000),
   );
   const [schedNote, setSchedNote] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -962,53 +961,38 @@ export function RemindersModal({
                     value={schedNumber}
                     onChange={(e) => setSchedNumber(e.target.value)}
                     placeholder="Phone number (+251...)"
-                    className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+                    className="min-h-[40px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
                   />
                   <input
                     type="text"
                     value={schedName}
                     onChange={(e) => setSchedName(e.target.value)}
                     placeholder="Contact name (optional)"
-                    className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+                    className="min-h-[40px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
                   />
-                  <DateTimePicker
-                    value={schedAt}
-                    onChange={setSchedAt}
-                    variant="surface"
-                    compact
-                    ariaLabel="Scheduled date and time"
-                  />
+                </div>
+
+                <SimpleScheduleTimePicker
+                  value={schedAt}
+                  onChange={setSchedAt}
+                  variant="surface"
+                  ariaLabel="Scheduled date and time"
+                  resetKey={newSchedOpen}
+                />
+
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     value={schedNote}
                     onChange={(e) => setSchedNote(e.target.value)}
-                    placeholder="Reason / topic (optional)"
-                    className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+                    placeholder="Note or topic (optional)"
+                    className="flex-1 min-h-[40px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
                   />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {[
-                      { label: 'In 15m', ts: () => Date.now() + 15 * 60_000 },
-                      { label: 'In 1h', ts: () => Date.now() + 60 * 60_000 },
-                      { label: 'Tomorrow 9 AM', ts: () => tomorrowAtHour(9) },
-                    ].map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => setSchedAt(toDateTimeLocalValue(preset.ts()))}
-                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
                   <button
                     type="submit"
-                    className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap"
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap shrink-0"
                   >
-                    Save schedule
+                    Schedule Call
                   </button>
                 </div>
               </form>

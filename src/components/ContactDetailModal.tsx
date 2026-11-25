@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
-import { DateTimePicker } from '@/src/components/DateTimePicker';
+import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
 import { SpecialEventsEditor } from '@/src/components/SpecialEventsEditor';
 import {
   daysUntilAnnualDate,
@@ -46,12 +46,12 @@ import {
 import { downloadTextFile, shareContactVcard } from '@/src/lib/export';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
 import { buildEmptyContactStatus } from '@/src/lib/gamification';
+import { buildContactMilestoneShareRecord } from '@/src/lib/milestoneShare';
 import {
   buildScheduledCallIcs,
   formatScheduledCountdown,
   formatScheduledLabel,
   toDateTimeLocalValue,
-  tomorrowAtHour,
 } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone, sanitizeSocialUsername } from '@/src/lib/security';
 import { getEatWeekKey } from '@/src/lib/reminders';
@@ -62,7 +62,6 @@ import type {
   CalendarKind,
   CallDirection,
   CallRecord,
-  ContactBadgeItem,
   ContactBirthday,
   ContactEvent,
   ContactMilestoneRecord,
@@ -229,7 +228,7 @@ export function ContactDetailModal({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [statusCardOpen, setStatusCardOpen] = useState(false);
   const [profileSectionsOpen, setProfileSectionsOpen] = useState({
-    profile: true,
+    profile: false,
     birthday: false,
     events: false,
     social: false,
@@ -239,7 +238,7 @@ export function ContactDetailModal({
     if (!contactNumber) return;
     setStatusCardOpen(false);
     setProfileSectionsOpen({
-      profile: true,
+      profile: false,
       birthday: false,
       events: false,
       social: false,
@@ -484,7 +483,7 @@ export function ContactDetailModal({
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.985 }}
             transition={{ duration: prefersReducedMotion ? 0.12 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col h-[85dvh] sm:h-[650px] max-h-[90dvh] overflow-hidden shadow-xl"
+            className="w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col h-[85vh] h-[85dvh] sm:h-[650px] max-h-[90vh] max-h-[90dvh] overflow-hidden shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -555,7 +554,10 @@ export function ContactDetailModal({
             </div>
 
             {/* Dedicated Scrollable Body */}
-            <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-5">
+            <div
+              ref={bodyScrollRef}
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] p-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-6"
+            >
               <CategoryPanel activeKey={activeCategory} label={activeHeading} transitionStyle="fade">
                 <div className="pb-2 border-b border-[#DDE4EA]/70 dark:border-[var(--dark-border)]">
                   <h3 className="text-sm font-bold text-[#08246B] dark:text-white">
@@ -565,56 +567,62 @@ export function ContactDetailModal({
                 {activeCategory === 'overview' && (
           <div className="space-y-4">
         {/* Action Strip */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onCallBack(contactCalls[0]?.number || contactNumber)}
-            className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
-          >
-            <Phone size={14} />
-            Call
-          </button>
-          <button
-            type="button"
-            onClick={() => setScheduleOpen((prev) => !prev)}
-            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-          >
-            <Clock size={14} className="text-[#FF6A00]" />
-            Schedule call
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleShareContact()}
-            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-          >
-            <Share2 size={14} className="text-[#FF6A00]" />
-            Share
-          </button>
-          {(() => {
-            const currentYear = new Date().getFullYear();
-            const occType = isContactBirthdayToday
-              ? 'birthday'
-              : todaysHoliday
-                ? 'holiday'
-                : 'reconnect';
-            const occKey = isContactBirthdayToday
-              ? `bday-${contactKey}`
-              : todaysHoliday
-                ? todaysHoliday.key
-                : `reconnect:${getEatWeekKey()}`;
-            const occName = isContactBirthdayToday
-              ? 'Birthday'
-              : todaysHoliday
-                ? todaysHoliday.name
-                : 'Check-in';
-            const wishOpened = sentWishes.some(
-              (w) =>
-                w.contactKey === contactKey &&
-                w.occasionKey === occKey &&
-                w.year === currentYear,
-            );
-            return (
-              <>
+        {(() => {
+          const currentYear = new Date().getFullYear();
+          const occType = isContactBirthdayToday
+            ? 'birthday'
+            : todaysHoliday
+              ? 'holiday'
+              : 'reconnect';
+          const occKey = isContactBirthdayToday
+            ? `bday-${contactKey}`
+            : todaysHoliday
+              ? todaysHoliday.key
+              : `reconnect:${getEatWeekKey()}`;
+          const occName = isContactBirthdayToday
+            ? 'Birthday'
+            : todaysHoliday
+              ? todaysHoliday.name
+              : 'Check-in';
+          const wishOpened = sentWishes.some(
+            (w) =>
+              w.contactKey === contactKey &&
+              w.occasionKey === occKey &&
+              w.year === currentYear,
+          );
+          return (
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => onCallBack(contactCalls[0]?.number || contactNumber)}
+                  className="min-h-[54px] sm:min-h-[42px] px-1.5 sm:px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap"
+                >
+                  <Phone size={15} className="shrink-0" />
+                  <span>Call</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleOpen((prev) => !prev)}
+                  aria-label="Schedule call"
+                  className={`min-h-[54px] sm:min-h-[42px] px-1.5 sm:px-3.5 py-2 rounded-xl border text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-colors ${
+                    scheduleOpen
+                      ? 'border-[#FF6A00] bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00]'
+                      : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
+                  }`}
+                >
+                  <Clock size={15} className="text-[#FF6A00] shrink-0" />
+                  <span className="sm:hidden">Schedule</span>
+                  <span className="hidden sm:inline">Schedule call</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleShareContact()}
+                  className="min-h-[54px] sm:min-h-[42px] px-1.5 sm:px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] sm:text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap"
+                >
+                  <Share2 size={15} className="text-[#FF6A00] shrink-0" />
+                  <span>Share</span>
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -630,90 +638,76 @@ export function ContactDetailModal({
                       instagramUsername: sanitizeSocialUsername(instagramUsername) || undefined,
                     })
                   }
-                  className={`min-h-[42px] px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  aria-label={
+                    isContactBirthdayToday
+                      ? 'Send Birthday Wish'
+                      : todaysHoliday
+                        ? `Send ${todaysHoliday.name} Wish`
+                        : 'Send Wish'
+                  }
+                  className={`min-h-[54px] sm:min-h-[42px] px-1.5 sm:px-3.5 py-2 rounded-xl border text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap ${
                     canShowWishToday
                       ? 'border-[#FF6A00]/40 bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#08246B] dark:text-white hover:border-[#FF6A00]'
                       : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]'
                   }`}
                 >
-                  <MessageSquare size={14} className="text-[#FF6A00]" />
-                  <span>
-                    {isContactBirthdayToday
-                      ? 'Send Birthday Wish'
-                      : todaysHoliday
-                        ? `Send ${todaysHoliday.name} Wish`
-                        : 'Send Wish / Message'}
-                  </span>
+                  <MessageSquare size={15} className="text-[#FF6A00] shrink-0" />
+                  <span>Send Wish</span>
                   {wishOpened && (
-                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-                      Opened · {currentYear}
-                    </span>
+                    <Check size={12} className="hidden sm:inline text-emerald-600 dark:text-emerald-400 shrink-0" />
                   )}
                 </button>
-                {canShowWishToday && (
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyWish()}
-                    className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                  >
-                    <Copy size={14} />
-                    Copy Wish
-                  </button>
-                )}
-              </>
-            );
-          })()}
-        </div>
+              </div>
+
+              {canShowWishToday && (
+                <button
+                  type="button"
+                  onClick={() => void handleCopyWish()}
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] inline-flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Copy size={13} />
+                  {isContactBirthdayToday
+                    ? 'Copy Birthday Wish'
+                    : todaysHoliday
+                      ? `Copy ${todaysHoliday.name} Wish`
+                      : 'Copy Wish'}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {scheduleOpen && (
           <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-[#08246B] dark:text-white">
                 Schedule a call with {displayName}
               </span>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {[
-                  { label: 'In 15m', ts: () => Date.now() + 15 * 60_000 },
-                  { label: 'In 1h', ts: () => Date.now() + 60 * 60_000 },
-                  { label: 'Tomorrow 9 AM', ts: () => tomorrowAtHour(9) },
-                ].map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => {
-                      scheduleCall({
-                        number: contactCalls[0]?.number || contactNumber,
-                        name: displayName,
-                        scheduledFor: preset.ts(),
-                        note: scheduleNote || null,
-                      });
-                      setScheduleOpen(false);
-                    }}
-                    className="min-h-[32px] px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setScheduleOpen(false)}
+                className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white"
+              >
+                Cancel
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <DateTimePicker
-                value={scheduleAt}
-                onChange={setScheduleAt}
-                variant="surface"
-                ariaLabel="Scheduled call date and time"
-              />
+            <SimpleScheduleTimePicker
+              value={scheduleAt}
+              onChange={setScheduleAt}
+              variant="surface"
+              ariaLabel="Scheduled call date and time"
+              resetKey={scheduleOpen}
+            />
+
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={scheduleNote}
                 onChange={(e) => setScheduleNote(e.target.value)}
-                placeholder="Topic / reason (optional)"
-                className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
+                placeholder="Note / topic (optional)"
+                className="flex-1 min-h-[40px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white"
               />
-            </div>
-
-            <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -723,13 +717,14 @@ export function ContactDetailModal({
                     number: contactCalls[0]?.number || contactNumber,
                     name: displayName,
                     scheduledFor: parsed,
-                    note: scheduleNote || null,
+                    note: scheduleNote.trim() || null,
                   });
+                  setScheduleNote('');
                   setScheduleOpen(false);
                 }}
-                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap"
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold whitespace-nowrap shrink-0"
               >
-                Save scheduled call
+                Schedule Call
               </button>
             </div>
           </div>
@@ -953,65 +948,37 @@ export function ContactDetailModal({
                         <Award size={13} className="text-[#FF6A00]" />
                         Contact Badges ({contactStatus.earnedBadgesCount}/{contactStatus.badges.length})
                       </p>
-                      {onShareMilestone && contactStatus.earnedBadgesCount > 0 && (() => {
-                        const highestBadge = [...contactStatus.badges].reverse().find((b) => b.earned);
-                        if (!highestBadge) return null;
-                        const openBadgeShare = (badge: ContactBadgeItem) => {
-                          const existing = contactMilestones.find(
-                            (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
+                      {onShareMilestone &&
+                        (contactStatus.earnedBadgesCount > 0 ||
+                          contactStatus.currentStreak > 0 ||
+                          contactStatus.longestStreak > 0) && (() => {
+                          const shareRecord = buildContactMilestoneShareRecord(
+                            contactStatus,
+                            contactMilestones,
                           );
-                          const reachedDate =
-                            existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
-                          onShareMilestone(
-                            existing ?? {
-                              id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
-                              contactKey: contactStatus.contactKey,
-                              days: badge.days,
-                              streakStartDate: reachedDate,
-                              reachedDate,
-                              badgeId: badge.id,
-                              badgeTitle: badge.title,
-                              points: badge.points,
-                              awardedAt: Date.now(),
-                              celebratedAt: Date.now(),
-                            },
+                          if (!shareRecord) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onShareMilestone(shareRecord)}
+                              className="min-h-[30px] px-2.5 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-[11px] font-semibold text-white flex items-center gap-1 whitespace-nowrap transition-colors"
+                            >
+                              <Share2 size={11} />
+                              <span>{contactStatus.earnedBadgesCount > 0 ? 'Share Milestone' : 'Share Streak'}</span>
+                            </button>
                           );
-                        };
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => openBadgeShare(highestBadge)}
-                            className="min-h-[30px] px-2.5 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-[11px] font-semibold text-white flex items-center gap-1 whitespace-nowrap transition-colors"
-                          >
-                            <Share2 size={11} />
-                            <span>Share Milestone</span>
-                          </button>
-                        );
-                      })()}
+                        })()}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {contactStatus.badges.map((badge) => {
                         const handleBadgeClick = () => {
                           if (!badge.earned || !onShareMilestone) return;
-                          const existing = contactMilestones.find(
-                            (m) => m.contactKey === contactStatus.contactKey && m.days === badge.days,
+                          const record = buildContactMilestoneShareRecord(
+                            contactStatus,
+                            contactMilestones,
+                            badge,
                           );
-                          const reachedDate =
-                            existing?.reachedDate ?? badge.unlockedEatDate ?? contactStatus.lastConnectedDate ?? '';
-                          onShareMilestone(
-                            existing ?? {
-                              id: `${contactStatus.contactKey}:${badge.days}:${reachedDate}`,
-                              contactKey: contactStatus.contactKey,
-                              days: badge.days,
-                              streakStartDate: reachedDate,
-                              reachedDate,
-                              badgeId: badge.id,
-                              badgeTitle: badge.title,
-                              points: badge.points,
-                              awardedAt: Date.now(),
-                              celebratedAt: Date.now(),
-                            },
-                          );
+                          if (record) onShareMilestone(record);
                         };
                         const isInteractive = badge.earned && Boolean(onShareMilestone);
                         return (
