@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '1.0.0';
-export const APP_VERSION_CODE = 8;
+export const APP_VERSION_NAME = '1.0.1';
+export const APP_VERSION_CODE = 9;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Public Launch · Dual-SIM Analytics, Wishes & Call Streaks';
+export const APP_RELEASE_LABEL = 'Back in Touch Alerts, UI Polish & Promo Export';
 export const APP_CONTACT_EMAIL = 'tesfutilahun33@gmail.com';
 export const APP_TELEGRAM_HANDLE = 't.me/callanalyzer_eth';
 export const APP_TELEGRAM_URL = 'https://t.me/callanalyzer_eth';
@@ -16,22 +16,22 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
+    id: 'notification-actions',
+    title: 'Back in Touch Return-Call Alerts (30+ Days)',
+    detail:
+      'Get notified when someone calls after 30+ days (configurable 14d–90d), review them in Wishes & Alerts, and see a compact gap-days reconnect badge inside their profile.',
+  },
+  {
+    id: 'mobile-modals',
+    title: 'Header Calendar, Charts & Compact Wish Composer',
+    detail:
+      'Stacked Ethiopian & Gregorian header date, clearer Talk-Time chart axes, cleaner Quiet Contacts cards, and single-row Wish Composer send buttons.',
+  },
+  {
     id: 'clean-call-logs',
-    title: 'Dual-SIM Sync, Costing & PDF Statements',
+    title: 'Dual-SIM Sync, Costing & Fast Promo Video Export',
     detail:
-      'Sync Ethio Telecom and Safaricom call logs on Android or import CSV/JSON/TXT files, inspect peak hours and airtime spend, and export clean PDF or HTML reports.',
-  },
-  {
-    id: 'smart-rules',
-    title: 'Ethiopian Calendar, Wishes & Follow-ups',
-    detail:
-      'Track Ethiopian holidays, saved contact birthdays, quiet contacts, and missed-call reminders, and send custom wishes via SMS, WhatsApp, or Telegram.',
-  },
-  {
-    id: 'streak-counting',
-    title: 'Daily Streaks, Milestones & Share Cards',
-    detail:
-      'Build daily and per-contact call streaks, unlock badges, and export PNG milestone share cards with customizable nicknames.',
+      'Sync Ethio Telecom and Safaricom call logs on Android, export clean PDF statements, and render promo videos faster on Web & Android.',
   },
   {
     id: 'brand-launcher',
