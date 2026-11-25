@@ -48,6 +48,68 @@
           }
         } catch (e) {}
       })();
+      (function () {
+        var bootErrors = [];
+        var mounted = false;
+        var watchdogTimer = null;
+        function renderBootFailure(reason) {
+          if (mounted) return;
+          var root = document.getElementById('root');
+          if (!root || root.childElementCount > 0) {
+            mounted = true;
+            return;
+          }
+          var msg = reason || bootErrors[0] || 'App bundle failed to start in WebView.';
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:#111214;color:#ffffff;font-family:system-ui,-apple-system,sans-serif;">' +
+            '<div style="width:100%;max-width:420px;background:#1B1C20;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:20px;box-sizing:border-box;">' +
+            '<div style="font-size:16px;font-weight:700;color:#FF6A00;margin-bottom:8px;">Startup Error</div>' +
+            '<div style="font-size:13px;line-height:1.5;color:#E5E7EB;word-break:break-word;margin-bottom:14px;">' +
+            String(msg).replace(/[<>&]/g, function (c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'; }) +
+            '</div>' +
+            '<button type="button" onclick="window.location.reload()" style="min-height:42px;padding:10px 18px;border-radius:10px;border:none;background:#FF6A00;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Reload App</button>' +
+            '</div></div>';
+        }
+        window.__markAppMounted = function () {
+          mounted = true;
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+        };
+        window.__reportBootError = function (err) {
+          var text = err && err.message ? err.message : String(err || 'Unknown startup error');
+          bootErrors.push(text);
+          renderBootFailure(text);
+        };
+        window.addEventListener('error', function (ev) {
+          if (mounted) return;
+          var detail = '';
+          if (ev && ev.target && (ev.target.src || ev.target.href)) {
+            detail = 'Failed to load asset: ' + (ev.target.src || ev.target.href);
+          } else if (ev && ev.message) {
+            detail = ev.message + (ev.filename ? ' (' + ev.filename + ':' + ev.lineno + ')' : '');
+          }
+          if (detail) {
+            bootErrors.push(detail);
+            setTimeout(function () {
+              var root = document.getElementById('root');
+              if (!mounted && root && root.childElementCount === 0) {
+                renderBootFailure(detail);
+              }
+            }, 400);
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function (ev) {
+          if (mounted) return;
+          var r = ev && ev.reason;
+          var detail = r && r.message ? r.message : String(r || 'Unhandled startup rejection');
+          bootErrors.push(detail);
+        });
+        watchdogTimer = setTimeout(function () {
+          var root = document.getElementById('root');
+          if (!mounted && root && root.childElementCount === 0) {
+            renderBootFailure(bootErrors.join(' | ') || 'Timed out waiting for app bundle to mount.');
+          }
+        }, 7000);
+      })();
     </script>
   </head>
   <body class="bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white antialiased">
