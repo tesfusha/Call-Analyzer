@@ -81,9 +81,9 @@ The app checks `UPDATE_VERSION_URL` (`https://youthful-limiter-kjk7s.web.app/ver
 
 ```json
 {
-  "versionCode": 7,
-  "versionName": "2.6.0",
-  "apkUrl": "https://your-https-host/call-analyzer-eth-2.6.0.apk",
+  "versionCode": 8,
+  "versionName": "1.0.0",
+  "apkUrl": "https://your-https-host/call-analyzer-eth-1.0.0.apk",
   "notes": "Summary of changes in this release.",
   "mandatory": false
 }
@@ -104,7 +104,7 @@ Admin access is controlled strictly through `/admins/{uid}` and is never writabl
 
 The Capacitor Android project lives in `/android` with fixed application ID `com.callanalyzer.eth` and release signing docs in `android/SIGNING.md`.
 
-1. **In-place upgrade:** Install APK v2.6.0 (`versionCode 7`, same signing key) over an earlier install and confirm calls, tags, contacts, wishes, streaks, and settings remain intact.
+1. **In-place upgrade:** Install APK v1.0.0 (`versionCode 8`, same signing key) over an earlier install and confirm calls, tags, contacts, wishes, streaks, and settings remain intact.
 2. **Missed-call reminders (app swiped away):** Confirm notifications fire after the configured 5/7/10-minute delay with contact initials and group summaries, cancel when returned by an outgoing or answered incoming call (`0911...` / `+251911...` / `251911...` / `07...`), honor "Only remind for saved contacts", ignore rejected/blocked/voicemail calls, and reschedule after device reboot.
 3. **Wish Composer & channel detection:** Open Wish Composer from a birthday/holiday notification or contact detail, verify live GSM-7/Unicode SMS counts, save a custom template, and verify WhatsApp/Telegram/Instagram buttons match installed apps.
 4. **Quiet contacts & weekly goal:** Verify rhythm text only appears for contacts with 4+ answered calls across 3+ days, swipe right to call / left to snooze, and confirm quiet contacts never increment the main bell badge.

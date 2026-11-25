@@ -1,7 +1,7 @@
 {
-  "versionCode": 7,
-  "versionName": "2.6.0",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-2.6.0.apk",
-  "notes": "Wish Composer with custom templates and GSM-7/Unicode SMS counter, smarter Quiet Contacts with real call rhythm and weekly reconnect goals, collapsible Settings sections, 5/7/10-minute missed-call reminders with saved-contacts filter, PBKDF2 screen lock, and full Rejected/Blocked/Voicemail call support.",
+  "versionCode": 8,
+  "versionName": "1.0.0",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-1.0.0.apk",
+  "notes": "Call Analyzer - ETH v1.0.0 public release: Dual-SIM ETC/SFC call sync and costing, interactive charts & PDF statements, Ethiopian Calendar with Wish Composer, smarter Quiet Contacts, daily & contact streak share cards, PBKDF2 screen lock, and full support links in Settings -> About.",
   "mandatory": false
 }
