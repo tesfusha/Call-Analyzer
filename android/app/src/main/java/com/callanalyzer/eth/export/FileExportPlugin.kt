@@ -22,10 +22,120 @@ import java.util.concurrent.Executors
 @CapacitorPlugin(name = "FileExport")
 class FileExportPlugin : Plugin() {
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val activeChunkFiles = java.util.concurrent.ConcurrentHashMap<String, File>()
 
     override fun handleOnDestroy() {
+        activeChunkFiles.values.forEach { file ->
+            try {
+                if (file.exists()) file.delete()
+            } catch (_: Exception) {
+                // ignore
+            }
+        }
+        activeChunkFiles.clear()
         ioExecutor.shutdown()
         super.handleOnDestroy()
+    }
+
+    @PluginMethod
+    fun beginChunkedSave(call: PluginCall) {
+        val rawFilename = call.getString("filename")?.trim().orEmpty()
+        if (rawFilename.isEmpty()) {
+            call.reject("Missing filename.")
+            return
+        }
+        val safeFilename = sanitizeFilename(rawFilename)
+        val transferId = java.util.UUID.randomUUID().toString()
+        val cacheDir = File(context.cacheDir, "chunk_exports")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        val tempFile = File(cacheDir, "${transferId}_$safeFilename")
+        try {
+            if (tempFile.exists()) tempFile.delete()
+            tempFile.createNewFile()
+            activeChunkFiles[transferId] = tempFile
+            val res = JSObject().apply {
+                put("transferId", transferId)
+            }
+            call.resolve(res)
+        } catch (e: Exception) {
+            call.reject("Could not initialize chunked export: ${e.message ?: "Unknown error"}")
+        }
+    }
+
+    @PluginMethod
+    fun appendChunk(call: PluginCall) {
+        val transferId = call.getString("transferId")?.trim().orEmpty()
+        val base64Chunk = call.getString("base64Chunk")?.trim().orEmpty()
+        val tempFile = activeChunkFiles[transferId]
+        if (transferId.isEmpty() || tempFile == null) {
+            call.reject("Invalid or expired export transfer.")
+            return
+        }
+        if (base64Chunk.isEmpty()) {
+            call.resolve(JSObject().apply { put("ok", true) })
+            return
+        }
+        ioExecutor.execute {
+            try {
+                val bytes = Base64.decode(base64Chunk, Base64.DEFAULT)
+                FileOutputStream(tempFile, true).use { out ->
+                    out.write(bytes)
+                    out.flush()
+                }
+                call.resolve(JSObject().apply { put("ok", true) })
+            } catch (e: Exception) {
+                call.reject("Chunk write failed: ${e.message ?: "Unknown error"}")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun finishChunkedSave(call: PluginCall) {
+        val transferId = call.getString("transferId")?.trim().orEmpty()
+        val rawFilename = call.getString("filename")?.trim().orEmpty()
+        val rawMimeType = call.getString("mimeType")?.trim().orEmpty()
+        val shareTitle = call.getString("shareTitle")?.trim()?.takeIf { it.isNotEmpty() } ?: rawFilename
+        val openShare = call.getBoolean("openShare") ?: true
+        val tempFile = activeChunkFiles.remove(transferId)
+
+        if (transferId.isEmpty() || tempFile == null || !tempFile.exists()) {
+            call.reject("Missing chunked export file.")
+            return
+        }
+
+        val safeFilename = sanitizeFilename(rawFilename.ifEmpty { tempFile.name })
+        val mimeType = rawMimeType.ifEmpty { guessMimeType(safeFilename) }
+        val appContext = context.applicationContext
+
+        ioExecutor.execute {
+            try {
+                if (tempFile.length() <= 0L) {
+                    call.reject("Exported file is empty.")
+                    return@execute
+                }
+                val savedPath = saveFileToPublicStorage(appContext, safeFilename, mimeType, tempFile)
+                var shared = false
+                if (openShare) {
+                    shared = launchShareChooserFromFile(safeFilename, mimeType, tempFile, shareTitle)
+                }
+                val res = JSObject().apply {
+                    put("saved", savedPath != null)
+                    put("shared", shared)
+                    put("path", savedPath ?: safeFilename)
+                }
+                call.resolve(res)
+            } catch (e: Exception) {
+                call.reject("Export failed: ${e.message ?: "Unknown error"}")
+            } finally {
+                try {
+                    if (tempFile.exists()) tempFile.delete()
+                } catch (_: Exception) {
+                    // ignore cleanup failure
+                }
+            }
+        }
     }
 
     @PluginMethod
@@ -73,13 +183,14 @@ class FileExportPlugin : Plugin() {
         }
     }
 
-    private fun saveBytesToPublicStorage(
+    private fun saveFileToPublicStorage(
         appContext: android.content.Context,
         filename: String,
         mimeType: String,
-        bytes: ByteArray
+        sourceFile: File
     ): String? {
         val isImage = mimeType.startsWith("image/", ignoreCase = true)
+        val isVideo = mimeType.startsWith("video/", ignoreCase = true)
         val subfolder = "Call Analyzer - ETH"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -95,6 +206,132 @@ class FileExportPlugin : Plugin() {
                 values.put(MediaStore.Images.Media.MIME_TYPE, mimeType)
                 values.put(MediaStore.Images.Media.RELATIVE_PATH, relativeDir)
                 values.put(MediaStore.Images.Media.IS_PENDING, 1)
+            } else if (isVideo) {
+                collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                relativeDir = "${Environment.DIRECTORY_MOVIES}/$subfolder"
+                values.put(MediaStore.Video.Media.DISPLAY_NAME, filename)
+                values.put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                values.put(MediaStore.Video.Media.RELATIVE_PATH, relativeDir)
+                values.put(MediaStore.Video.Media.IS_PENDING, 1)
+            } else {
+                collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                relativeDir = "${Environment.DIRECTORY_DOWNLOADS}/$subfolder"
+                values.put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                values.put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                values.put(MediaStore.Downloads.RELATIVE_PATH, relativeDir)
+                values.put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            var itemUri: Uri? = null
+            try {
+                itemUri = resolver.insert(collection, values)
+                if (itemUri != null) {
+                    resolver.openOutputStream(itemUri)?.use { out ->
+                        sourceFile.inputStream().use { input ->
+                            input.copyTo(out)
+                        }
+                        out.flush()
+                    } ?: throw IllegalStateException("Could not open MediaStore output stream.")
+
+                    val complete = ContentValues().apply {
+                        if (isImage) {
+                            put(MediaStore.Images.Media.IS_PENDING, 0)
+                        } else if (isVideo) {
+                            put(MediaStore.Video.Media.IS_PENDING, 0)
+                        } else {
+                            put(MediaStore.Downloads.IS_PENDING, 0)
+                        }
+                    }
+                    resolver.update(itemUri, complete, null, null)
+                    return "$relativeDir/$filename"
+                }
+            } catch (_: Exception) {
+                if (itemUri != null) {
+                    try {
+                        resolver.delete(itemUri, null, null)
+                    } catch (_: Exception) {
+                        // Ignore cleanup failure
+                    }
+                }
+            }
+        }
+
+        val envType = when {
+            isImage -> Environment.DIRECTORY_PICTURES
+            isVideo -> Environment.DIRECTORY_MOVIES
+            else -> Environment.DIRECTORY_DOWNLOADS
+        }
+        @Suppress("DEPRECATION")
+        val publicBase = Environment.getExternalStoragePublicDirectory(envType)
+        val publicDir = File(publicBase, subfolder)
+        val targetFile = try {
+            if (!publicDir.exists()) publicDir.mkdirs()
+            val candidate = uniqueFile(publicDir, filename)
+            sourceFile.inputStream().use { input ->
+                FileOutputStream(candidate).use { out ->
+                    input.copyTo(out)
+                }
+            }
+            candidate
+        } catch (_: Exception) {
+            val fallbackDir = File(appContext.getExternalFilesDir(envType) ?: appContext.filesDir, subfolder)
+            if (!fallbackDir.exists()) fallbackDir.mkdirs()
+            val candidate = uniqueFile(fallbackDir, filename)
+            sourceFile.inputStream().use { input ->
+                FileOutputStream(candidate).use { out ->
+                    input.copyTo(out)
+                }
+            }
+            candidate
+        }
+
+        if (isImage || isVideo) {
+            MediaScannerConnection.scanFile(
+                appContext,
+                arrayOf(targetFile.absolutePath),
+                arrayOf(mimeType),
+                null
+            )
+        }
+
+        val rootLabel = when {
+            isImage -> "Pictures"
+            isVideo -> "Movies"
+            else -> "Downloads"
+        }
+        return "$rootLabel/$subfolder/${targetFile.name}"
+    }
+
+    private fun saveBytesToPublicStorage(
+        appContext: android.content.Context,
+        filename: String,
+        mimeType: String,
+        bytes: ByteArray
+    ): String? {
+        val isImage = mimeType.startsWith("image/", ignoreCase = true)
+        val isVideo = mimeType.startsWith("video/", ignoreCase = true)
+        val subfolder = "Call Analyzer - ETH"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = appContext.contentResolver
+            val collection: Uri
+            val relativeDir: String
+            val values = ContentValues()
+
+            if (isImage) {
+                collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                relativeDir = "${Environment.DIRECTORY_PICTURES}/$subfolder"
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+                values.put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, relativeDir)
+                values.put(MediaStore.Images.Media.IS_PENDING, 1)
+            } else if (isVideo) {
+                collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                relativeDir = "${Environment.DIRECTORY_MOVIES}/$subfolder"
+                values.put(MediaStore.Video.Media.DISPLAY_NAME, filename)
+                values.put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                values.put(MediaStore.Video.Media.RELATIVE_PATH, relativeDir)
+                values.put(MediaStore.Video.Media.IS_PENDING, 1)
             } else {
                 collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
                 relativeDir = "${Environment.DIRECTORY_DOWNLOADS}/$subfolder"
@@ -116,6 +353,8 @@ class FileExportPlugin : Plugin() {
                     val complete = ContentValues().apply {
                         if (isImage) {
                             put(MediaStore.Images.Media.IS_PENDING, 0)
+                        } else if (isVideo) {
+                            put(MediaStore.Video.Media.IS_PENDING, 0)
                         } else {
                             put(MediaStore.Downloads.IS_PENDING, 0)
                         }
@@ -136,7 +375,11 @@ class FileExportPlugin : Plugin() {
         }
 
         // Legacy API < 29 or MediaStore fallback
-        val envType = if (isImage) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS
+        val envType = when {
+            isImage -> Environment.DIRECTORY_PICTURES
+            isVideo -> Environment.DIRECTORY_MOVIES
+            else -> Environment.DIRECTORY_DOWNLOADS
+        }
         @Suppress("DEPRECATION")
         val publicBase = Environment.getExternalStoragePublicDirectory(envType)
         val publicDir = File(publicBase, subfolder)
@@ -153,7 +396,7 @@ class FileExportPlugin : Plugin() {
             candidate
         }
 
-        if (isImage) {
+        if (isImage || isVideo) {
             MediaScannerConnection.scanFile(
                 appContext,
                 arrayOf(targetFile.absolutePath),
@@ -162,8 +405,55 @@ class FileExportPlugin : Plugin() {
             )
         }
 
-        val rootLabel = if (isImage) "Pictures" else "Downloads"
+        val rootLabel = when {
+            isImage -> "Pictures"
+            isVideo -> "Movies"
+            else -> "Downloads"
+        }
         return "$rootLabel/$subfolder/${targetFile.name}"
+    }
+
+    private fun launchShareChooserFromFile(
+        filename: String,
+        mimeType: String,
+        sourceFile: File,
+        shareTitle: String
+    ): Boolean {
+        val currentActivity = activity ?: return false
+        val cacheExports = File(context.cacheDir, "exports")
+        if (!cacheExports.exists()) {
+            cacheExports.mkdirs()
+        }
+        val shareFile = File(cacheExports, filename)
+        sourceFile.inputStream().use { input ->
+            FileOutputStream(shareFile).use { out ->
+                input.copyTo(out)
+            }
+        }
+
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            shareFile
+        )
+
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, shareTitle)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(shareIntent, shareTitle).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        currentActivity.runOnUiThread {
+            try {
+                currentActivity.startActivity(chooser)
+            } catch (_: Exception) {
+                // Ignore if no activity can handle share
+            }
+        }
+        return true
     }
 
     private fun launchShareChooser(
@@ -229,6 +519,8 @@ class FileExportPlugin : Plugin() {
         return when {
             lower.endsWith(".png") -> "image/png"
             lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            lower.endsWith(".mp4") -> "video/mp4"
+            lower.endsWith(".webm") -> "video/webm"
             lower.endsWith(".pdf") -> "application/pdf"
             lower.endsWith(".csv") -> "text/csv"
             lower.endsWith(".json") -> "application/json"

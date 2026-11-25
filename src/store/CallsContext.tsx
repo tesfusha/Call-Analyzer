@@ -105,6 +105,7 @@ import {
 } from '@/src/lib/gamification';
 import { POINTS_CONFIG } from '@/src/lib/gamificationConstants';
 import {
+  findLongGapReturnCalls,
   getEatWeekKey,
   isWithinQuietHours,
   quietContacts,
@@ -481,6 +482,7 @@ type CallsContextValue = {
   ) => void;
   removeScheduledCall: (id: string) => void;
   dismissMissedCall: (id: string) => void;
+  dismissLongGapCall: (callId: string) => void;
   muteAlertKey: (key: string) => void;
   unmuteAlertKey: (key: string) => void;
   updateUserProfile: (input: UpdateUserProfileInput) => Promise<AuthActionResult>;
@@ -774,6 +776,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     () => [...DEFAULT_SETTINGS_SECTIONS],
   );
   const [wishComposerRequest, setWishComposerRequest] = useState<WishComposerContext | null>(null);
+  const notifiedLongGapIdsRef = useRef<Set<string>>(new Set());
   const [sessionNewCallIdsList, setSessionNewCallIdsList] = useState<string[]>([]);
   const prevCallsTabOpenedAtRef = useRef<number>(0);
   const callsTabActiveRef = useRef<boolean>(true);
@@ -3079,9 +3082,70 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [addCustomTag, requireSignedInUser],
   );
 
+  const triggerLongGapAlertsForAdded = useCallback(
+    (addedIds?: string[]) => {
+      if (!addedIds || addedIds.length === 0) return;
+      const prefs = stateRef.current.alertTypePrefs;
+      if (prefs.longGapCalls === false) return;
+      if (stateRef.current.alertSnoozedDate === toEatDateString()) return;
+
+      const addedSet = new Set(addedIds);
+      const minGapDays = Math.max(7, Math.min(180, Math.round(prefs.longGapDays ?? 30)));
+      const matches = findLongGapReturnCalls(stateRef.current.calls, {
+        contacts: stateRef.current.contacts,
+        favorites: stateRef.current.favoritesArray,
+        minGapDays,
+        maxAgeDays: 2,
+      });
+      if (matches.length === 0) return;
+
+      const mutedSet = new Set(stateRef.current.mutedAlertKeys);
+      const dismissedSet = new Set(stateRef.current.dismissedMissedArray);
+      const newest = matches.find(
+        (m) =>
+          addedSet.has(m.id) &&
+          !notifiedLongGapIdsRef.current.has(m.id) &&
+          !mutedSet.has(`longgap:${m.contactKey}`) &&
+          !dismissedSet.has(`longgap:${m.id}`),
+      );
+      if (!newest) return;
+
+      notifiedLongGapIdsRef.current.add(newest.id);
+
+      if (
+        stateRef.current.notificationsEnabled &&
+        !isWithinQuietHours(stateRef.current.reminderPrefs)
+      ) {
+        const displayName = formatDisplayNameOrPhone(newest.name || null, newest.number);
+        const verb = newest.direction === 'missed' ? 'Missed call' : 'Called you';
+        void deliverSystemNotification(
+          `longgap-${newest.id}`,
+          `Back in touch: ${displayName}`,
+          `${verb} after ${newest.gapDays} day${newest.gapDays === 1 ? '' : 's'} · Tap to view or say hi.`,
+          {
+            category: 'other',
+            number: newest.number,
+            contactKey: newest.contactKey,
+            eventId: newest.id,
+            muteKey: `longgap:${newest.contactKey}`,
+            occasionType: 'reconnect',
+            occasionKey: `reconnect:${newest.contactKey}`,
+          },
+        );
+      }
+    },
+    [deliverSystemNotification],
+  );
+
   const importCalls = useCallback(
-    (records: CallRecord[]): ImportCounts => addCall(records),
-    [addCall],
+    (records: CallRecord[]): ImportCounts => {
+      const counts = addCall(records);
+      if (counts.added > 0 && counts.addedIds?.length) {
+        triggerLongGapAlertsForAdded(counts.addedIds);
+      }
+      return counts;
+    },
+    [addCall, triggerLongGapAlertsForAdded],
   );
 
   const canSyncPhoneCalls = isNativeCapacitor() && hasNativeCallLogPlugin();
@@ -3185,6 +3249,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           }
 
           if (counts.added > 0) {
+            if (counts.addedIds?.length) {
+              triggerLongGapAlertsForAdded(counts.addedIds);
+            }
             showNotice(
               `Synced ${counts.added.toLocaleString()} call${counts.added === 1 ? '' : 's'} from your phone (${stateRef.current.calls.length.toLocaleString()} total).`,
               'success',
@@ -3242,6 +3309,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           }
         }
         if (counts.added > 0) {
+          if (counts.addedIds?.length) {
+            triggerLongGapAlertsForAdded(counts.addedIds);
+          }
           showNotice(
             `Synced ${counts.added} call${counts.added === 1 ? '' : 's'} from your phone.`,
             'success',
@@ -3294,6 +3364,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       reminderPrefs,
       requireSignedInUser,
       showNotice,
+      triggerLongGapAlertsForAdded,
     ],
   );
 
@@ -4246,6 +4317,22 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       triggerHaptic('tap');
       const next = [...current, id];
       setDismissedMissedArray(next);
+    },
+    [requireSignedInUser],
+  );
+
+  const dismissLongGapCall = useCallback(
+    (callId: string) => {
+      const token = `longgap:${callId}`;
+      setReadAlertKeys((prev) =>
+        prev.includes(token) ? prev : [token, ...prev].slice(0, 600),
+      );
+      const user = requireSignedInUser();
+      if (!user) return;
+      const current = stateRef.current.dismissedMissedArray;
+      if (current.includes(token)) return;
+      triggerHaptic('tap');
+      setDismissedMissedArray([token, ...current].slice(0, 500));
     },
     [requireSignedInUser],
   );
@@ -5291,6 +5378,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       snoozeScheduledCall,
       removeScheduledCall,
       dismissMissedCall,
+      dismissLongGapCall,
       muteAlertKey,
       unmuteAlertKey,
       updateUserProfile,
@@ -5432,6 +5520,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       snoozeScheduledCall,
       removeScheduledCall,
       dismissMissedCall,
+      dismissLongGapCall,
       muteAlertKey,
       unmuteAlertKey,
       updateUserProfile,

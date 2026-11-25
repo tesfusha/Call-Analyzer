@@ -345,7 +345,7 @@ export function FrequencyBarChart({ buckets }: { buckets: DailyBucket[] }) {
           <BarChart
             accessibilityLayer={false}
             data={buckets}
-            margin={{ top: 8, right: 6, left: -18, bottom: 0 }}
+            margin={{ top: 10, right: 20, left: 2, bottom: 4 }}
             onClick={(state) => {
               const label = state?.activeLabel;
               if (label !== undefined) {
@@ -364,14 +364,17 @@ export function FrequencyBarChart({ buckets }: { buckets: DailyBucket[] }) {
               tick={{ fontSize: 10, fill: '#8A93A0' }}
               axisLine={{ stroke: 'rgba(138, 147, 160, 0.3)' }}
               tickLine={false}
-              interval="preserveStartEnd"
+              tickMargin={8}
+              minTickGap={34}
+              padding={{ left: 14, right: 14 }}
+              interval="preserveStart"
             />
             <YAxis
               allowDecimals={false}
               tick={{ fontSize: 10, fill: '#8A93A0' }}
               axisLine={false}
               tickLine={false}
-              width={32}
+              width={36}
             />
             <Tooltip
               cursor={{ fill: 'rgba(255, 106, 0, 0.08)' }}
@@ -520,7 +523,7 @@ export function DurationTrendChart({ buckets }: { buckets: DailyBucket[] }) {
     <div className="space-y-2">
       <div className="w-full h-52 outline-none select-none [&_*]:outline-none">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart accessibilityLayer={false} data={data} margin={{ top: 10, right: 8, left: -16, bottom: 0 }}>
+          <AreaChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 22, left: 4, bottom: 4 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#FF6A00" stopOpacity={0.28} />
@@ -537,15 +540,19 @@ export function DurationTrendChart({ buckets }: { buckets: DailyBucket[] }) {
               tick={{ fontSize: 10, fill: '#8A93A0' }}
               axisLine={{ stroke: 'rgba(138, 147, 160, 0.3)' }}
               tickLine={false}
-              interval="preserveStartEnd"
+              tickMargin={8}
+              minTickGap={38}
+              padding={{ left: 16, right: 16 }}
+              interval="preserveStart"
             />
             <YAxis
               allowDecimals={false}
               tick={{ fontSize: 10, fill: '#8A93A0' }}
               axisLine={false}
               tickLine={false}
-              width={36}
-              unit="m"
+              width={46}
+              tickMargin={4}
+              tickFormatter={(val: number) => `${val}m`}
             />
             <Tooltip
               wrapperStyle={{ zIndex: 30, outline: 'none' }}

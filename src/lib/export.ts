@@ -1,8 +1,10 @@
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { APP_VERSION } from '@/src/lib/appInfo';
 import {
+  hasNativeChunkedFileExportPlugin,
   hasNativeFileExportPlugin,
   isNativeCapacitor,
+  runNativeChunkedFileExport,
   runNativeFileExport,
 } from '@/src/lib/capacitor';
 import { estimateCallCostEtb, formatEtb, formatSimDisplay, type TariffConfig } from '@/src/lib/ethiopia';
@@ -238,6 +240,24 @@ export async function saveAndShareBytes(
   openShare = true,
 ): Promise<ExportDeliveryResult> {
   const baseMime = mimeType.split(';')[0]?.trim() || 'application/octet-stream';
+
+  if (isNativeCapacitor() && bytes.byteLength > 256 * 1024 && hasNativeChunkedFileExportPlugin()) {
+    try {
+      const res = await runNativeChunkedFileExport({
+        filename,
+        mimeType: baseMime,
+        bytes,
+        shareTitle: shareTitle || filename,
+        openShare,
+      });
+      if (res?.saved || res?.shared) {
+        return 'native';
+      }
+    } catch {
+      // fall through to single-shot FileExport or Web Share fallback
+    }
+  }
+
   const base64Data = isNativeCapacitor() ? uint8ToBase64(bytes) : '';
 
   if (isNativeCapacitor() && hasNativeFileExportPlugin()) {
@@ -313,7 +333,7 @@ export async function saveAndShareBytes(
   document.body.removeChild(link);
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
-  }, 1500);
+  }, 60_000);
   return 'downloaded';
 }
 

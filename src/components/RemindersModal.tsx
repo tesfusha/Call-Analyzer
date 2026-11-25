@@ -16,6 +16,8 @@ import {
   FileDown,
   MessageSquare,
   Phone,
+  PhoneIncoming,
+  PhoneMissed,
   Plus,
   Search,
   Sparkles,
@@ -41,13 +43,14 @@ import {
 } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile } from '@/src/lib/export';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import { buildLongGapTestCalls } from '@/src/lib/import';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
 import {
   buildPeriodReport,
+  findLongGapReturnCalls,
   formatReportClipboard,
   getEatWeekKey,
   quietContactsAnalysis,
-  quietMessage,
   unreturnedMissedCalls,
   type QuietContact,
 } from '@/src/lib/reminders';
@@ -117,6 +120,8 @@ export function RemindersModal({
     muteAlertKey,
     unmuteAlertKey,
     dismissMissedCall,
+    dismissLongGapCall,
+    importCalls,
     scheduleCall,
     completeScheduledCall,
     snoozeScheduledCall,
@@ -254,6 +259,21 @@ export function RemindersModal({
 
   const quiet = quietAnalysis.active;
 
+  const quietCategoryCounts = useMemo(() => {
+    let family = 0;
+    let friends = 0;
+    let business = 0;
+    quiet.forEach((q) => {
+      const lower = q.tag.trim().toLowerCase();
+      if (lower.includes('family')) family += 1;
+      else if (lower.includes('friend')) friends += 1;
+      else if (lower.includes('business') || lower.includes('work') || lower.includes('coworker')) {
+        business += 1;
+      }
+    });
+    return { all: quiet.length, family, friends, business };
+  }, [quiet]);
+
   const filteredQuiet = useMemo(() => {
     if (quietFilter === 'all') return quiet;
     return quiet.filter((q) => {
@@ -287,6 +307,27 @@ export function RemindersModal({
       ),
     [calls, dismissedMissedIds, mutedAlertSet],
   );
+  const longGapReturnCalls = useMemo(() => {
+    if (alertTypePrefs.longGapCalls === false) return [];
+    return findLongGapReturnCalls(calls, {
+      contacts,
+      favorites: Array.from(favorites),
+      minGapDays: alertTypePrefs.longGapDays ?? 30,
+      maxAgeDays: 7,
+    }).filter(
+      (item) =>
+        !dismissedMissedIds.has(`longgap:${item.id}`) &&
+        !mutedAlertSet.has(`longgap:${item.contactKey}`),
+    );
+  }, [
+    alertTypePrefs.longGapCalls,
+    alertTypePrefs.longGapDays,
+    calls,
+    contacts,
+    favorites,
+    dismissedMissedIds,
+    mutedAlertSet,
+  ]);
   const weekly = useMemo(
     () => buildPeriodReport(calls, 'weekly', tariffs, new Date()),
     [calls, tariffs],
@@ -298,12 +339,13 @@ export function RemindersModal({
 
   const allActiveAlertKeys = useMemo(() => {
     const keys: string[] = [];
+    longGapReturnCalls.forEach((item) => keys.push(`longgap:${item.id}`));
     unreturned.forEach((m) => keys.push(`missed:${m.id}`));
     pendingScheduled.forEach((s) => keys.push(`sched:${s.id}:${s.scheduledFor}`));
     upcomingEvents.forEach((e) => keys.push(`bday:${e.id}:${e.daysUntil}`));
     upcomingHolidays.forEach((h) => keys.push(`holiday:${h.key}:${h.daysUntil}`));
     return keys;
-  }, [unreturned, pendingScheduled, upcomingEvents, upcomingHolidays]);
+  }, [longGapReturnCalls, unreturned, pendingScheduled, upcomingEvents, upcomingHolidays]);
 
   const unreadAlertKeys = useMemo(
     () => allActiveAlertKeys.filter((k) => !readAlertSet.has(k)),
@@ -447,7 +489,7 @@ export function RemindersModal({
       key: 'action',
       label: 'Follow-ups',
       icon: Clock,
-      count: unreturned.length + pendingScheduled.length,
+      count: longGapReturnCalls.length + unreturned.length + pendingScheduled.length,
     },
     {
       key: 'wishes',
@@ -858,6 +900,126 @@ export function RemindersModal({
           </div>
         )}
 
+        {/* Back in Touch (30+ day return calls) */}
+        {activeCategory === 'action' && (
+          <div className="space-y-2.5">
+            <div className="flex items-center gap-2">
+              <PhoneIncoming size={15} className="text-[#10B981]" />
+              <h3 className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                Back in touch after {alertTypePrefs.longGapDays ?? 30}+ days ({longGapReturnCalls.length})
+              </h3>
+            </div>
+
+            {longGapReturnCalls.length === 0 ? (
+              <div className="py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-2.5">
+                <p className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] flex-1 min-w-[200px]">
+                  No one has called after a {alertTypePrefs.longGapDays ?? 30}+ day gap in the last 7 days. You&apos;ll get an alert when a long-quiet contact reaches out.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const testCalls = buildLongGapTestCalls(calls);
+                    importCalls(testCalls);
+                    showNotice('Logged Abela calling after 45 days. Tap Abela to view Profile.', 'success');
+                  }}
+                  className="min-h-[34px] px-3 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-[11px] font-semibold text-[#08246B] dark:text-white whitespace-nowrap shrink-0 transition-colors"
+                >
+                  Log test call (Abela · 45d)
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                {longGapReturnCalls.map((item) => {
+                  const displayName = formatDisplayNameOrPhone(item.name || null, item.number);
+                  const profile = contacts[item.contactKey];
+                  return (
+                    <div key={item.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onSelectContact(item.number);
+                        }}
+                        className="min-w-0 text-left space-y-0.5 flex-1"
+                      >
+                        <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate flex items-center gap-1.5">
+                          {!readAlertSet.has(`longgap:${item.id}`) && (
+                            <span
+                              className="w-2 h-2 rounded-full bg-[#FF6A00] shrink-0"
+                              aria-label="Unread alert"
+                            />
+                          )}
+                          {item.direction === 'missed' ? (
+                            <PhoneMissed size={13} className="text-[#FF6A00] shrink-0" />
+                          ) : (
+                            <PhoneIncoming size={13} className="text-[#10B981] shrink-0" />
+                          )}
+                          <span className="truncate">{displayName}</span>
+                          <span className="text-xs font-mono font-bold tabular-nums text-[#FF6A00] shrink-0">
+                            · {item.gapDays}d gap
+                          </span>
+                        </p>
+                        <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
+                          {[
+                            item.direction === 'missed'
+                              ? 'Missed call'
+                              : item.duration > 0
+                                ? `Incoming · ${formatDuration(item.duration)}`
+                                : 'Incoming',
+                            formatDateTime(item.timestamp),
+                            item.sim || null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                      </button>
+                      <div className="w-full sm:w-auto min-w-0 flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openWishComposer({
+                              contactNumber: item.number,
+                              contactName: displayName,
+                              contactKey: item.contactKey,
+                              tag: item.tag || profile?.tag || undefined,
+                              occasionType: 'reconnect',
+                              occasionKey: `reconnect:${item.contactKey}`,
+                              occasionName: 'Back in Touch',
+                              telegramUsername: profile?.telegramUsername,
+                              instagramUsername: profile?.instagramUsername,
+                            })
+                          }
+                          className="min-h-[38px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1"
+                        >
+                          <MessageSquare size={13} className="text-[#FF6A00]" />
+                          Say Hi
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => dismissLongGapCall(item.id)}
+                          aria-label={`Mark ${displayName} handled`}
+                          className="min-h-[38px] min-w-[38px] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center"
+                        >
+                          <Check size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCallBack(item.number)}
+                          aria-label={`Call ${displayName}`}
+                          className="min-h-[38px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Phone size={14} />
+                          Call
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Scheduled Calls */}
         {activeCategory === 'action' && (
           <div className="space-y-3">
@@ -1194,33 +1356,38 @@ export function RemindersModal({
           </div>
         )}
 
-        {/* Quiet Contacts / Reconnect Suggestions (Step 15) */}
+        {/* Quiet Contacts / Reconnect Suggestions */}
         {activeCategory === 'quiet' && (
           <div className="space-y-4">
-            {/* Summary + Weekly Reconnect Goal */}
-            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-[#08246B] dark:text-white">
-                    {filteredQuiet.length}{' '}
-                    {filteredQuiet.length === 1 ? 'person' : 'people'} to reconnect today
+            {/* Catchy Weekly Reconnect Hero */}
+            <div className="rounded-2xl bg-gradient-to-br from-[#FFF4EB] via-[#FFF9F4] to-white dark:from-[#FF6A00]/14 dark:via-[#1B1D22] dark:to-[#16181D] border border-[#FF6A00]/30 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <p className="text-[11px] font-semibold text-[#FF6A00]">
+                    Weekly Reconnect Goal
+                  </p>
+                  <p className="text-lg font-bold text-[#08246B] dark:text-white font-mono tabular-nums leading-tight">
+                    {weeklyContactedCount} of {weeklyGoal}{' '}
+                    <span className="text-xs font-sans font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                      reconnected
+                    </span>
                   </p>
                   <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     Swipe right to call · Swipe left to snooze 1 week
                   </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs font-mono font-bold tabular-nums text-[#FF6A00]">
-                    {weeklyContactedCount} of {weeklyGoal}
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-bold font-mono tabular-nums text-[#08246B] dark:text-white leading-tight">
+                    {filteredQuiet.length}
                   </p>
-                  <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Weekly goal
+                  <p className="text-[10px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    {filteredQuiet.length === 1 ? 'waiting' : 'waiting'}
                   </p>
                 </div>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-white dark:bg-[var(--dark-surface)] overflow-hidden">
+              <div className="h-2 w-full rounded-full bg-[#DDE4EA]/70 dark:bg-[var(--dark-canvas)] overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-[#FF6A00] transition-all duration-200"
+                  className="h-full rounded-full bg-[#FF6A00] transition-all duration-300"
                   style={{
                     width: `${Math.min(100, Math.round((weeklyContactedCount / weeklyGoal) * 100))}%`,
                   }}
@@ -1229,37 +1396,47 @@ export function RemindersModal({
             </div>
 
             {!alertTypePrefs.quietContacts && (
-              <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2">
-                Pop-up notifications for quiet contacts stay calm and off by default. Enable in Settings → Reminders.
+              <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] px-1">
+                Pop-up notifications for quiet contacts stay calm and off by default. Enable anytime in Settings → Reminders.
               </p>
             )}
 
-            {/* Category filter chips */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            {/* Category Segmented Filter */}
+            <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
               {(
                 [
-                  { id: 'all', label: 'All' },
-                  { id: 'family', label: 'Family' },
-                  { id: 'friends', label: 'Friends' },
-                  { id: 'business', label: 'Business' },
+                  { id: 'all', label: 'All', count: quietCategoryCounts.all },
+                  { id: 'family', label: 'Family', count: quietCategoryCounts.family },
+                  { id: 'friends', label: 'Friends', count: quietCategoryCounts.friends },
+                  { id: 'business', label: 'Work', count: quietCategoryCounts.business },
                 ] as const
-              ).map((chip) => (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => {
-                    setQuietFilter(chip.id);
-                    setShowAllQuiet(false);
-                  }}
-                  className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                    quietFilter === chip.id
-                      ? 'bg-[#FF6A00] text-white'
-                      : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                  }`}
-                >
-                  {chip.label}
-                </button>
-              ))}
+              ).map((chip) => {
+                const active = quietFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => {
+                      setQuietFilter(chip.id);
+                      setShowAllQuiet(false);
+                    }}
+                    className={`min-h-[36px] px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap flex items-center justify-center gap-1 transition-colors ${
+                      active
+                        ? 'bg-[#FF6A00] text-white shadow-sm'
+                        : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
+                    }`}
+                  >
+                    <span className="truncate">{chip.label}</span>
+                    <span
+                      className={`text-[10px] font-mono tabular-nums ${
+                        active ? 'text-white/90' : 'text-[#8A93A0] dark:text-[var(--dark-text-muted)]'
+                      }`}
+                    >
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             {mutedUndo && (
@@ -1280,24 +1457,35 @@ export function RemindersModal({
               </div>
             )}
 
-            {/* Active Reconnect List */}
+            {/* Active Reconnect Cards */}
             {filteredQuiet.length === 0 ? (
-              <p className="text-sm text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
-                No overdue regular contacts in this filter right now.
-              </p>
+              <div className="rounded-2xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-6 text-center space-y-1">
+                <p className="text-sm font-semibold text-[#08246B] dark:text-white">
+                  You&apos;re all caught up here
+                </p>
+                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  No overdue regular contacts in this filter right now.
+                </p>
+              </div>
             ) : (
-              <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-hidden">
+              <div className="space-y-2.5 overflow-hidden">
                 {displayedQuiet.map((item: QuietContact) => {
                   const display = formatDisplayNameOrPhone(item.name, item.number);
                   const qMuteKey = `quiet:${item.contactKey}`;
                   const profile = contacts[item.contactKey];
+                  const urgencyColor =
+                    item.overdueRatio >= 3
+                      ? 'text-[#EF4444]'
+                      : item.overdueRatio >= 2
+                        ? 'text-[#F59E0B]'
+                        : 'text-[#10B981]';
                   const barColor =
                     item.overdueRatio >= 3
                       ? 'bg-[#EF4444]'
                       : item.overdueRatio >= 2
                         ? 'bg-[#F59E0B]'
                         : 'bg-[#10B981]';
-                  const barWidth = Math.min(100, Math.max(18, Math.round((item.overdueRatio / 3.5) * 100)));
+                  const barWidth = Math.min(100, Math.max(24, Math.round((item.overdueRatio / 3.5) * 100)));
                   const activeDx = swipeState?.key === item.contactKey ? swipeState.dx : 0;
 
                   const triggerQuietCall = () => {
@@ -1311,6 +1499,14 @@ export function RemindersModal({
                     setOpenSnoozeKey(null);
                     showNotice(`Snoozed ${display} for ${label}.`);
                   };
+
+                  const metaParts = [
+                    item.typicalIntervalDays !== null
+                      ? `Usually every ${item.typicalIntervalDays}d`
+                      : `${item.callCount} past calls`,
+                    item.tag || null,
+                    item.isFavorite ? 'VIP' : null,
+                  ].filter(Boolean);
 
                   return (
                     <div
@@ -1344,66 +1540,64 @@ export function RemindersModal({
                         swipeStartRef.current = null;
                         setSwipeState(null);
                       }}
-                      className="py-3 space-y-2.5 transition-transform"
+                      className="rounded-2xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00]/45 p-3.5 space-y-3 transition-all"
                       style={
                         activeDx !== 0
                           ? { transform: `translateX(${activeDx * 0.45}px)` }
                           : undefined
                       }
                     >
-                      <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-center justify-between gap-3">
                         <button
                           type="button"
                           onClick={() => {
                             onClose();
                             onSelectContact(item.number);
                           }}
-                          className="min-w-0 text-left flex items-start gap-2.5 flex-1"
+                          className="min-w-0 text-left flex items-center gap-3 flex-1"
                         >
                           <div
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
+                            className="w-11 h-11 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm"
                             style={{ backgroundColor: avatarColor(item.number) }}
                           >
                             {initials(item.name || item.number, item.number)}
                           </div>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <p className="text-sm font-semibold text-[#08246B] dark:text-white truncate">
-                                {display}
-                              </p>
-                              {item.tag && (
-                                <span className="px-1.5 py-0.5 rounded bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[10px] font-semibold text-[#FF6A00]">
-                                  {item.tag}
-                                </span>
-                              )}
-                              {item.isFavorite && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-                                  VIP
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                              {quietMessage(item)}
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <p className="text-sm font-bold text-[#08246B] dark:text-white truncate">
+                              {display}
                             </p>
-                            {/* Overdue intensity bar (green -> amber -> red) */}
-                            <div className="h-1 w-full max-w-[220px] rounded-full bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${barColor} transition-all`}
-                                style={{ width: `${barWidth}%` }}
-                              />
-                            </div>
+                            <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                              {metaParts.join(' · ')}
+                            </p>
                           </div>
                         </button>
+
+                        <div className="text-right shrink-0 space-y-1">
+                          <div className="leading-none">
+                            <span className={`text-sm font-mono font-bold tabular-nums ${urgencyColor}`}>
+                              {item.daysSinceLast}d
+                            </span>
+                            <span className="ml-1 text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              ago
+                            </span>
+                          </div>
+                          <div className="w-12 h-1 rounded-full bg-[#DDE4EA] dark:bg-[var(--dark-surface)] overflow-hidden ml-auto">
+                            <div
+                              className={`h-full rounded-full ${barColor} transition-all`}
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={triggerQuietCall}
                           aria-label={`Call ${display}`}
-                          className="min-h-[36px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap"
+                          className="flex-1 min-h-[40px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                         >
-                          <Phone size={13} />
+                          <Phone size={14} />
                           Call
                         </button>
                         <button
@@ -1421,9 +1615,9 @@ export function RemindersModal({
                               instagramUsername: profile?.instagramUsername,
                             })
                           }
-                          className="min-h-[36px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap"
+                          className="flex-1 min-h-[40px] px-3 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                         >
-                          <MessageSquare size={13} className="text-[#FF6A00]" />
+                          <MessageSquare size={14} className="text-[#FF6A00]" />
                           Message
                         </button>
                         <button
@@ -1433,10 +1627,15 @@ export function RemindersModal({
                               prev === item.contactKey ? null : item.contactKey,
                             )
                           }
-                          className="min-h-[36px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap"
+                          title="Snooze reminder"
+                          aria-label={`Snooze reminder for ${display}`}
+                          className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 transition-colors ${
+                            openSnoozeKey === item.contactKey
+                              ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#FF6A00]'
+                              : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]'
+                          }`}
                         >
-                          <Clock size={13} />
-                          Snooze
+                          <Clock size={15} />
                         </button>
                         <button
                           type="button"
@@ -1444,15 +1643,16 @@ export function RemindersModal({
                             muteAlertKey(qMuteKey);
                             setMutedUndo({ key: qMuteKey, label: display });
                           }}
-                          className="min-h-[36px] px-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#DC2626] flex items-center gap-1 whitespace-nowrap"
+                          title="Do not remind"
+                          aria-label={`Do not remind for ${display}`}
+                          className="w-10 h-10 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:border-[#DC2626]/60 hover:text-[#DC2626] flex items-center justify-center shrink-0 transition-colors"
                         >
-                          <BellOff size={13} />
-                          Do not remind
+                          <BellOff size={15} />
                         </button>
                       </div>
 
                       {openSnoozeKey === item.contactKey && (
-                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
                           <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] mr-1">
                             Snooze for:
                           </span>
@@ -1465,7 +1665,7 @@ export function RemindersModal({
                               key={opt.days}
                               type="button"
                               onClick={() => triggerSnooze(opt.days, opt.label)}
-                              className="px-2.5 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00]"
                             >
                               {opt.label}
                             </button>

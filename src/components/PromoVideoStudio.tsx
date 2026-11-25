@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Share } from '@capacitor/share';
+import { ArrayBufferTarget, Muxer } from 'mp4-muxer';
 import {
   Camera,
   Check,
@@ -22,6 +23,7 @@ import { triggerHaptic } from '@/src/lib/haptics';
 import { useCalls } from '@/src/store/CallsContext';
 
 type AspectKey = '9:16' | '1:1' | '16:9';
+type ExportQualityKey = '720p' | '1080p';
 type PromoPaletteKey = 'navy' | 'obsidian' | 'bright';
 type AppTabName = 'Calls' | 'Analytics' | 'Usage' | 'Calendar' | 'Settings';
 
@@ -74,6 +76,16 @@ const PROMO_PRESETS: Array<{
   features: PromoFeatureId[];
 }> = [
   { id: 'all', label: 'All (12)', features: ALL_FEATURE_IDS },
+  {
+    id: 'quick',
+    label: 'Quick Reel (15s)',
+    features: ['hook', 'tariffs', 'calendar', 'privacy'],
+  },
+  {
+    id: 'highlights',
+    label: 'Highlights (26s)',
+    features: ['hook', 'tariffs', 'topCallers', 'calendar', 'birthdayWish', 'missedReminders', 'privacy'],
+  },
   {
     id: 'analytics',
     label: 'Calls & Birr',
@@ -338,23 +350,93 @@ function getActiveSceneProgress(
   return { scene: last, sceneIndex: scenes.length - 1, localT: 1 };
 }
 
-function pickSupportedRecorderMime(): { mimeType: string; ext: 'mp4' | 'webm' } {
+function getSupportedRecorderMimeCandidates(): Array<{ mimeType: string; ext: 'mp4' | 'webm' }> {
   if (typeof MediaRecorder === 'undefined') {
-    return { mimeType: '', ext: 'webm' };
+    return [{ mimeType: '', ext: 'webm' }];
   }
-  const candidates: Array<{ mime: string; ext: 'mp4' | 'webm' }> = [
-    { mime: 'video/webm;codecs=vp9', ext: 'webm' },
-    { mime: 'video/webm;codecs=vp8', ext: 'webm' },
-    { mime: 'video/webm', ext: 'webm' },
-    { mime: 'video/mp4;codecs=avc1', ext: 'mp4' },
-    { mime: 'video/mp4', ext: 'mp4' },
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(ua);
+  const candidates: Array<{ mime: string; ext: 'mp4' | 'webm' }> = isSafari
+    ? [
+        { mime: 'video/mp4;codecs=avc1', ext: 'mp4' },
+        { mime: 'video/mp4', ext: 'mp4' },
+        { mime: 'video/webm;codecs=vp8', ext: 'webm' },
+        { mime: 'video/webm', ext: 'webm' },
+      ]
+    : [
+        { mime: 'video/webm;codecs=vp8', ext: 'webm' },
+        { mime: 'video/webm', ext: 'webm' },
+        { mime: 'video/webm;codecs=vp9', ext: 'webm' },
+        { mime: 'video/mp4;codecs=avc1', ext: 'mp4' },
+        { mime: 'video/mp4', ext: 'mp4' },
+      ];
+  const supported = candidates
+    .filter(
+      (c) => typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(c.mime),
+    )
+    .map((c) => ({ mimeType: c.mime, ext: c.ext }));
+
+  return supported.length > 0 ? [...supported, { mimeType: '', ext: 'webm' }] : [{ mimeType: '', ext: 'webm' }];
+}
+
+async function findSupportedAvcConfig(
+  width: number,
+  height: number,
+  framerate: number,
+  bitrate: number,
+): Promise<VideoEncoderConfig | null> {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
+    return null;
+  }
+  // Ensure even dimensions required by H.264 encoders
+  const safeW = width % 2 === 0 ? width : width - 1;
+  const safeH = height % 2 === 0 ? height : height - 1;
+  const codecs = [
+    'avc1.420028',
+    'avc1.4d002a',
+    'avc1.64002a',
+    'avc1.42E01F',
+    'avc1.42001f',
+    'avc1.4D401F',
   ];
-  for (const c of candidates) {
-    if (typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(c.mime)) {
-      return { mimeType: c.mime, ext: c.ext };
+  const hardwareModes: Array<'no-preference' | 'prefer-software'> = [
+    'no-preference',
+    'prefer-software',
+  ];
+
+  for (const hardwareAcceleration of hardwareModes) {
+    for (const codec of codecs) {
+      const config: VideoEncoderConfig = {
+        codec,
+        width: safeW,
+        height: safeH,
+        bitrate,
+        framerate,
+        hardwareAcceleration,
+        avc: { format: 'avc' },
+      };
+      try {
+        const res = await VideoEncoder.isConfigSupported(config);
+        if (res.supported) {
+          return res.config ?? config;
+        }
+      } catch {
+        // try next config
+      }
     }
   }
-  return { mimeType: '', ext: 'webm' };
+  return null;
+}
+
+function triggerDirectWebDownload(url: string, filename: string): void {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -417,6 +499,9 @@ export function PromoVideoStudio() {
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const [aspect, setAspect] = useState<AspectKey>('9:16');
+  const [exportQuality, setExportQuality] = useState<ExportQualityKey>(() =>
+    isNativeCapacitor() || (typeof window !== 'undefined' && window.innerWidth < 768) ? '720p' : '1080p',
+  );
   const [paletteKey, setPaletteKey] = useState<PromoPaletteKey>('navy');
   const [selectedFeatures, setSelectedFeatures] = useState<PromoFeatureId[]>(ALL_FEATURE_IDS);
   const [featuresOpen, setFeaturesOpen] = useState<boolean>(false);
@@ -428,16 +513,21 @@ export function PromoVideoStudio() {
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
+  const [exportStageLabel, setExportStageLabel] = useState<'Encoding MP4' | 'Recording'>('Encoding MP4');
+  const [exportError, setExportError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [readyExport, setReadyExport] = useState<ReadyExportAsset | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const readyCardRef = useRef<HTMLDivElement | null>(null);
   const logoImgRef = useRef<HTMLImageElement | null>(null);
   const [logoLoaded, setLogoLoaded] = useState<boolean>(false);
   const timeRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const stopTimeoutRef = useRef<number | null>(null);
+  const activeEncoderRef = useRef<VideoEncoder | null>(null);
   const exportCancelledRef = useRef<boolean>(false);
   const readyExportUrlRef = useRef<string | null>(null);
   const mountedRef = useRef<boolean>(true);
@@ -477,7 +567,15 @@ export function PromoVideoStudio() {
     img.src = '/logo.png';
   }, []);
 
-  const aspectCfg = ASPECT_CONFIG[aspect];
+  const baseAspectCfg = ASPECT_CONFIG[aspect];
+  const aspectCfg = useMemo(() => {
+    const scale = exportQuality === '720p' ? 2 / 3 : 1;
+    return {
+      ...baseAspectCfg,
+      width: Math.round(baseAspectCfg.width * scale),
+      height: Math.round(baseAspectCfg.height * scale),
+    };
+  }, [baseAspectCfg, exportQuality]);
   const palette = PALETTES[paletteKey];
 
   const toggleFeature = useCallback(
@@ -1910,10 +2008,28 @@ export function PromoVideoStudio() {
     }
     readyExportUrlRef.current = next?.url ?? null;
     setReadyExport(next);
+    if (next) {
+      window.setTimeout(() => {
+        readyCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 80);
+    }
   }, []);
 
   const deliverExportBlob = useCallback(
     async (asset: ReadyExportAsset, openShareOnNative: boolean) => {
+      setExportError(null);
+      if (!isNativeCapacitor()) {
+        try {
+          triggerDirectWebDownload(asset.url, asset.filename);
+          showNotice(
+            `${asset.kind === 'video' ? 'Video' : 'PNG'} ready (${asset.sizeLabel}). If your browser blocked auto-download, tap Save below.`,
+            'success',
+          );
+          return;
+        } catch {
+          // fall through to saveAndShareBytes
+        }
+      }
       try {
         const bytes = new Uint8Array(await asset.blob.arrayBuffer());
         const result = await saveAndShareBytes(
@@ -1924,18 +2040,21 @@ export function PromoVideoStudio() {
           openShareOnNative,
         );
         if (result === 'native') {
-          showNotice(`Saved ${asset.filename} to Documents / shared.`, 'success');
+          const folderLabel =
+            asset.kind === 'video' ? 'Movies / Gallery' : 'Pictures / Gallery';
+          showNotice(`Saved ${asset.filename} to ${folderLabel}.`, 'success');
         } else if (result === 'shared') {
           showNotice(`Ready to share ${asset.filename}.`, 'success');
         } else {
           showNotice(
-            `${asset.kind === 'video' ? 'Promo video' : 'Poster PNG'} ready (${asset.sizeLabel}). If it didn't auto-save, tap Save File below.`,
+            `${asset.kind === 'video' ? 'Promo video' : 'Poster PNG'} ready (${asset.sizeLabel}). If it didn't auto-save, tap Save below.`,
             'success',
           );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Could not save file.';
-        showNotice(`${msg} Use Save File below.`);
+        setExportError(`${msg} Use Save or Share below.`);
+        showNotice(`${msg} Use Save below.`);
       }
     },
     [showNotice],
@@ -1976,6 +2095,7 @@ export function PromoVideoStudio() {
 
   const handleDownloadPoster = useCallback(async () => {
     triggerHaptic('tap');
+    setExportError(null);
     const canvas = canvasRef.current;
     if (!canvas) return;
     try {
@@ -1995,6 +2115,7 @@ export function PromoVideoStudio() {
       await deliverExportBlob(asset, true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not export PNG cover.';
+      setExportError(msg);
       showNotice(msg);
     }
   }, [aspect, deliverExportBlob, renderFrame, setReadyExportAsset, showNotice]);
@@ -2005,6 +2126,20 @@ export function PromoVideoStudio() {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+    if (stopTimeoutRef.current !== null) {
+      window.clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+    if (activeEncoderRef.current) {
+      try {
+        if (activeEncoderRef.current.state !== 'closed') {
+          activeEncoderRef.current.close();
+        }
+      } catch {
+        // ignore close error
+      }
+      activeEncoderRef.current = null;
+    }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
     } else {
@@ -2014,128 +2149,357 @@ export function PromoVideoStudio() {
     showNotice('Promo video export cancelled.');
   }, [showNotice]);
 
-  const handleExportVideo = useCallback(() => {
+  const startMediaRecorderExport = useCallback(
+    (
+      canvas: HTMLCanvasElement,
+      durationSnapshot: number,
+      captureFps: number,
+      targetBitrate: number,
+    ) => {
+      if (typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
+        setExporting(false);
+        const msg =
+          'Direct video recording is not supported in this browser/WebView. Open in Chrome or use Save PNG Cover.';
+        setExportError(msg);
+        showNotice(msg);
+        return;
+      }
+
+      setExportStageLabel('Recording');
+      const candidates = getSupportedRecorderMimeCandidates();
+
+      let stream: MediaStream;
+      try {
+        stream = canvas.captureStream(captureFps);
+      } catch {
+        setExporting(false);
+        const msg = 'Could not capture canvas video stream on this device. Try Save PNG Cover or Screen Record.';
+        setExportError(msg);
+        showNotice(msg);
+        return;
+      }
+
+      let recorder: MediaRecorder | null = null;
+      let chosenMime = '';
+      for (const candidate of candidates) {
+        try {
+          recorder = candidate.mimeType
+            ? new MediaRecorder(stream, { mimeType: candidate.mimeType, videoBitsPerSecond: targetBitrate })
+            : new MediaRecorder(stream);
+          chosenMime = recorder.mimeType || candidate.mimeType;
+          break;
+        } catch {
+          if (candidate.mimeType) {
+            try {
+              recorder = new MediaRecorder(stream, { mimeType: candidate.mimeType });
+              chosenMime = recorder.mimeType || candidate.mimeType;
+              break;
+            } catch {
+              // try next candidate
+            }
+          }
+        }
+      }
+
+      if (!recorder) {
+        stream.getTracks().forEach((tr) => tr.stop());
+        setExporting(false);
+        const msg =
+          'Video encoder could not initialize on this device. Try 720p quality or Fullscreen + Screen Record.';
+        setExportError(msg);
+        showNotice(msg);
+        return;
+      }
+
+      const activeRecorder = recorder;
+      const chunks: Blob[] = [];
+      recorderRef.current = activeRecorder;
+
+      activeRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+      activeRecorder.onerror = () => {
+        if (stopTimeoutRef.current !== null) {
+          window.clearTimeout(stopTimeoutRef.current);
+          stopTimeoutRef.current = null;
+        }
+        stream.getTracks().forEach((tr) => tr.stop());
+        recorderRef.current = null;
+        if (!mountedRef.current) return;
+        setExporting(false);
+        setExportProgress(0);
+        const msg =
+          'Video encoding failed on this device. Try 720p quality, Chrome browser, or Fullscreen + Screen Record.';
+        setExportError(msg);
+        showNotice(msg);
+      };
+      activeRecorder.onstop = () => {
+        if (stopTimeoutRef.current !== null) {
+          window.clearTimeout(stopTimeoutRef.current);
+          stopTimeoutRef.current = null;
+        }
+        stream.getTracks().forEach((tr) => tr.stop());
+        recorderRef.current = null;
+        if (!mountedRef.current) return;
+        setExporting(false);
+        if (exportCancelledRef.current) {
+          setExportProgress(0);
+          return;
+        }
+        setExportProgress(100);
+        if (chunks.length === 0) {
+          const msg =
+            'No video frames were captured in this browser/WebView. Try Quick Reel (15s) or Chrome.';
+          setExportError(msg);
+          showNotice(msg);
+          return;
+        }
+        const actualMime = activeRecorder.mimeType || chosenMime || 'video/webm';
+        const actualExt: 'mp4' | 'webm' = actualMime.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(chunks, { type: actualMime });
+        const url = URL.createObjectURL(blob);
+        const filename = `call-analyzer-promo-${aspect.replace(':', 'x')}.${actualExt}`;
+        const asset: ReadyExportAsset = {
+          kind: 'video',
+          url,
+          blob,
+          filename,
+          mimeType: actualMime,
+          sizeLabel: formatBytesLabel(blob.size),
+        };
+        setReadyExportAsset(asset);
+        void deliverExportBlob(asset, true);
+      };
+
+      timeRef.current = 0;
+      setCurrentTimeSec(0);
+      renderFrame(0);
+
+      try {
+        activeRecorder.start(250);
+      } catch {
+        stream.getTracks().forEach((tr) => tr.stop());
+        recorderRef.current = null;
+        setExporting(false);
+        const msg = 'Could not start video recording in this browser.';
+        setExportError(msg);
+        showNotice(msg);
+        return;
+      }
+
+      const videoTrack = stream.getVideoTracks()[0] as
+        | (MediaStreamTrack & { requestFrame?: () => void })
+        | undefined;
+
+      const startWall = performance.now();
+      const pump = (now: number) => {
+        if (!mountedRef.current || exportCancelledRef.current) return;
+        const elapsedSec = (now - startWall) / 1000;
+        const clamped = Math.min(durationSnapshot, elapsedSec);
+        timeRef.current = clamped;
+        setCurrentTimeSec(clamped);
+        setExportProgress(Math.round((clamped / durationSnapshot) * 100));
+        renderFrame(clamped);
+        videoTrack?.requestFrame?.();
+
+        if (elapsedSec < durationSnapshot) {
+          rafRef.current = requestAnimationFrame(pump);
+        } else if (activeRecorder.state === 'recording') {
+          try {
+            activeRecorder.requestData();
+          } catch {
+            // ignore requestData errors
+          }
+          stopTimeoutRef.current = window.setTimeout(() => {
+            stopTimeoutRef.current = null;
+            if (activeRecorder.state !== 'inactive') {
+              activeRecorder.stop();
+            }
+          }, 60);
+        }
+      };
+      rafRef.current = requestAnimationFrame(pump);
+    },
+    [aspect, deliverExportBlob, renderFrame, setReadyExportAsset, showNotice],
+  );
+
+  const handleExportVideo = useCallback(async () => {
+    setExportError(null);
     const canvas = canvasRef.current;
-    if (!canvas || typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
-      showNotice('Direct video recording is unavailable in this browser. Use Fullscreen + screen record or Save PNG Cover.');
-      return;
-    }
+    if (!canvas) return;
+
     triggerHaptic('tap');
     exportCancelledRef.current = false;
     setPlaying(false);
     setExporting(true);
     setExportProgress(0);
+    setExportStageLabel('Encoding MP4');
 
     const durationSnapshot = totalDurationSec;
-    const { mimeType } = pickSupportedRecorderMime();
-    let stream: MediaStream;
-    try {
-      stream = canvas.captureStream(30);
-    } catch {
-      setExporting(false);
-      showNotice('Could not capture canvas video stream in this browser. Try Save PNG Cover.');
-      return;
-    }
-
-    const chunks: Blob[] = [];
-    let recorder: MediaRecorder;
-    try {
-      recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 3_200_000 })
-        : new MediaRecorder(stream);
-    } catch {
-      try {
-        recorder = new MediaRecorder(stream);
-      } catch {
-        stream.getTracks().forEach((tr) => tr.stop());
-        setExporting(false);
-        showNotice('Video recorder could not initialize on this device. Try Fullscreen + screen record.');
-        return;
-      }
-    }
-    recorderRef.current = recorder;
-
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-    recorder.onerror = () => {
-      stream.getTracks().forEach((tr) => tr.stop());
-      recorderRef.current = null;
-      if (!mountedRef.current) return;
-      setExporting(false);
-      setExportProgress(0);
-      showNotice('Video encoding failed on this browser. Try Fullscreen + screen record or Save PNG Cover.');
-    };
-    recorder.onstop = () => {
-      stream.getTracks().forEach((tr) => tr.stop());
-      recorderRef.current = null;
-      if (!mountedRef.current) return;
-      setExporting(false);
-      if (exportCancelledRef.current) {
-        setExportProgress(0);
-        return;
-      }
-      setExportProgress(100);
-      if (chunks.length === 0) {
-        showNotice('No video frames were captured. Try another browser or use Save PNG Cover.');
-        return;
-      }
-      const actualMime = recorder.mimeType || mimeType || 'video/webm';
-      const actualExt: 'mp4' | 'webm' = actualMime.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
-      const blob = new Blob(chunks, { type: actualMime });
-      const url = URL.createObjectURL(blob);
-      const filename = `call-analyzer-promo-${aspect.replace(':', 'x')}.${actualExt}`;
-      const asset: ReadyExportAsset = {
-        kind: 'video',
-        url,
-        blob,
-        filename,
-        mimeType: actualMime,
-        sizeLabel: formatBytesLabel(blob.size),
-      };
-      setReadyExportAsset(asset);
-      void deliverExportBlob(asset, true);
-    };
+    const captureFps = exportQuality === '720p' ? 24 : 30;
+    const targetBitrate = exportQuality === '720p' ? 1_400_000 : 2_800_000;
 
     timeRef.current = 0;
     setCurrentTimeSec(0);
     renderFrame(0);
 
-    try {
-      recorder.start(250);
-    } catch {
-      stream.getTracks().forEach((tr) => tr.stop());
-      recorderRef.current = null;
+    // Primary fast offline MP4 engine (WebCodecs + mp4-muxer, ~10x faster than real-time)
+    const avcConfig = await findSupportedAvcConfig(
+      canvas.width,
+      canvas.height,
+      captureFps,
+      targetBitrate,
+    );
+
+    if (!mountedRef.current || exportCancelledRef.current) {
       setExporting(false);
-      showNotice('Could not start video recording in this browser.');
+      setExportProgress(0);
       return;
     }
 
-    const videoTrack = stream.getVideoTracks()[0] as
-      | (MediaStreamTrack & { requestFrame?: () => void })
-      | undefined;
+    if (avcConfig) {
+      let encoder: VideoEncoder | null = null;
+      let encoderError: Error | null = null;
+      let encodedChunkCount = 0;
 
-    const startWall = performance.now();
-    const pump = (now: number) => {
-      if (!mountedRef.current || exportCancelledRef.current) return;
-      const elapsedSec = (now - startWall) / 1000;
-      const clamped = Math.min(durationSnapshot, elapsedSec);
-      timeRef.current = clamped;
-      setCurrentTimeSec(clamped);
-      setExportProgress(Math.round((clamped / durationSnapshot) * 100));
-      renderFrame(clamped);
-      videoTrack?.requestFrame?.();
+      try {
+        const muxer = new Muxer({
+          target: new ArrayBufferTarget(),
+          video: {
+            codec: 'avc',
+            width: avcConfig.width,
+            height: avcConfig.height,
+            frameRate: captureFps,
+          },
+          fastStart: 'in-memory',
+          firstTimestampBehavior: 'offset',
+        });
 
-      if (elapsedSec < durationSnapshot) {
-        rafRef.current = requestAnimationFrame(pump);
-      } else {
-        if (recorder.state !== 'inactive') {
-          recorder.stop();
+        encoder = new VideoEncoder({
+          output: (chunk, meta) => {
+            encodedChunkCount += 1;
+            muxer.addVideoChunk(chunk, meta);
+          },
+          error: (err) => {
+            encoderError = err instanceof Error ? err : new Error(String(err));
+          },
+        });
+        activeEncoderRef.current = encoder;
+        encoder.configure(avcConfig);
+
+        const totalFrames = Math.max(1, Math.round(durationSnapshot * captureFps));
+        const frameDurationUs = Math.round(1_000_000 / captureFps);
+        const keyframeInterval = captureFps * 2;
+        let lastUiYield = performance.now();
+
+        for (let frameIdx = 0; frameIdx < totalFrames; frameIdx += 1) {
+          if (!mountedRef.current || exportCancelledRef.current || encoderError) break;
+
+          while (encoder.encodeQueueSize >= 6) {
+            if (!mountedRef.current || exportCancelledRef.current || encoderError) break;
+            await new Promise((r) => window.setTimeout(r, 8));
+          }
+          if (!mountedRef.current || exportCancelledRef.current || encoderError) break;
+
+          const tSec = Math.min(durationSnapshot, frameIdx / captureFps);
+          renderFrame(tSec);
+
+          const frame = new VideoFrame(canvas, {
+            timestamp: Math.round(frameIdx * frameDurationUs),
+            duration: frameDurationUs,
+          });
+          try {
+            encoder.encode(frame, { keyFrame: frameIdx % keyframeInterval === 0 });
+          } finally {
+            frame.close();
+          }
+
+          if (frameIdx % 4 === 0 || frameIdx === totalFrames - 1 || performance.now() - lastUiYield > 28) {
+            timeRef.current = tSec;
+            setCurrentTimeSec(tSec);
+            setExportProgress(Math.min(98, Math.round(((frameIdx + 1) / totalFrames) * 98)));
+            await new Promise((r) => window.setTimeout(r, 0));
+            lastUiYield = performance.now();
+          }
         }
+
+        if (!mountedRef.current || exportCancelledRef.current) {
+          try {
+            if (encoder.state !== 'closed') encoder.close();
+          } catch {
+            // ignore
+          }
+          activeEncoderRef.current = null;
+          if (mountedRef.current) {
+            setExporting(false);
+            setExportProgress(0);
+          }
+          return;
+        }
+
+        await encoder.flush();
+        try {
+          if (encoder.state !== 'closed') encoder.close();
+        } catch {
+          // ignore
+        }
+        activeEncoderRef.current = null;
+
+        if (encoderError || encodedChunkCount === 0) {
+          throw encoderError ?? new Error('No video chunks encoded.');
+        }
+
+        muxer.finalize();
+        const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+        if (blob.size <= 0) {
+          throw new Error('Generated MP4 file was empty.');
+        }
+
+        const url = URL.createObjectURL(blob);
+        const filename = `call-analyzer-promo-${aspect.replace(':', 'x')}.mp4`;
+        const asset: ReadyExportAsset = {
+          kind: 'video',
+          url,
+          blob,
+          filename,
+          mimeType: 'video/mp4',
+          sizeLabel: formatBytesLabel(blob.size),
+        };
+        setExportProgress(100);
+        setExporting(false);
+        setReadyExportAsset(asset);
+        await deliverExportBlob(asset, true);
+        return;
+      } catch {
+        if (encoder) {
+          try {
+            if (encoder.state !== 'closed') encoder.close();
+          } catch {
+            // ignore
+          }
+        }
+        activeEncoderRef.current = null;
+        if (!mountedRef.current || exportCancelledRef.current) {
+          if (mountedRef.current) {
+            setExporting(false);
+            setExportProgress(0);
+          }
+          return;
+        }
+        // Fall through cleanly to MediaRecorder if WebCodecs fails
       }
-    };
-    rafRef.current = requestAnimationFrame(pump);
-  }, [aspect, deliverExportBlob, renderFrame, setReadyExportAsset, showNotice, totalDurationSec]);
+    }
+
+    startMediaRecorderExport(canvas, durationSnapshot, captureFps, targetBitrate);
+  }, [
+    aspect,
+    deliverExportBlob,
+    exportQuality,
+    renderFrame,
+    setReadyExportAsset,
+    startMediaRecorderExport,
+    totalDurationSec,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -2145,6 +2509,20 @@ export function PromoVideoStudio() {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
+      }
+      if (stopTimeoutRef.current !== null) {
+        window.clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
+      if (activeEncoderRef.current) {
+        try {
+          if (activeEncoderRef.current.state !== 'closed') {
+            activeEncoderRef.current.close();
+          }
+        } catch {
+          // ignore
+        }
+        activeEncoderRef.current = null;
       }
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
         recorderRef.current.stop();
@@ -2415,7 +2793,7 @@ export function PromoVideoStudio() {
             </button>
 
             {formatOpen && (
-              <div className="px-3.5 pb-3.5 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2 bg-white dark:bg-[var(--dark-surface)]">
+              <div className="px-3.5 pb-3.5 pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2.5 bg-white dark:bg-[var(--dark-surface)]">
                 <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
                   {(['9:16', '1:1', '16:9'] as const).map((k) => (
                     <button
@@ -2433,6 +2811,31 @@ export function PromoVideoStudio() {
                       }`}
                     >
                       {k}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                  {(
+                    [
+                      { key: '720p', label: '720p Fast (Mobile)' },
+                      { key: '1080p', label: '1080p Full HD' },
+                    ] as const
+                  ).map((q) => (
+                    <button
+                      key={q.key}
+                      type="button"
+                      disabled={exporting}
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        setExportQuality(q.key);
+                      }}
+                      className={`min-h-[34px] px-2 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                        exportQuality === q.key
+                          ? 'bg-[#08246B] text-white'
+                          : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
+                      }`}
+                    >
+                      {q.label}
                     </button>
                   ))}
                 </div>
@@ -2532,12 +2935,12 @@ export function PromoVideoStudio() {
               <button
                 type="button"
                 disabled={exporting}
-                onClick={handleExportVideo}
+                onClick={() => void handleExportVideo()}
                 className="flex-1 min-h-[44px] px-4 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-70 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-colors"
               >
                 <Download size={15} />
                 {exporting
-                  ? `Recording (${exportProgress}%)`
+                  ? `${exportStageLabel} (${exportProgress}%)`
                   : `Export ${totalDurationSec.toFixed(0)}s Video (${aspect})`}
               </button>
 
@@ -2545,7 +2948,7 @@ export function PromoVideoStudio() {
                 <button
                   type="button"
                   onClick={handleCancelExport}
-                  aria-label="Cancel video recording"
+                  aria-label="Cancel video export"
                   className="min-h-[44px] px-3.5 py-2.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] inline-flex items-center gap-1 transition-colors"
                 >
                   <X size={14} />
@@ -2564,8 +2967,21 @@ export function PromoVideoStudio() {
               Save Current Frame as PNG Cover
             </button>
 
+            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              Fast MP4 export ({exportQuality === '720p' ? '720p · 24fps' : '1080p · 30fps'}). Pick Quick Reel (15s) under Features for ~2.5 MB.
+            </p>
+
+            {exportError && (
+              <div className="rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/30 px-3 py-2 text-xs text-[#DC2626] dark:text-[#F28B82]">
+                {exportError}
+              </div>
+            )}
+
             {readyExport && (
-              <div className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-2.5">
+              <div
+                ref={readyCardRef}
+                className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-2.5"
+              >
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="font-semibold text-[#08246B] dark:text-white truncate">
                     {readyExport.filename}
@@ -2601,15 +3017,15 @@ export function PromoVideoStudio() {
                         void deliverExportBlob(readyExport, false);
                       }
                     }}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#08246B] hover:bg-[#0B308E] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-colors"
+                    className="min-h-[40px] px-3 py-2 rounded-lg bg-[#08246B] hover:bg-[#0B308E] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <Download size={14} />
-                    Save File
+                    {readyExport.kind === 'video' ? 'Save Video' : 'Save PNG'}
                   </a>
                   <button
                     type="button"
                     onClick={() => void handleShareReadyExport()}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-1.5 transition-colors"
+                    className="min-h-[40px] px-3 py-2 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <Share2 size={14} className="text-[#FF6A00]" />
                     Share

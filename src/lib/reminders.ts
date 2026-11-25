@@ -307,6 +307,96 @@ export function unreturnedMissedCalls(
   return pending.sort((a, b) => b.timestamp - a.timestamp);
 }
 
+export type LongGapReturnCall = {
+  id: string;
+  contactKey: string;
+  number: string;
+  name: string;
+  tag: string;
+  isFavorite: boolean;
+  direction: 'incoming' | 'missed';
+  timestamp: number;
+  duration: number;
+  previousTimestamp: number;
+  gapDays: number;
+  sim: CallRecord['sim'];
+};
+
+/**
+ * Finds recent incoming or missed calls where the contact called back after
+ * at least `minGapDays` (default 30 days) since your immediately preceding call with them.
+ */
+export function findLongGapReturnCalls(
+  calls: CallRecord[],
+  options: {
+    now?: Date;
+    contacts?: Record<string, ContactProfile>;
+    favorites?: string[];
+    minGapDays?: number;
+    maxAgeDays?: number;
+  } = {},
+): LongGapReturnCall[] {
+  const nowMs = (options.now ?? new Date()).getTime();
+  const minGapDays = Math.max(7, Math.round(options.minGapDays ?? 30));
+  const maxAgeDays = Math.max(1, Math.round(options.maxAgeDays ?? 7));
+  const cutoffMs = nowMs - maxAgeDays * MS_PER_DAY;
+  const contactsMap = options.contacts ?? {};
+  const favSet = new Set((options.favorites ?? []).map((f) => getContactKey(f)));
+
+  const byContact = new Map<string, CallRecord[]>();
+  calls.forEach((call) => {
+    const key = getContactKey(call.number);
+    if (!key) return;
+    const list = byContact.get(key) ?? [];
+    list.push(call);
+    byContact.set(key, list);
+  });
+
+  const results: LongGapReturnCall[] = [];
+
+  byContact.forEach((contactCalls, contactKey) => {
+    if (contactCalls.length < 2) return;
+    const sorted = [...contactCalls].sort((a, b) => a.timestamp - b.timestamp);
+    if (sorted[sorted.length - 1].timestamp < cutoffMs) return;
+
+    const profile = contactsMap[contactKey];
+    const isFavorite = favSet.has(contactKey);
+    const namedCall = [...sorted].reverse().find((c) => c.name?.trim());
+    const tag = profile?.tag?.trim() || '';
+
+    for (let i = sorted.length - 1; i >= 1; i -= 1) {
+      const current = sorted[i];
+      if (current.timestamp < cutoffMs) break;
+      if (current.direction !== 'incoming' && current.direction !== 'missed') continue;
+
+      const prev = sorted[i - 1];
+      const gapDays = eatDateDiffDays(
+        toEatDateString(prev.timestamp),
+        toEatDateString(current.timestamp),
+      );
+      if (!Number.isFinite(gapDays) || gapDays < minGapDays) continue;
+
+      results.push({
+        id: current.id,
+        contactKey,
+        number: profile?.number || current.number,
+        name: profile?.name?.trim() || current.name?.trim() || namedCall?.name?.trim() || '',
+        tag,
+        isFavorite,
+        direction: current.direction,
+        timestamp: current.timestamp,
+        duration: current.duration,
+        previousTimestamp: prev.timestamp,
+        gapDays,
+        sim: current.sim,
+      });
+      break;
+    }
+  });
+
+  return results.sort((a, b) => b.timestamp - a.timestamp);
+}
+
 export type PeriodReport = {
   period: 'weekly' | 'monthly';
   title: string;

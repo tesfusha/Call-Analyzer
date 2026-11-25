@@ -188,6 +188,15 @@ type NativeFileExportPlugin = {
     shareTitle?: string;
     openShare?: boolean;
   }) => Promise<{ saved?: boolean; shared?: boolean; path?: string }>;
+  beginChunkedSave?: (opts: { filename: string }) => Promise<{ transferId?: string }>;
+  appendChunk?: (opts: { transferId: string; base64Chunk: string }) => Promise<{ ok?: boolean }>;
+  finishChunkedSave?: (opts: {
+    transferId: string;
+    filename: string;
+    mimeType: string;
+    shareTitle?: string;
+    openShare?: boolean;
+  }) => Promise<{ saved?: boolean; shared?: boolean; path?: string }>;
 };
 
 type CapacitorGlobal = {
@@ -846,6 +855,26 @@ export function hasNativeFileExportPlugin(): boolean {
   return typeof getCapacitor()?.Plugins?.FileExport?.saveAndShare === 'function';
 }
 
+export function hasNativeChunkedFileExportPlugin(): boolean {
+  const plugin = getCapacitor()?.Plugins?.FileExport;
+  return Boolean(
+    plugin &&
+      typeof plugin.beginChunkedSave === 'function' &&
+      typeof plugin.appendChunk === 'function' &&
+      typeof plugin.finishChunkedSave === 'function',
+  );
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 export async function runNativeFileExport(opts: {
   filename: string;
   mimeType: string;
@@ -856,4 +885,44 @@ export async function runNativeFileExport(opts: {
   const plugin = getCapacitor()?.Plugins?.FileExport;
   if (!plugin || typeof plugin.saveAndShare !== 'function') return null;
   return plugin.saveAndShare(opts);
+}
+
+export async function runNativeChunkedFileExport(opts: {
+  filename: string;
+  mimeType: string;
+  bytes: Uint8Array;
+  shareTitle?: string;
+  openShare?: boolean;
+}): Promise<{ saved?: boolean; shared?: boolean; path?: string } | null> {
+  const plugin = getCapacitor()?.Plugins?.FileExport;
+  if (
+    !plugin ||
+    typeof plugin.beginChunkedSave !== 'function' ||
+    typeof plugin.appendChunk !== 'function' ||
+    typeof plugin.finishChunkedSave !== 'function'
+  ) {
+    return null;
+  }
+
+  const started = await plugin.beginChunkedSave({ filename: opts.filename });
+  const transferId = started?.transferId;
+  if (!transferId) return null;
+
+  // 192 KB raw bytes (~256 KB base64) per bridge call avoids Android Binder limits
+  const chunkBytes = 192 * 1024;
+  for (let offset = 0; offset < opts.bytes.length; offset += chunkBytes) {
+    const slice = opts.bytes.subarray(offset, Math.min(opts.bytes.length, offset + chunkBytes));
+    await plugin.appendChunk({
+      transferId,
+      base64Chunk: bytesToBase64(slice),
+    });
+  }
+
+  return plugin.finishChunkedSave({
+    transferId,
+    filename: opts.filename,
+    mimeType: opts.mimeType,
+    shareTitle: opts.shareTitle,
+    openShare: opts.openShare,
+  });
 }

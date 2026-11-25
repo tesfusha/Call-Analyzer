@@ -9,6 +9,7 @@ import {
   Check,
   Copy,
   Instagram,
+  MessageCircle,
   MessageSquare,
   RotateCcw,
   Send,
@@ -831,18 +832,32 @@ export function WishComposerModal() {
 
             {/* Channel Buttons */}
             <div className="space-y-2">
-              <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Choose how to send (+5 pts once per occasion/year)
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Choose how to send (+5 pts once per occasion/year)
+                </p>
+                {(telegramUsername || instagramUsername) && (
+                  <p className="text-[10px] font-mono text-[#8A93A0] dark:text-[var(--dark-text-muted)] truncate">
+                    {[
+                      telegramUsername ? `TG @${telegramUsername}` : '',
+                      instagramUsername ? `IG @${instagramUsername}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 w-full">
                 <button
                   type="button"
                   onClick={handleSmsSend}
                   disabled={!message.trim()}
-                  className="min-h-[44px] px-3 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  title="Send via SMS"
+                  aria-label="Send via SMS"
+                  className="flex-1 sm:flex-none sm:w-[70px] min-w-0 min-h-[44px] px-1 py-1.5 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[9.5px] sm:text-[10px] font-semibold flex flex-col items-center justify-center gap-1 disabled:opacity-50 transition-colors"
                 >
-                  <MessageSquare size={15} />
-                  SMS
+                  <MessageSquare size={15} className="shrink-0" />
+                  <span className="truncate max-w-full leading-none">SMS</span>
                 </button>
 
                 {installedApps.whatsapp && waDigits && (
@@ -850,10 +865,12 @@ export function WishComposerModal() {
                     type="button"
                     onClick={handleWhatsAppSend}
                     disabled={!message.trim()}
-                    className="min-h-[44px] px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/12 hover:bg-emerald-500/20 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    title="Send via WhatsApp"
+                    aria-label="Send via WhatsApp"
+                    className="flex-1 sm:flex-none sm:w-[70px] min-w-0 min-h-[44px] px-1 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/12 hover:bg-emerald-500/20 text-[9.5px] sm:text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 flex flex-col items-center justify-center gap-1 disabled:opacity-50 transition-colors"
                   >
-                    <Send size={15} />
-                    WhatsApp
+                    <MessageCircle size={15} className="shrink-0" />
+                    <span className="truncate max-w-full leading-none">WhatsApp</span>
                   </button>
                 )}
 
@@ -862,10 +879,12 @@ export function WishComposerModal() {
                     type="button"
                     onClick={() => void handleTelegramSend()}
                     disabled={!message.trim()}
-                    className="min-h-[44px] px-3 py-2 rounded-xl border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-xs font-semibold text-sky-700 dark:text-sky-300 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    title={telegramUsername ? `Telegram (@${telegramUsername})` : 'Send via Telegram'}
+                    aria-label={telegramUsername ? `Telegram (@${telegramUsername})` : 'Send via Telegram'}
+                    className="flex-1 sm:flex-none sm:w-[70px] min-w-0 min-h-[44px] px-1 py-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-[9.5px] sm:text-[10px] font-semibold text-sky-700 dark:text-sky-300 flex flex-col items-center justify-center gap-1 disabled:opacity-50 transition-colors"
                   >
-                    <Send size={15} />
-                    {telegramUsername ? `Telegram (@${telegramUsername})` : 'Telegram'}
+                    <Send size={15} className="shrink-0" />
+                    <span className="truncate max-w-full leading-none">Telegram</span>
                   </button>
                 )}
 
@@ -874,10 +893,12 @@ export function WishComposerModal() {
                     type="button"
                     onClick={() => void handleInstagramSend()}
                     disabled={!message.trim()}
-                    className="min-h-[44px] px-3 py-2 rounded-xl border border-pink-500/40 bg-pink-500/10 hover:bg-pink-500/20 text-xs font-semibold text-pink-700 dark:text-pink-300 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    title={instagramUsername ? `Instagram (@${instagramUsername})` : 'Send via Instagram'}
+                    aria-label={instagramUsername ? `Instagram (@${instagramUsername})` : 'Send via Instagram'}
+                    className="flex-1 sm:flex-none sm:w-[70px] min-w-0 min-h-[44px] px-1 py-1.5 rounded-lg border border-pink-500/40 bg-pink-500/10 hover:bg-pink-500/20 text-[9.5px] sm:text-[10px] font-semibold text-pink-700 dark:text-pink-300 flex flex-col items-center justify-center gap-1 disabled:opacity-50 transition-colors"
                   >
-                    <Instagram size={15} />
-                    {instagramUsername ? `IG (@${instagramUsername})` : 'Instagram'}
+                    <Instagram size={15} className="shrink-0" />
+                    <span className="truncate max-w-full leading-none">Instagram</span>
                   </button>
                 )}
 
@@ -885,10 +906,12 @@ export function WishComposerModal() {
                   type="button"
                   onClick={() => void handleCopyOnly()}
                   disabled={!message.trim()}
-                  className="min-h-[44px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] text-xs font-semibold text-[#08246B] dark:text-white flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  title="Copy wish text"
+                  aria-label="Copy wish text"
+                  className="flex-1 sm:flex-none sm:w-[70px] min-w-0 min-h-[44px] px-1 py-1.5 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] text-[9.5px] sm:text-[10px] font-semibold text-[#08246B] dark:text-white flex flex-col items-center justify-center gap-1 disabled:opacity-50 transition-colors"
                 >
-                  <Copy size={15} />
-                  Copy
+                  <Copy size={15} className="shrink-0" />
+                  <span className="truncate max-w-full leading-none">Copy</span>
                 </button>
               </div>
             </div>

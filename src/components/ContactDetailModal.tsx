@@ -54,7 +54,7 @@ import {
   toDateTimeLocalValue,
 } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone, sanitizeSocialUsername } from '@/src/lib/security';
-import { getEatWeekKey } from '@/src/lib/reminders';
+import { findLongGapReturnCalls, getEatWeekKey } from '@/src/lib/reminders';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { useCalls } from '@/src/store/CallsContext';
@@ -139,6 +139,9 @@ export function ContactDetailModal({
     contactStatuses,
     contactMilestones,
     sentWishes,
+    alertTypePrefs,
+    dismissedMissedIds,
+    dismissLongGapCall,
     openWishComposer,
     showNotice,
   } = useCalls();
@@ -163,6 +166,28 @@ export function ContactDetailModal({
       .filter((c) => getContactKey(c.number) === contactKey)
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [calls, contactNumber, contactKey]);
+
+  const longGapReturn = useMemo(() => {
+    if (!contactNumber || alertTypePrefs.longGapCalls === false) return null;
+    const minGapDays = alertTypePrefs.longGapDays ?? 30;
+    const matches = findLongGapReturnCalls(contactCalls, {
+      contacts,
+      favorites: Array.from(favorites),
+      minGapDays,
+      maxAgeDays: 14,
+    });
+    const match = matches[0];
+    if (!match || dismissedMissedIds.has(`longgap:${match.id}`)) return null;
+    return match;
+  }, [
+    contactNumber,
+    contactCalls,
+    contacts,
+    favorites,
+    alertTypePrefs.longGapCalls,
+    alertTypePrefs.longGapDays,
+    dismissedMissedIds,
+  ]);
 
   const stats = useMemo(() => {
     let totalDuration = 0;
@@ -212,6 +237,7 @@ export function ContactDetailModal({
   const [bdayCalendar, setBdayCalendar] = useState<CalendarKind>('gregorian');
   const [bdayMonth, setBdayMonth] = useState(1);
   const [bdayDay, setBdayDay] = useState(1);
+  const [bdayDayText, setBdayDayText] = useState('1');
   const [bdayYear, setBdayYear] = useState('');
   const [events, setEvents] = useState<ContactEvent[]>([]);
   const [newEvtTitle, setNewEvtTitle] = useState('');
@@ -256,12 +282,14 @@ export function ContactDetailModal({
       setBdayCalendar(profile.birthday.calendar);
       setBdayMonth(profile.birthday.month);
       setBdayDay(profile.birthday.day);
+      setBdayDayText(String(profile.birthday.day));
       setBdayYear(profile.birthday.year ? String(profile.birthday.year) : '');
     } else {
       setHasBirthday(false);
       setBdayCalendar('gregorian');
       setBdayMonth(1);
       setBdayDay(1);
+      setBdayDayText('1');
       setBdayYear('');
     }
     setEvents(profile?.events ?? []);
@@ -566,6 +594,58 @@ export function ContactDetailModal({
                 </div>
                 {activeCategory === 'overview' && (
           <div className="space-y-4">
+        {longGapReturn && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/8 px-3 py-2 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              {longGapReturn.direction === 'missed' ? (
+                <PhoneMissed size={14} className="text-[#FF6A00] shrink-0" />
+              ) : (
+                <PhoneIncoming size={14} className="text-[#10B981] shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                  Back in touch ·{' '}
+                  {longGapReturn.direction === 'missed' ? 'Missed call' : 'Called you'}
+                </p>
+                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate tabular-nums">
+                  {formatDateTime(longGapReturn.timestamp)}
+                  {longGapReturn.duration > 0 ? ` · ${formatDuration(longGapReturn.duration)}` : ''}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                title="Send a reconnect message"
+                aria-label={`Called after ${longGapReturn.gapDays} ${longGapReturn.gapDays === 1 ? 'Day' : 'Days'} — send a reconnect message`}
+                onClick={() =>
+                  openWishComposer({
+                    contactNumber: contactCalls[0]?.number || contactNumber,
+                    contactName: formatDisplayNameOrPhone(displayName, contactNumber),
+                    contactKey,
+                    tag: tag.trim() || undefined,
+                    occasionType: 'reconnect',
+                    occasionKey: `reconnect:${contactKey}`,
+                    occasionName: 'Back in Touch',
+                    telegramUsername: profile?.telegramUsername,
+                    instagramUsername: profile?.instagramUsername,
+                  })
+                }
+                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[11px] font-semibold tabular-nums whitespace-nowrap transition-colors"
+              >
+                {longGapReturn.gapDays} {longGapReturn.gapDays === 1 ? 'Day' : 'Days'}
+              </button>
+              <button
+                type="button"
+                onClick={() => dismissLongGapCall(longGapReturn.id)}
+                aria-label="Dismiss back in touch notice"
+                className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+        )}
         {/* Action Strip */}
         {(() => {
           const currentYear = new Date().getFullYear();
@@ -1277,6 +1357,11 @@ export function ContactDetailModal({
                                 const nextCal = val as CalendarKind;
                                 setBdayCalendar(nextCal);
                                 if (nextCal === 'gregorian' && bdayMonth > 12) setBdayMonth(12);
+                                const nextMax = nextCal === 'ethiopian' ? 30 : 31;
+                                if (bdayDay > nextMax) {
+                                  setBdayDay(nextMax);
+                                  setBdayDayText(String(nextMax));
+                                }
                               }}
                             />
                             <CustomSelect
@@ -1295,11 +1380,27 @@ export function ContactDetailModal({
                               onChange={(val) => setBdayMonth(Number(val))}
                             />
                             <input
-                              type="number"
-                              min={1}
-                              max={bdayCalendar === 'ethiopian' ? 30 : 31}
-                              value={bdayDay}
-                              onChange={(e) => setBdayDay(Math.max(1, Number(e.target.value) || 1))}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={2}
+                              value={bdayDayText}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                setBdayDayText(digits);
+                                if (digits !== '') {
+                                  const maxD = bdayCalendar === 'ethiopian' ? (bdayMonth === 13 ? 6 : 30) : 31;
+                                  const clamped = Math.max(1, Math.min(maxD, Number(digits)));
+                                  setBdayDay(clamped);
+                                }
+                              }}
+                              onBlur={() => {
+                                const maxD = bdayCalendar === 'ethiopian' ? (bdayMonth === 13 ? 6 : 30) : 31;
+                                const parsed = Number(bdayDayText);
+                                const safe = parsed >= 1 ? Math.min(maxD, parsed) : Math.max(1, Math.min(maxD, bdayDay));
+                                setBdayDay(safe);
+                                setBdayDayText(String(safe));
+                              }}
                               aria-label="Birthday day"
                               placeholder="Day"
                               className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"

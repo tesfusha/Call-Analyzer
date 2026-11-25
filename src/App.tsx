@@ -64,7 +64,7 @@ import { getContactKey } from '@/src/lib/contacts';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { firstGraphemes } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
-import { unreturnedMissedCalls } from '@/src/lib/reminders';
+import { findLongGapReturnCalls, unreturnedMissedCalls } from '@/src/lib/reminders';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { CallsProvider, useCalls } from '@/src/store/CallsContext';
 import type { AppUpdateNotice, CallRecord, ContactMilestoneRecord, TabKey } from '@/src/types/call';
@@ -82,6 +82,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof Phone }> = [
 function AppShell() {
   const {
     calls,
+    contacts,
     scheduledCalls,
     favorites,
     dismissedMissedIds,
@@ -670,12 +671,30 @@ function AppShell() {
             !readAlertSet.has(`sched:${s.id}:${s.scheduledFor}`),
         ).length
       : 0;
-    return missedCount + scheduledCount;
+    const longGapCount =
+      alertTypePrefs.longGapCalls !== false
+        ? findLongGapReturnCalls(calls, {
+            contacts,
+            favorites: Array.from(favorites),
+            minGapDays: alertTypePrefs.longGapDays ?? 30,
+            maxAgeDays: 7,
+          }).filter(
+            (item) =>
+              !dismissedMissedIds.has(`longgap:${item.id}`) &&
+              !mutedAlertSet.has(`longgap:${item.contactKey}`) &&
+              !readAlertSet.has(`longgap:${item.id}`),
+          ).length
+        : 0;
+    return missedCount + scheduledCount + longGapCount;
   }, [
     isAlertsSnoozedToday,
     alertTypePrefs.missedCalls,
     alertTypePrefs.scheduledCalls,
+    alertTypePrefs.longGapCalls,
+    alertTypePrefs.longGapDays,
     calls,
+    contacts,
+    favorites,
     scheduledCalls,
     dismissedMissedIds,
     mutedAlertSet,
@@ -697,14 +716,18 @@ function AppShell() {
     [showNotice],
   );
 
-  const headerDateText = useMemo(() => {
+  const headerDates = useMemo(() => {
     const now = new Date();
     const ec = `${formatEthiopianShort(now, calendarPrefs.defaultLang)} EC`;
-    if (calendarPrefs.dateDisplay === 'both') {
-      const gc = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      return `${ec} · ${gc}`;
-    }
-    return ec;
+    const gc = now.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    return {
+      ec,
+      gc: calendarPrefs.dateDisplay === 'both' ? gc : null,
+    };
   }, [calendarPrefs.defaultLang, calendarPrefs.dateDisplay]);
 
   if (authLoading) {
@@ -897,9 +920,16 @@ function AppShell() {
                 Call Analyzer - ETH
               </span>
             </div>
-            <p className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] pl-[44px]">
-              {headerDateText}
-            </p>
+            <div className="pl-[44px] space-y-0.5">
+              <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] leading-tight">
+                {headerDates.ec}
+              </p>
+              {headerDates.gc && (
+                <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight">
+                  {headerDates.gc}
+                </p>
+              )}
+            </div>
           </div>
 
           <nav className="space-y-1" aria-label="Primary navigation">
@@ -1042,28 +1072,24 @@ function AppShell() {
           isDark ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
         }`}
       >
-        <div className="h-14 px-4 flex items-center justify-between gap-2">
+        <div className="min-h-[58px] px-4 py-1.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
-          <BrandLogo size={30} />
+          <BrandLogo size={34} />
           <div className="min-w-0">
             <span className="block text-sm font-bold tracking-tight text-[#08246B] dark:text-white whitespace-nowrap truncate leading-tight">
               Call Analyzer - ETH
             </span>
-            <span className="block text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight">
-              {headerDateText}
+            <span className="block text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] leading-tight truncate">
+              {headerDates.ec}
             </span>
+            {headerDates.gc && (
+              <span className="block text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight truncate">
+                {headerDates.gc}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <DarkModeToggle isDark={isDark} mode={themePreference} onToggle={toggleTheme} compact />
-          <button
-            type="button"
-            onClick={() => setGuideOpen(true)}
-            aria-label="Open interactive app guide"
-            className="min-h-[44px] min-w-[36px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
-          >
-            <HelpCircle size={17} />
-          </button>
           {pinEnabled && (
             <button
               type="button"

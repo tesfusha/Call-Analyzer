@@ -90,8 +90,18 @@ const QUIET_DAYS_OPTIONS = [14, 30, 45];
 const WEEKLY_GOAL_PRESETS = [3, 5, 7] as const;
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
+const LONG_GAP_DAY_OPTIONS = [14, 30, 60, 90] as const;
+
+type AlertTypeToggleKey =
+  | 'missedCalls'
+  | 'scheduledCalls'
+  | 'birthdays'
+  | 'holidays'
+  | 'quietContacts'
+  | 'longGapCalls';
+
 const ALERT_TYPE_OPTIONS: Array<{
-  key: keyof AlertTypePrefs;
+  key: AlertTypeToggleKey;
   label: string;
   description: string;
 }> = [
@@ -99,6 +109,11 @@ const ALERT_TYPE_OPTIONS: Array<{
     key: 'missedCalls',
     label: 'Missed calls',
     description: 'Count in Bell badge and send unreturned missed-call alerts',
+  },
+  {
+    key: 'longGapCalls',
+    label: 'Calls after 30+ days',
+    description: 'Notify with a Back in Touch card when someone calls after a long silence',
   },
   {
     key: 'scheduledCalls',
@@ -1217,7 +1232,10 @@ export function SettingsTab({
                 </div>
                 <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F5F7FA]/70 dark:bg-[var(--dark-canvas)] overflow-hidden">
                   {ALERT_TYPE_OPTIONS.map((item) => {
-                    const enabled = alertTypePrefs[item.key];
+                    const enabled =
+                      item.key === 'longGapCalls'
+                        ? alertTypePrefs.longGapCalls !== false
+                        : Boolean(alertTypePrefs[item.key]);
                     return (
                       <div
                         key={item.key}
@@ -1257,6 +1275,42 @@ export function SettingsTab({
                       </div>
                     );
                   })}
+                  {alertTypePrefs.longGapCalls !== false && (
+                    <div className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 bg-white/60 dark:bg-[var(--dark-surface)]/40">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                          Long-gap call threshold
+                        </p>
+                        <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                          Trigger Back in Touch alerts when someone calls after this many days
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {LONG_GAP_DAY_OPTIONS.map((days) => {
+                          const activeDays = alertTypePrefs.longGapDays ?? 30;
+                          return (
+                            <button
+                              key={days}
+                              type="button"
+                              onClick={() =>
+                                setAlertTypePrefs({
+                                  ...alertTypePrefs,
+                                  longGapDays: days,
+                                })
+                              }
+                              className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-semibold transition-colors ${
+                                activeDays === days
+                                  ? 'bg-[#FF6A00] text-white'
+                                  : 'bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                              }`}
+                            >
+                              {days}d
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -147,6 +147,10 @@ export function sanitizeReminderPrefs(r: Partial<ReminderPrefs> | undefined): Re
 }
 
 export function sanitizeAlertTypePrefs(a: Partial<AlertTypePrefs> | undefined): AlertTypePrefs {
+  const rawGap = Number(a?.longGapDays);
+  const longGapDays = Number.isFinite(rawGap)
+    ? Math.max(7, Math.min(180, Math.round(rawGap)))
+    : DEFAULT_ALERT_TYPE_PREFS.longGapDays ?? 30;
   return {
     missedCalls:
       typeof a?.missedCalls === 'boolean' ? a.missedCalls : DEFAULT_ALERT_TYPE_PREFS.missedCalls,
@@ -162,6 +166,11 @@ export function sanitizeAlertTypePrefs(a: Partial<AlertTypePrefs> | undefined): 
       typeof a?.quietContacts === 'boolean'
         ? a.quietContacts
         : DEFAULT_ALERT_TYPE_PREFS.quietContacts,
+    longGapCalls:
+      typeof a?.longGapCalls === 'boolean'
+        ? a.longGapCalls
+        : DEFAULT_ALERT_TYPE_PREFS.longGapCalls ?? true,
+    longGapDays,
   };
 }
 

@@ -43,6 +43,8 @@ export const DEFAULT_ALERT_TYPE_PREFS: AlertTypePrefs = {
   birthdays: true,
   holidays: true,
   quietContacts: false,
+  longGapCalls: true,
+  longGapDays: 30,
 };
 
 export const DEFAULT_VOICE_BUNDLES: VoiceBundles = {

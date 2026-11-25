@@ -62,6 +62,7 @@ export function SavedContactFormModal({
   const [bdayCalendar, setBdayCalendar] = useState<CalendarKind>('ethiopian');
   const [bdayMonth, setBdayMonth] = useState(1);
   const [bdayDay, setBdayDay] = useState(1);
+  const [bdayDayText, setBdayDayText] = useState('1');
   const [bdayYear, setBdayYear] = useState('');
   const [events, setEvents] = useState<ContactEvent[]>([]);
   const [newEvtTitle, setNewEvtTitle] = useState('');
@@ -83,6 +84,7 @@ export function SavedContactFormModal({
     setBdayCalendar('ethiopian');
     setBdayMonth(1);
     setBdayDay(1);
+    setBdayDayText('1');
     setBdayYear('');
     setEvents([]);
     setNewEvtTitle('');
@@ -384,6 +386,11 @@ export function SavedContactFormModal({
                     const nextCal = val as CalendarKind;
                     setBdayCalendar(nextCal);
                     if (nextCal === 'gregorian' && bdayMonth > 12) setBdayMonth(12);
+                    const nextMax = nextCal === 'ethiopian' ? 30 : 31;
+                    if (bdayDay > nextMax) {
+                      setBdayDay(nextMax);
+                      setBdayDayText(String(nextMax));
+                    }
                   }}
                 />
                 <CustomSelect
@@ -402,11 +409,27 @@ export function SavedContactFormModal({
                   onChange={(val) => setBdayMonth(Number(val))}
                 />
                 <input
-                  type="number"
-                  min={1}
-                  max={bdayCalendar === 'ethiopian' ? 30 : 31}
-                  value={bdayDay}
-                  onChange={(e) => setBdayDay(Math.max(1, Number(e.target.value) || 1))}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
+                  value={bdayDayText}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+                    setBdayDayText(digits);
+                    if (digits !== '') {
+                      const maxD = bdayCalendar === 'ethiopian' ? (bdayMonth === 13 ? 6 : 30) : 31;
+                      const clamped = Math.max(1, Math.min(maxD, Number(digits)));
+                      setBdayDay(clamped);
+                    }
+                  }}
+                  onBlur={() => {
+                    const maxD = bdayCalendar === 'ethiopian' ? (bdayMonth === 13 ? 6 : 30) : 31;
+                    const parsed = Number(bdayDayText);
+                    const safe = parsed >= 1 ? Math.min(maxD, parsed) : Math.max(1, Math.min(maxD, bdayDay));
+                    setBdayDay(safe);
+                    setBdayDayText(String(safe));
+                  }}
                   aria-label="Birthday day"
                   placeholder="Day"
                   className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-xs font-mono tabular-nums text-[#08246B] dark:text-white"

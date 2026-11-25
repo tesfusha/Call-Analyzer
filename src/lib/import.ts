@@ -727,12 +727,17 @@ function sanitiseImportedSettings(raw: unknown): BackupSettingsSnapshot | null {
 
   if (obj.alertTypePrefs && typeof obj.alertTypePrefs === 'object') {
     const a = obj.alertTypePrefs as Record<string, unknown>;
+    const rawGap = Number(a.longGapDays);
     snapshot.alertTypePrefs = {
       missedCalls: typeof a.missedCalls === 'boolean' ? a.missedCalls : true,
       scheduledCalls: typeof a.scheduledCalls === 'boolean' ? a.scheduledCalls : true,
       birthdays: typeof a.birthdays === 'boolean' ? a.birthdays : true,
       holidays: typeof a.holidays === 'boolean' ? a.holidays : true,
       quietContacts: typeof a.quietContacts === 'boolean' ? a.quietContacts : false,
+      longGapCalls: typeof a.longGapCalls === 'boolean' ? a.longGapCalls : true,
+      longGapDays: Number.isFinite(rawGap)
+        ? Math.max(7, Math.min(180, Math.round(rawGap)))
+        : 30,
     };
     hasAny = true;
   }
@@ -1385,6 +1390,8 @@ export function buildSampleCalls(now: Date = new Date()): CallRecord[] {
     { number: '+251945001872', name: 'Abel Tesfaye', direction: 'outgoing', sim: 'SIM 1', offsetMs: 15 * day + 4 * hour, duration: 342, note: 'Used to call every 4 days', tag: 'Friends' },
     { number: '+251945001872', name: 'Abel Tesfaye', direction: 'incoming', sim: 'SIM 1', offsetMs: 19 * day + 5 * hour, duration: 218, note: null, tag: 'Friends' },
     { number: '+251945001872', name: 'Abel Tesfaye', direction: 'outgoing', sim: 'SIM 1', offsetMs: 23 * day + 2 * hour, duration: 175, note: null, tag: 'Friends' },
+    { number: '+251911778899', name: 'Abela', direction: 'incoming', sim: 'SIM 1', offsetMs: 18 * 60_000, duration: 135, note: 'Called back after 45 days', tag: 'Friends' },
+    { number: '+251911778899', name: 'Abela', direction: 'outgoing', sim: 'SIM 1', offsetMs: 45 * day + 2 * hour, duration: 190, note: 'Catch-up call', tag: 'Friends' },
   ];
 
   return seeds.map((entry) => {
@@ -1406,4 +1413,48 @@ export function buildSampleCalls(now: Date = new Date()): CallRecord[] {
       tag: entry.tag,
     };
   });
+}
+
+export function buildLongGapTestCalls(
+  existingCalls: CallRecord[] = [],
+  now: Date = new Date(),
+): CallRecord[] {
+  const base = now.getTime();
+  const day = 86_400_000;
+  const hour = 3_600_000;
+  const existingKeys = new Set(existingCalls.map((c) => c.number.replace(/\D/g, '').slice(-9)));
+  let number = '+251911778899';
+  for (let suffix = 99; suffix >= 80; suffix -= 1) {
+    const candidate = `+2519117788${suffix}`;
+    if (!existingKeys.has(candidate.replace(/\D/g, '').slice(-9))) {
+      number = candidate;
+      break;
+    }
+  }
+  const olderTs = Math.round(base - (45 * day + 2 * hour));
+  const recentTs = Math.round(base - 18 * 60_000);
+  return [
+    {
+      id: makeCallId({ number, timestamp: recentTs, direction: 'incoming', duration: 135 }),
+      number,
+      name: 'Abela',
+      direction: 'incoming',
+      sim: 'SIM 1',
+      timestamp: recentTs,
+      duration: 135,
+      note: 'Called back after 45 days',
+      tag: 'Friends',
+    },
+    {
+      id: makeCallId({ number, timestamp: olderTs, direction: 'outgoing', duration: 190 }),
+      number,
+      name: 'Abela',
+      direction: 'outgoing',
+      sim: 'SIM 1',
+      timestamp: olderTs,
+      duration: 190,
+      note: 'Previous call 45 days earlier',
+      tag: 'Friends',
+    },
+  ];
 }

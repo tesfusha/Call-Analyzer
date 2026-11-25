@@ -224,6 +224,8 @@ export type AlertTypePrefs = {
   birthdays: boolean;
   holidays: boolean;
   quietContacts: boolean;
+  longGapCalls?: boolean;
+  longGapDays?: number;
 };
 
 export type WishChannel = 'sms' | 'whatsapp' | 'telegram' | 'instagram' | 'copy';
