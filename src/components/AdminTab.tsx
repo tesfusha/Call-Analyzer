@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   CalendarDays,
+  Film,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -11,13 +12,14 @@ import {
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { PromoVideoStudio } from '@/src/components/PromoVideoStudio';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { firstGraphemes, formatDateTime } from '@/src/lib/format';
 import { toEatDateString } from '@/src/lib/gamification';
 import { useCalls } from '@/src/store/CallsContext';
 import type { DailyActiveRecord, RegisteredUserRecord } from '@/src/types/call';
 
-type AdminCategory = 'stats' | 'users';
+type AdminCategory = 'stats' | 'users' | 'promo';
 type Granularity = 'daily' | 'weekly' | 'monthly';
 type UserPeriodFilter = 'all' | 'today' | '7d' | '30d';
 type UserSortKey = 'newest' | 'active' | 'name';
@@ -47,6 +49,12 @@ const ADMIN_CATEGORIES: Array<{
     label: 'Registered Users',
     description: 'Basic account directory (no customer contacts or call data)',
     icon: Users,
+  },
+  {
+    key: 'promo',
+    label: 'Promo Video',
+    description: 'Generate & export 9:16, 1:1, and 16:9 social promo animations',
+    icon: Film,
   },
 ];
 
@@ -314,15 +322,17 @@ export function AdminTab() {
               {activeMeta.description}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => void loadAdminData()}
-            className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          {activeCategory !== 'promo' && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void loadAdminData()}
+              className="min-h-[40px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          )}
         </div>
 
         <CategoryTabs
@@ -333,26 +343,30 @@ export function AdminTab() {
         />
       </div>
 
-      {/* Customer-PII Isolation Notice */}
-      <div className="rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/10 border border-[#FF6A00]/30 px-4 py-3 flex items-start gap-2.5 text-xs text-[#08246B] dark:text-white">
-        <ShieldCheck size={16} className="text-[#FF6A00] shrink-0 mt-0.5" />
-        <span>
-          Privacy enforced: Active client counts come from minimal daily open pings (UID + date only) and registered totals from the account registry. No call logs, phone numbers, or contact names are stored in the cloud.
-        </span>
-      </div>
+      {activeCategory !== 'promo' && (
+        <>
+          {/* Customer-PII Isolation Notice */}
+          <div className="rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/10 border border-[#FF6A00]/30 px-4 py-3 flex items-start gap-2.5 text-xs text-[#08246B] dark:text-white">
+            <ShieldCheck size={16} className="text-[#FF6A00] shrink-0 mt-0.5" />
+            <span>
+              Privacy enforced: Active client counts come from minimal daily open pings (UID + date only) and registered totals from the account registry. No call logs, phone numbers, or contact names are stored in the cloud.
+            </span>
+          </div>
 
-      {loadError && (
-        <div className="rounded-2xl bg-[#FEF2F2] dark:bg-[#EF4444]/10 border border-[#EF4444]/35 px-4 py-3 flex items-center justify-between gap-2 text-xs text-[#B91C1C] dark:text-[#FCA5A5]">
-          <span className="break-words">{loadError}</span>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => void loadAdminData()}
-            className="min-h-[32px] px-3 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] disabled:opacity-50 text-white font-semibold whitespace-nowrap shrink-0 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
+          {loadError && (
+            <div className="rounded-2xl bg-[#FEF2F2] dark:bg-[#EF4444]/10 border border-[#EF4444]/35 px-4 py-3 flex items-center justify-between gap-2 text-xs text-[#B91C1C] dark:text-[#FCA5A5]">
+              <span className="break-words">{loadError}</span>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void loadAdminData()}
+                className="min-h-[32px] px-3 rounded-lg bg-[#EF4444] hover:bg-[#DC2626] disabled:opacity-50 text-white font-semibold whitespace-nowrap shrink-0 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <CategoryPanel activeKey={activeCategory} label={activeMeta.label}>
@@ -659,6 +673,8 @@ export function AdminTab() {
             )}
           </div>
         )}
+
+        {activeCategory === 'promo' && <PromoVideoStudio />}
       </CategoryPanel>
     </div>
   );
