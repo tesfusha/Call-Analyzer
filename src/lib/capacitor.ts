@@ -199,6 +199,13 @@ type NativeFileExportPlugin = {
   }) => Promise<{ saved?: boolean; shared?: boolean; path?: string }>;
 };
 
+type NativePhoneContactsPlugin = {
+  pickContact?: () => Promise<{
+    cancelled?: boolean;
+    contacts?: Array<{ name?: string; number?: string }>;
+  }>;
+};
+
 type CapacitorGlobal = {
   isNativePlatform?: () => boolean;
   getPlatform?: () => string;
@@ -210,6 +217,7 @@ type CapacitorGlobal = {
     App?: NativeAppPlugin;
     CallLogSync?: NativeCallLogSyncPlugin;
     CallLog?: NativeCallLogPlugin;
+    PhoneContacts?: NativePhoneContactsPlugin;
     AppNotifications?: NativeAppNotificationsPlugin;
     FileExport?: NativeFileExportPlugin;
     [key: string]: unknown;
@@ -925,4 +933,42 @@ export async function runNativeChunkedFileExport(opts: {
     shareTitle: opts.shareTitle,
     openShare: opts.openShare,
   });
+}
+
+export function hasNativePhoneContactsPlugin(): boolean {
+  const cap = getCapacitor();
+  if (!cap) return false;
+  if (typeof cap.isPluginAvailable === 'function') {
+    try {
+      if (cap.isPluginAvailable('PhoneContacts')) {
+        return typeof cap.Plugins?.PhoneContacts?.pickContact === 'function';
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return typeof cap.Plugins?.PhoneContacts?.pickContact === 'function';
+}
+
+export async function pickNativePhoneContacts(): Promise<{
+  cancelled: boolean;
+  contacts: Array<{ name: string; number: string }>;
+}> {
+  const plugin = getCapacitor()?.Plugins?.PhoneContacts;
+  if (!plugin || typeof plugin.pickContact !== 'function') {
+    throw new Error('NATIVE_PHONE_CONTACTS_UNAVAILABLE');
+  }
+  const res = await plugin.pickContact();
+  const list = Array.isArray(res?.contacts)
+    ? res.contacts
+        .filter((c) => c && typeof c.number === 'string' && c.number.trim().length > 0)
+        .map((c) => ({
+          name: typeof c.name === 'string' && c.name.trim() ? c.name.trim() : String(c.number).trim(),
+          number: String(c.number).trim(),
+        }))
+    : [];
+  return {
+    cancelled: Boolean(res?.cancelled),
+    contacts: list,
+  };
 }

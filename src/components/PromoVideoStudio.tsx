@@ -13,13 +13,22 @@ import {
   Play,
   RotateCcw,
   Share2,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
+import { PromoAudioPanel } from '@/src/components/PromoAudioPanel';
 import { APP_NAME, APP_VERSION } from '@/src/lib/appInfo';
 import { isNativeCapacitor } from '@/src/lib/capacitor';
 import { ETHIOPIAN_EMERGENCY_HOTLINES, ETHIOPIAN_USSD_CODES } from '@/src/lib/ethiopia';
 import { saveAndShareBytes } from '@/src/lib/export';
 import { triggerHaptic } from '@/src/lib/haptics';
+import {
+  encodeAudioBufferToMuxer,
+  findSupportedWebCodecsAudio,
+  mixPromoAudioToBuffer,
+  type PromoMusicPresetId,
+} from '@/src/lib/promoAudio';
 import { useCalls } from '@/src/store/CallsContext';
 
 type AspectKey = '9:16' | '1:1' | '16:9';
@@ -513,10 +522,22 @@ export function PromoVideoStudio() {
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
-  const [exportStageLabel, setExportStageLabel] = useState<'Encoding MP4' | 'Recording'>('Encoding MP4');
+  const [exportStageLabel, setExportStageLabel] = useState<'Mixing Audio' | 'Encoding MP4' | 'Recording'>('Encoding MP4');
   const [exportError, setExportError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [readyExport, setReadyExport] = useState<ReadyExportAsset | null>(null);
+
+  // Audio studio state (background music + Addis AI / mic / uploaded narration)
+  const [musicPreset, setMusicPreset] = useState<PromoMusicPresetId>('none');
+  const [customMusicBuffer, setCustomMusicBuffer] = useState<AudioBuffer | null>(null);
+  const [customMusicName, setCustomMusicName] = useState<string | null>(null);
+  const [musicVolume, setMusicVolume] = useState<number>(0.38);
+  const [autoDuck, setAutoDuck] = useState<boolean>(true);
+  const [narrationBuffer, setNarrationBuffer] = useState<AudioBuffer | null>(null);
+  const [narrationLabel, setNarrationLabel] = useState<string | null>(null);
+  const [narrationVolume, setNarrationVolume] = useState<number>(1);
+  const [previewMuted, setPreviewMuted] = useState<boolean>(false);
+  const [mixedPreviewBuffer, setMixedPreviewBuffer] = useState<AudioBuffer | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const readyCardRef = useRef<HTMLDivElement | null>(null);
@@ -531,6 +552,14 @@ export function PromoVideoStudio() {
   const exportCancelledRef = useRef<boolean>(false);
   const readyExportUrlRef = useRef<string | null>(null);
   const mountedRef = useRef<boolean>(true);
+  const previewAudioCtxRef = useRef<AudioContext | null>(null);
+  const previewAudioSrcRef = useRef<AudioBufferSourceNode | null>(null);
+  const exportAudioCtxRef = useRef<AudioContext | null>(null);
+  const exportAudioSrcRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const hasActiveAudio =
+    (musicPreset === 'custom' ? Boolean(customMusicBuffer) : musicPreset !== 'none') ||
+    Boolean(narrationBuffer);
 
   const { activeScenes, totalDurationSec } = useMemo(() => {
     const selectedSet = new Set(selectedFeatures);
@@ -1957,12 +1986,95 @@ export function PromoVideoStudio() {
     ],
   );
 
+  const stopPreviewAudio = useCallback(() => {
+    if (previewAudioSrcRef.current) {
+      try {
+        previewAudioSrcRef.current.stop();
+        previewAudioSrcRef.current.disconnect();
+      } catch {
+        // ignore stop errors
+      }
+      previewAudioSrcRef.current = null;
+    }
+  }, []);
+
+  const startPreviewAudioAt = useCallback(
+    (offsetSec: number) => {
+      stopPreviewAudio();
+      if (previewMuted || !mixedPreviewBuffer || exporting) return;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      try {
+        if (!previewAudioCtxRef.current || previewAudioCtxRef.current.state === 'closed') {
+          previewAudioCtxRef.current = new AudioCtx();
+        }
+        const ctx = previewAudioCtxRef.current;
+        if (ctx.state === 'suspended') {
+          void ctx.resume().catch(() => undefined);
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = mixedPreviewBuffer;
+        src.connect(ctx.destination);
+        const safeOffset = Math.max(0, Math.min(Math.max(0, mixedPreviewBuffer.duration - 0.05), offsetSec));
+        src.start(0, safeOffset);
+        previewAudioSrcRef.current = src;
+      } catch {
+        // Browser may block autoplay before user interaction
+      }
+    },
+    [exporting, mixedPreviewBuffer, previewMuted, stopPreviewAudio],
+  );
+
+  // Re-mix preview audio whenever audio controls or scene duration change
+  useEffect(() => {
+    if (!hasActiveAudio) {
+      stopPreviewAudio();
+      setMixedPreviewBuffer(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void mixPromoAudioToBuffer({
+        durationSec: totalDurationSec,
+        musicPreset,
+        customMusicBuffer,
+        musicVolume,
+        narrationBuffer,
+        narrationVolume,
+        autoDuck,
+      })
+        .then((buf) => {
+          if (!cancelled) setMixedPreviewBuffer(buf);
+        })
+        .catch(() => {
+          if (!cancelled) setMixedPreviewBuffer(null);
+        });
+    }, 140);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    autoDuck,
+    customMusicBuffer,
+    hasActiveAudio,
+    musicPreset,
+    musicVolume,
+    narrationBuffer,
+    narrationVolume,
+    stopPreviewAudio,
+    totalDurationSec,
+  ]);
+
   useEffect(() => {
     renderFrame(timeRef.current);
   }, [renderFrame]);
 
   useEffect(() => {
     if (!playing || exporting) {
+      stopPreviewAudio();
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -1971,26 +2083,34 @@ export function PromoVideoStudio() {
       return;
     }
 
+    startPreviewAudioAt(timeRef.current);
+
     const tick = (now: number) => {
       const prev = lastFrameTsRef.current ?? now;
       const dtSec = Math.min(0.1, Math.max(0, (now - prev) / 1000));
       lastFrameTsRef.current = now;
-      const next = (timeRef.current + dtSec) % totalDurationSec;
+      const rawNext = timeRef.current + dtSec;
+      const wrapped = rawNext >= totalDurationSec;
+      const next = rawNext % totalDurationSec;
       timeRef.current = next;
       setCurrentTimeSec(next);
       renderFrame(next);
+      if (wrapped) {
+        startPreviewAudioAt(0);
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
     return () => {
+      stopPreviewAudio();
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
       lastFrameTsRef.current = null;
     };
-  }, [exporting, playing, renderFrame, totalDurationSec]);
+  }, [exporting, playing, renderFrame, startPreviewAudioAt, stopPreviewAudio, totalDurationSec]);
 
   const handleSeek = useCallback(
     (nextSec: number) => {
@@ -1998,8 +2118,11 @@ export function PromoVideoStudio() {
       timeRef.current = clamped;
       setCurrentTimeSec(clamped);
       renderFrame(clamped);
+      if (playing && !exporting) {
+        startPreviewAudioAt(clamped);
+      }
     },
-    [renderFrame, totalDurationSec],
+    [exporting, playing, renderFrame, startPreviewAudioAt, totalDurationSec],
   );
 
   const setReadyExportAsset = useCallback((next: ReadyExportAsset | null) => {
@@ -2140,6 +2263,19 @@ export function PromoVideoStudio() {
       }
       activeEncoderRef.current = null;
     }
+    if (exportAudioSrcRef.current) {
+      try {
+        exportAudioSrcRef.current.stop();
+        exportAudioSrcRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      exportAudioSrcRef.current = null;
+    }
+    if (exportAudioCtxRef.current) {
+      void exportAudioCtxRef.current.close().catch(() => undefined);
+      exportAudioCtxRef.current = null;
+    }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
     } else {
@@ -2155,6 +2291,7 @@ export function PromoVideoStudio() {
       durationSnapshot: number,
       captureFps: number,
       targetBitrate: number,
+      mixedAudio: AudioBuffer | null,
     ) => {
       if (typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
         setExporting(false);
@@ -2168,9 +2305,9 @@ export function PromoVideoStudio() {
       setExportStageLabel('Recording');
       const candidates = getSupportedRecorderMimeCandidates();
 
-      let stream: MediaStream;
+      let canvasStream: MediaStream;
       try {
-        stream = canvas.captureStream(captureFps);
+        canvasStream = canvas.captureStream(captureFps);
       } catch {
         setExporting(false);
         const msg = 'Could not capture canvas video stream on this device. Try Save PNG Cover or Screen Record.';
@@ -2179,19 +2316,69 @@ export function PromoVideoStudio() {
         return;
       }
 
+      // Attach mixed audio stream when music or narration is active
+      let combinedStream = canvasStream;
+      let audioCtxForExport: AudioContext | null = null;
+      let audioSrcForExport: AudioBufferSourceNode | null = null;
+
+      if (mixedAudio) {
+        try {
+          const AudioCtx =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (AudioCtx) {
+            audioCtxForExport = new AudioCtx();
+            const dest = audioCtxForExport.createMediaStreamDestination();
+            audioSrcForExport = audioCtxForExport.createBufferSource();
+            audioSrcForExport.buffer = mixedAudio;
+            audioSrcForExport.connect(dest);
+            combinedStream = new MediaStream([
+              ...canvasStream.getVideoTracks(),
+              ...dest.stream.getAudioTracks(),
+            ]);
+            exportAudioCtxRef.current = audioCtxForExport;
+            exportAudioSrcRef.current = audioSrcForExport;
+          }
+        } catch {
+          audioCtxForExport = null;
+          audioSrcForExport = null;
+          combinedStream = canvasStream;
+        }
+      }
+
+      const cleanupStreams = () => {
+        combinedStream.getTracks().forEach((tr) => tr.stop());
+        canvasStream.getTracks().forEach((tr) => tr.stop());
+        if (audioSrcForExport) {
+          try {
+            audioSrcForExport.stop();
+            audioSrcForExport.disconnect();
+          } catch {
+            // ignore
+          }
+          audioSrcForExport = null;
+        }
+        exportAudioSrcRef.current = null;
+        if (audioCtxForExport) {
+          void audioCtxForExport.close().catch(() => undefined);
+          audioCtxForExport = null;
+        }
+        exportAudioCtxRef.current = null;
+      };
+
       let recorder: MediaRecorder | null = null;
       let chosenMime = '';
       for (const candidate of candidates) {
         try {
           recorder = candidate.mimeType
-            ? new MediaRecorder(stream, { mimeType: candidate.mimeType, videoBitsPerSecond: targetBitrate })
-            : new MediaRecorder(stream);
+            ? new MediaRecorder(combinedStream, { mimeType: candidate.mimeType, videoBitsPerSecond: targetBitrate })
+            : new MediaRecorder(combinedStream);
           chosenMime = recorder.mimeType || candidate.mimeType;
           break;
         } catch {
           if (candidate.mimeType) {
             try {
-              recorder = new MediaRecorder(stream, { mimeType: candidate.mimeType });
+              recorder = new MediaRecorder(combinedStream, { mimeType: candidate.mimeType });
               chosenMime = recorder.mimeType || candidate.mimeType;
               break;
             } catch {
@@ -2202,7 +2389,7 @@ export function PromoVideoStudio() {
       }
 
       if (!recorder) {
-        stream.getTracks().forEach((tr) => tr.stop());
+        cleanupStreams();
         setExporting(false);
         const msg =
           'Video encoder could not initialize on this device. Try 720p quality or Fullscreen + Screen Record.';
@@ -2223,7 +2410,7 @@ export function PromoVideoStudio() {
           window.clearTimeout(stopTimeoutRef.current);
           stopTimeoutRef.current = null;
         }
-        stream.getTracks().forEach((tr) => tr.stop());
+        cleanupStreams();
         recorderRef.current = null;
         if (!mountedRef.current) return;
         setExporting(false);
@@ -2238,7 +2425,7 @@ export function PromoVideoStudio() {
           window.clearTimeout(stopTimeoutRef.current);
           stopTimeoutRef.current = null;
         }
-        stream.getTracks().forEach((tr) => tr.stop());
+        cleanupStreams();
         recorderRef.current = null;
         if (!mountedRef.current) return;
         setExporting(false);
@@ -2277,8 +2464,12 @@ export function PromoVideoStudio() {
 
       try {
         activeRecorder.start(250);
+        if (audioSrcForExport && audioCtxForExport) {
+          void audioCtxForExport.resume().catch(() => undefined);
+          audioSrcForExport.start(0);
+        }
       } catch {
-        stream.getTracks().forEach((tr) => tr.stop());
+        cleanupStreams();
         recorderRef.current = null;
         setExporting(false);
         const msg = 'Could not start video recording in this browser.';
@@ -2287,7 +2478,7 @@ export function PromoVideoStudio() {
         return;
       }
 
-      const videoTrack = stream.getVideoTracks()[0] as
+      const videoTrack = canvasStream.getVideoTracks()[0] as
         | (MediaStreamTrack & { requestFrame?: () => void })
         | undefined;
 
@@ -2329,11 +2520,11 @@ export function PromoVideoStudio() {
     if (!canvas) return;
 
     triggerHaptic('tap');
+    stopPreviewAudio();
     exportCancelledRef.current = false;
     setPlaying(false);
     setExporting(true);
     setExportProgress(0);
-    setExportStageLabel('Encoding MP4');
 
     const durationSnapshot = totalDurationSec;
     const captureFps = exportQuality === '720p' ? 24 : 30;
@@ -2343,6 +2534,34 @@ export function PromoVideoStudio() {
     setCurrentTimeSec(0);
     renderFrame(0);
 
+    // Step 1: Mix music + narration into exact-duration stereo AudioBuffer (if active)
+    let mixedAudio: AudioBuffer | null = null;
+    if (hasActiveAudio) {
+      setExportStageLabel('Mixing Audio');
+      try {
+        mixedAudio = await mixPromoAudioToBuffer({
+          durationSec: durationSnapshot,
+          musicPreset,
+          customMusicBuffer,
+          musicVolume,
+          narrationBuffer,
+          narrationVolume,
+          autoDuck,
+          sampleRate: 48000,
+        });
+      } catch {
+        mixedAudio = null;
+      }
+    }
+
+    if (!mountedRef.current || exportCancelledRef.current) {
+      setExporting(false);
+      setExportProgress(0);
+      return;
+    }
+
+    setExportStageLabel('Encoding MP4');
+
     // Primary fast offline MP4 engine (WebCodecs + mp4-muxer, ~10x faster than real-time)
     const avcConfig = await findSupportedAvcConfig(
       canvas.width,
@@ -2351,13 +2570,21 @@ export function PromoVideoStudio() {
       targetBitrate,
     );
 
+    const webCodecsAudioCfg = mixedAudio
+      ? await findSupportedWebCodecsAudio(
+          mixedAudio.sampleRate,
+          Math.min(2, Math.max(1, mixedAudio.numberOfChannels)),
+        )
+      : null;
+
     if (!mountedRef.current || exportCancelledRef.current) {
       setExporting(false);
       setExportProgress(0);
       return;
     }
 
-    if (avcConfig) {
+    // Use fast WebCodecs MP4 whenever video codec is supported AND (no audio OR audio codec is supported)
+    if (avcConfig && (!mixedAudio || webCodecsAudioCfg)) {
       let encoder: VideoEncoder | null = null;
       let encoderError: Error | null = null;
       let encodedChunkCount = 0;
@@ -2371,6 +2598,15 @@ export function PromoVideoStudio() {
             height: avcConfig.height,
             frameRate: captureFps,
           },
+          ...(mixedAudio && webCodecsAudioCfg
+            ? {
+                audio: {
+                  codec: webCodecsAudioCfg.muxerCodec,
+                  numberOfChannels: Math.min(2, Math.max(1, mixedAudio.numberOfChannels)),
+                  sampleRate: mixedAudio.sampleRate,
+                },
+              }
+            : {}),
           fastStart: 'in-memory',
           firstTimestampBehavior: 'offset',
         });
@@ -2391,6 +2627,7 @@ export function PromoVideoStudio() {
         const frameDurationUs = Math.round(1_000_000 / captureFps);
         const keyframeInterval = captureFps * 2;
         let lastUiYield = performance.now();
+        const videoProgressCap = mixedAudio ? 90 : 98;
 
         for (let frameIdx = 0; frameIdx < totalFrames; frameIdx += 1) {
           if (!mountedRef.current || exportCancelledRef.current || encoderError) break;
@@ -2417,7 +2654,7 @@ export function PromoVideoStudio() {
           if (frameIdx % 4 === 0 || frameIdx === totalFrames - 1 || performance.now() - lastUiYield > 28) {
             timeRef.current = tSec;
             setCurrentTimeSec(tSec);
-            setExportProgress(Math.min(98, Math.round(((frameIdx + 1) / totalFrames) * 98)));
+            setExportProgress(Math.min(videoProgressCap, Math.round(((frameIdx + 1) / totalFrames) * videoProgressCap)));
             await new Promise((r) => window.setTimeout(r, 0));
             lastUiYield = performance.now();
           }
@@ -2447,6 +2684,22 @@ export function PromoVideoStudio() {
 
         if (encoderError || encodedChunkCount === 0) {
           throw encoderError ?? new Error('No video chunks encoded.');
+        }
+
+        // Encode & mux mixed audio track into the MP4
+        if (mixedAudio && webCodecsAudioCfg) {
+          setExportProgress(94);
+          await encodeAudioBufferToMuxer(mixedAudio, webCodecsAudioCfg, (chunk, meta) => {
+            muxer.addAudioChunk(chunk, meta);
+          });
+        }
+
+        if (!mountedRef.current || exportCancelledRef.current) {
+          if (mountedRef.current) {
+            setExporting(false);
+            setExportProgress(0);
+          }
+          return;
         }
 
         muxer.finalize();
@@ -2490,14 +2743,22 @@ export function PromoVideoStudio() {
       }
     }
 
-    startMediaRecorderExport(canvas, durationSnapshot, captureFps, targetBitrate);
+    startMediaRecorderExport(canvas, durationSnapshot, captureFps, targetBitrate, mixedAudio);
   }, [
     aspect,
+    autoDuck,
+    customMusicBuffer,
     deliverExportBlob,
     exportQuality,
+    hasActiveAudio,
+    musicPreset,
+    musicVolume,
+    narrationBuffer,
+    narrationVolume,
     renderFrame,
     setReadyExportAsset,
     startMediaRecorderExport,
+    stopPreviewAudio,
     totalDurationSec,
   ]);
 
@@ -2523,6 +2784,32 @@ export function PromoVideoStudio() {
           // ignore
         }
         activeEncoderRef.current = null;
+      }
+      if (previewAudioSrcRef.current) {
+        try {
+          previewAudioSrcRef.current.stop();
+          previewAudioSrcRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+        previewAudioSrcRef.current = null;
+      }
+      if (previewAudioCtxRef.current) {
+        void previewAudioCtxRef.current.close().catch(() => undefined);
+        previewAudioCtxRef.current = null;
+      }
+      if (exportAudioSrcRef.current) {
+        try {
+          exportAudioSrcRef.current.stop();
+          exportAudioSrcRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+        exportAudioSrcRef.current = null;
+      }
+      if (exportAudioCtxRef.current) {
+        void exportAudioCtxRef.current.close().catch(() => undefined);
+        exportAudioCtxRef.current = null;
       }
       if (recorderRef.current && recorderRef.current.state !== 'inactive') {
         recorderRef.current.stop();
@@ -2621,9 +2908,30 @@ export function PromoVideoStudio() {
                 </button>
               </div>
 
-              <span className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                {currentTimeSec.toFixed(1)}s / {totalDurationSec.toFixed(1)}s
-              </span>
+              <div className="flex items-center gap-2">
+                {hasActiveAudio && (
+                  <button
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => {
+                      triggerHaptic('tap');
+                      setPreviewMuted((m) => !m);
+                    }}
+                    aria-label={previewMuted ? 'Unmute preview audio' : 'Mute preview audio'}
+                    className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] inline-flex items-center gap-1 transition-colors"
+                  >
+                    {previewMuted ? (
+                      <VolumeX size={14} className="text-[#4B5563]" />
+                    ) : (
+                      <Volume2 size={14} className="text-[#FF6A00]" />
+                    )}
+                    <span className="hidden sm:inline">{previewMuted ? 'Muted' : 'Audio On'}</span>
+                  </button>
+                )}
+                <span className="text-xs font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  {currentTimeSec.toFixed(1)}s / {totalDurationSec.toFixed(1)}s
+                </span>
+              </div>
             </div>
 
             <input
@@ -2872,6 +3180,41 @@ export function PromoVideoStudio() {
             </div>
           </div>
 
+          <PromoAudioPanel
+            disabled={exporting}
+            selectedFeatureIds={selectedFeatures}
+            videoDurationSec={totalDurationSec}
+            musicPreset={musicPreset}
+            onMusicPresetChange={setMusicPreset}
+            customMusicName={customMusicName}
+            onCustomMusicLoaded={(buf, name) => {
+              setCustomMusicBuffer(buf);
+              setCustomMusicName(name);
+            }}
+            onClearCustomMusic={() => {
+              setCustomMusicBuffer(null);
+              setCustomMusicName(null);
+              if (musicPreset === 'custom') setMusicPreset('none');
+            }}
+            musicVolume={musicVolume}
+            onMusicVolumeChange={setMusicVolume}
+            autoDuck={autoDuck}
+            onAutoDuckChange={setAutoDuck}
+            narrationBuffer={narrationBuffer}
+            narrationLabel={narrationLabel}
+            onNarrationLoaded={(buf, label) => {
+              setNarrationBuffer(buf);
+              setNarrationLabel(label);
+            }}
+            onClearNarration={() => {
+              setNarrationBuffer(null);
+              setNarrationLabel(null);
+            }}
+            narrationVolume={narrationVolume}
+            onNarrationVolumeChange={setNarrationVolume}
+            onNotify={showNotice}
+          />
+
           <div className="space-y-2.5">
             <div className="space-y-1">
               <label
@@ -2968,7 +3311,8 @@ export function PromoVideoStudio() {
             </button>
 
             <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Fast MP4 export ({exportQuality === '720p' ? '720p · 24fps' : '1080p · 30fps'}). Pick Quick Reel (15s) under Features for ~2.5 MB.
+              Fast MP4 export ({exportQuality === '720p' ? '720p · 24fps' : '1080p · 30fps'}
+              {hasActiveAudio ? ' · Mixed Audio' : ''}). Pick Quick Reel (15s) under Features for ~2.5 MB.
             </p>
 
             {exportError && (

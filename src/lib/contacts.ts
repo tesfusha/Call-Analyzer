@@ -1,3 +1,8 @@
+import {
+  hasNativePhoneContactsPlugin,
+  isNativeCapacitor,
+  pickNativePhoneContacts,
+} from '@/src/lib/capacitor';
 import { normaliseEthPhone } from '@/src/lib/ethiopia';
 import { toEthiopianDate, toGregorianJsDate } from '@/src/lib/ethiopianCalendar';
 import { contactStats } from '@/src/lib/stats';
@@ -767,6 +772,10 @@ type NavigatorContacts = {
 };
 
 export function isContactPickerSupported(): boolean {
+  if (hasNativePhoneContactsPlugin()) return true;
+  // Android System WebView exposes navigator.contacts.select as a non-functional stub;
+  // only allow the web Contact Picker API outside native WebView shells.
+  if (isNativeCapacitor()) return false;
   if (typeof navigator === 'undefined') return false;
   const nav = navigator as Navigator & { contacts?: NavigatorContacts };
   return Boolean(nav.contacts && typeof nav.contacts.select === 'function');
@@ -777,12 +786,37 @@ export async function pickPhoneContacts(): Promise<{
   contacts: ContactProfile[];
   error?: string;
 }> {
+  if (hasNativePhoneContactsPlugin()) {
+    try {
+      const res = await pickNativePhoneContacts();
+      if (res.cancelled || res.contacts.length === 0) {
+        return { supported: true, contacts: [] };
+      }
+      const profiles: ContactProfile[] = res.contacts.map((entry) => ({
+        key: getContactKey(entry.number),
+        number: entry.number,
+        name: entry.name || entry.number,
+        tag: '',
+        birthday: null,
+        events: [],
+        notes: 'Imported from phone contacts',
+        updatedAt: Date.now(),
+      }));
+      return { supported: true, contacts: profiles };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Could not open the phone contacts picker.';
+      return { supported: true, contacts: [], error: message };
+    }
+  }
+
   if (!isContactPickerSupported()) {
     return {
       supported: false,
       contacts: [],
-      error:
-        'Direct phone contact picker is supported on Android Chrome. Use .vcf or CSV import on this browser.',
+      error: isNativeCapacitor()
+        ? 'Native phone contact picker requires the latest app build. Use Import .vcf / CSV in the meantime.'
+        : 'Direct phone contact picker is supported on Android Chrome or the Android app. Use .vcf or CSV import on this browser.',
     };
   }
   const nav = navigator as Navigator & { contacts: NavigatorContacts };

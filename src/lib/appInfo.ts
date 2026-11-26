@@ -1,6 +1,6 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '1.0.1';
-export const APP_VERSION_CODE = 9;
+export const APP_VERSION_NAME = '1.0.2';
+export const APP_VERSION_CODE = 10;
 export const APP_VERSION = APP_VERSION_NAME;
 export const APP_RELEASE_LABEL = 'Back in Touch Alerts, UI Polish & Promo Export';
 export const APP_CONTACT_EMAIL = 'tesfutilahun33@gmail.com';
