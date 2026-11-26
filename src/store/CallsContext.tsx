@@ -13,6 +13,7 @@ import {
   EmailAuthProvider,
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   reauthenticateWithCredential,
   sendEmailVerification,
@@ -20,6 +21,7 @@ import {
   signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updatePassword,
   updateProfile,
@@ -1795,6 +1797,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
     clearLegacyUnscopedKeys();
 
+    // Complete any pending Google Sign-In redirect flow (e.g. mobile browsers that block popups)
+    if (!isNativeCapacitor()) {
+      void getRedirectResult(auth)
+        .then((redirectRes) => {
+          if (cancelled || !redirectRes?.user) return;
+          setIsGuest(false);
+          setAuthPromptMode('closed');
+          setAuthPromptReason(null);
+          showNotice(
+            `Signed in as ${redirectRes.user.displayName || redirectRes.user.email || 'Google user'}.`,
+          );
+        })
+        .catch(() => {
+          // Ignore stale/unrelated redirect errors on cold load
+        });
+    }
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       const myRun = ++activeRun;
       cleanupListeners();
@@ -2640,7 +2659,29 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         showNotice('Sign-in cancelled.');
         return { ok: false, error: 'Sign-in was cancelled.' };
       }
-      if (code === 'auth/popup-blocked') {
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        const isTopLevelWeb =
+          !isNativeCapacitor() &&
+          typeof window !== 'undefined' &&
+          (() => {
+            try {
+              return window.self === window.top;
+            } catch {
+              return false;
+            }
+          })();
+        if (isTopLevelWeb) {
+          try {
+            showNotice('Opening Google Sign-In...');
+            await signInWithRedirect(auth, googleProvider);
+            return { ok: true };
+          } catch {
+            // Fall through to helpful popup notice if redirect also fails
+          }
+        }
         const msg = 'Popup was blocked by your browser. Allow popups for this site and try again.';
         showNotice(msg);
         return { ok: false, error: msg };
