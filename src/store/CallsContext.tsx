@@ -21,7 +21,6 @@ import {
   signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signInWithRedirect,
   signOut,
   updatePassword,
   updateProfile,
@@ -2667,26 +2666,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         code === 'auth/popup-blocked' ||
         code === 'auth/operation-not-supported-in-this-environment'
       ) {
-        const isTopLevelWeb =
-          !isNativeCapacitor() &&
-          typeof window !== 'undefined' &&
-          (() => {
-            try {
-              return window.self === window.top;
-            } catch {
-              return false;
-            }
-          })();
-        if (isTopLevelWeb) {
-          try {
-            showNotice('Opening Google Sign-In...');
-            await signInWithRedirect(auth, googleProvider);
-            return { ok: true };
-          } catch {
-            // Fall through to helpful popup notice if redirect also fails
-          }
-        }
-        const msg = 'Popup was blocked by your browser. Allow popups for this site and try again.';
+        const msg =
+          'Your browser blocked the Google sign-in popup. Allow popups for this site (or open in Chrome/Safari) and tap Continue with Google again.';
         showNotice(msg);
         return { ok: false, error: msg };
       }
