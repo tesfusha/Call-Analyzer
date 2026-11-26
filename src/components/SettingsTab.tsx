@@ -60,7 +60,9 @@ import {
   APP_VERSION_CODE,
 } from '@/src/lib/appInfo';
 import {
+  canSyncAllPhoneContacts,
   isContactPickerSupported,
+  loadAllPhoneContacts,
   parseCsvContacts,
   parseVCardContacts,
   pickPhoneContacts,
@@ -406,6 +408,34 @@ export function SettingsTab({
       return;
     }
     contactsFileInputRef.current?.click();
+  };
+
+  const [syncingPhoneContacts, setSyncingPhoneContacts] = useState(false);
+
+  const handleLoadAllPhoneContacts = async () => {
+    if (isGuest || !authUser) {
+      openAuthPrompt('signin', 'Login or create an account to load phone contacts.');
+      return;
+    }
+    setSyncingPhoneContacts(true);
+    try {
+      const res = await loadAllPhoneContacts();
+      if (!res.supported || !res.granted) {
+        showNotice(res.error ?? 'Could not load phone contacts.');
+        return;
+      }
+      if (res.contacts.length === 0) {
+        showNotice('No saved phone contacts with numbers found on this device.');
+        return;
+      }
+      const counts = importContactProfiles(res.contacts);
+      showNotice(
+        `Loaded ${res.contacts.length} phone contact${res.contacts.length === 1 ? '' : 's'} (${counts.added} added, ${counts.updated} updated).`,
+        'success',
+      );
+    } finally {
+      setSyncingPhoneContacts(false);
+    }
   };
 
   const handlePhoneContactsPick = async () => {
@@ -1515,14 +1545,31 @@ export function SettingsTab({
               </div>
 
               <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Fetch caller names, phone numbers, birthdays, and tags (Family, Friends, Coworkers) from Android Chrome&apos;s Contact Picker or import a phone contacts .vcf / CSV export.
+                Load saved names, phone numbers, and birthdays directly from your Android phonebook, pick individual contacts, or import a .vcf / CSV export — stored strictly on your device.
               </p>
 
               <div className="flex flex-wrap items-center gap-2.5">
+                {canSyncAllPhoneContacts() && (
+                  <button
+                    type="button"
+                    disabled={syncingPhoneContacts}
+                    onClick={() => void handleLoadAllPhoneContacts()}
+                    className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-60 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    <RefreshCw size={15} className={syncingPhoneContacts ? 'animate-spin' : ''} />
+                    {syncingPhoneContacts ? 'Loading phone contacts...' : 'Load all phone contacts'}
+                  </button>
+                )}
+
                 <button
                   type="button"
+                  disabled={syncingPhoneContacts}
                   onClick={() => void handlePhoneContactsPick()}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  className={
+                    canSyncAllPhoneContacts()
+                      ? 'min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-60 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors'
+                      : 'min-h-[44px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-60 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors'
+                  }
                 >
                   <Contact size={15} />
                   {isContactPickerSupported() ? 'Pick from phone contacts' : 'Phone contact picker'}

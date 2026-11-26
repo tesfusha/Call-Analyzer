@@ -3,6 +3,7 @@ import {
   ArrowUpDown,
   Cake,
   Clock,
+  RefreshCw,
   Search,
   Sparkles,
   Tag,
@@ -16,9 +17,11 @@ import { CustomSelect } from '@/src/components/CustomSelect';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { SavedContactFormModal } from '@/src/components/SavedContactFormModal';
 import {
+  canSyncAllPhoneContacts,
   daysUntilAnnualDate,
   getContactKey,
   isContactPickerSupported,
+  loadAllPhoneContacts,
   mergeTagOptions,
   parseCsvContacts,
   parseVCardContacts,
@@ -68,6 +71,8 @@ export function SavedContactsSection({
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const pickerAvailable = useMemo(() => isContactPickerSupported(), []);
+  const bulkSyncAvailable = useMemo(() => canSyncAllPhoneContacts(), []);
+  const [syncingPhoneContacts, setSyncingPhoneContacts] = useState(false);
   const upcomingHoliday = useMemo(
     () => getHolidaysInGregorianYearOrUpcoming(new Date(), 366, calendarPrefs.defaultLang)[0] ?? null,
     [calendarPrefs.defaultLang],
@@ -201,6 +206,33 @@ export function SavedContactsSection({
     showNotice(`Added ${counts.added} and updated ${counts.updated} phone contacts.`);
   };
 
+  const handleLoadAllFromPhone = async () => {
+    if (isGuest || !authUser) {
+      openAuthPrompt('signin', 'Login or create an account to load phone contacts.');
+      return;
+    }
+    triggerHaptic('tap');
+    setSyncingPhoneContacts(true);
+    try {
+      const res = await loadAllPhoneContacts();
+      if (!res.supported || !res.granted) {
+        showNotice(res.error ?? 'Could not load phone contacts.');
+        return;
+      }
+      if (res.contacts.length === 0) {
+        showNotice('No saved phone contacts with numbers found on this device.');
+        return;
+      }
+      const counts = importContactProfiles(res.contacts);
+      showNotice(
+        `Loaded ${res.contacts.length} phone contact${res.contacts.length === 1 ? '' : 's'} (${counts.added} added, ${counts.updated} updated).`,
+        'success',
+      );
+    } finally {
+      setSyncingPhoneContacts(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <input
@@ -224,14 +256,26 @@ export function SavedContactsSection({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {bulkSyncAvailable && (
+              <button
+                type="button"
+                disabled={syncingPhoneContacts}
+                onClick={() => void handleLoadAllFromPhone()}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#08246B] hover:bg-[#0B308E] disabled:opacity-60 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <RefreshCw size={14} className={syncingPhoneContacts ? 'animate-spin' : ''} />
+                {syncingPhoneContacts ? 'Loading contacts...' : 'Load phone contacts'}
+              </button>
+            )}
             {pickerAvailable && (
               <button
                 type="button"
+                disabled={syncingPhoneContacts}
                 onClick={() => void handlePickFromPhone()}
-                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] disabled:opacity-60 flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <Users size={14} className="text-[#FF6A00]" />
-                Pick phone contacts
+                Pick one contact
               </button>
             )}
             <button

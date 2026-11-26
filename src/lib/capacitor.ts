@@ -204,6 +204,11 @@ type NativePhoneContactsPlugin = {
     cancelled?: boolean;
     contacts?: Array<{ name?: string; number?: string }>;
   }>;
+  getAllContacts?: () => Promise<{
+    granted?: boolean;
+    contacts?: Array<{ name?: string; number?: string; birthday?: string | null }>;
+    total?: number;
+  }>;
 };
 
 type CapacitorGlobal = {
@@ -971,4 +976,41 @@ export async function pickNativePhoneContacts(): Promise<{
     cancelled: Boolean(res?.cancelled),
     contacts: list,
   };
+}
+
+export function hasNativeBulkContactsSync(): boolean {
+  const cap = getCapacitor();
+  if (!cap) return false;
+  if (typeof cap.isPluginAvailable === 'function') {
+    try {
+      if (cap.isPluginAvailable('PhoneContacts')) {
+        return typeof cap.Plugins?.PhoneContacts?.getAllContacts === 'function';
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return typeof cap.Plugins?.PhoneContacts?.getAllContacts === 'function';
+}
+
+export async function syncAllNativePhoneContacts(): Promise<{
+  granted: boolean;
+  contacts: Array<{ name: string; number: string; birthday: string | null }>;
+}> {
+  const plugin = getCapacitor()?.Plugins?.PhoneContacts;
+  if (!plugin || typeof plugin.getAllContacts !== 'function') {
+    throw new Error('NATIVE_BULK_CONTACTS_UNAVAILABLE');
+  }
+  const res = await plugin.getAllContacts();
+  const granted = res?.granted !== false;
+  const list = Array.isArray(res?.contacts)
+    ? res.contacts
+        .filter((c) => c && typeof c.number === 'string' && c.number.trim().length > 0)
+        .map((c) => ({
+          name: typeof c.name === 'string' && c.name.trim() ? c.name.trim() : String(c.number).trim(),
+          number: String(c.number).trim(),
+          birthday: typeof c.birthday === 'string' && c.birthday.trim() ? c.birthday.trim() : null,
+        }))
+    : [];
+  return { granted, contacts: list };
 }

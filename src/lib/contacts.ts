@@ -1,7 +1,9 @@
 import {
+  hasNativeBulkContactsSync,
   hasNativePhoneContactsPlugin,
   isNativeCapacitor,
   pickNativePhoneContacts,
+  syncAllNativePhoneContacts,
 } from '@/src/lib/capacitor';
 import { normaliseEthPhone } from '@/src/lib/ethiopia';
 import { toEthiopianDate, toGregorianJsDate } from '@/src/lib/ethiopianCalendar';
@@ -842,6 +844,59 @@ export async function pickPhoneContacts(): Promise<{
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Contact picker was cancelled.';
     return { supported: true, contacts: [], error: message };
+  }
+}
+
+export function canSyncAllPhoneContacts(): boolean {
+  return hasNativeBulkContactsSync();
+}
+
+export async function loadAllPhoneContacts(): Promise<{
+  supported: boolean;
+  granted: boolean;
+  contacts: ContactProfile[];
+  error?: string;
+}> {
+  if (!hasNativeBulkContactsSync()) {
+    return {
+      supported: false,
+      granted: false,
+      contacts: [],
+      error: isNativeCapacitor()
+        ? 'Bulk phone contact loading requires the latest Android APK build. Use Pick phone contacts or Import .vcf / CSV.'
+        : 'Bulk phone contact loading is available in the Android app. On web, use Import .vcf / CSV.',
+    };
+  }
+
+  try {
+    const res = await syncAllNativePhoneContacts();
+    if (!res.granted) {
+      return {
+        supported: true,
+        granted: false,
+        contacts: [],
+        error: 'Contacts permission was denied. Allow Contacts permission in Android settings to load saved contacts.',
+      };
+    }
+    const now = Date.now();
+    const profiles: ContactProfile[] = res.contacts.map((entry) => {
+      const parsedBday = entry.birthday ? parseDateTuple(entry.birthday) : null;
+      return {
+        key: getContactKey(entry.number),
+        number: entry.number,
+        name: entry.name || entry.number,
+        tag: '',
+        birthday: parsedBday,
+        events: [],
+        notes: 'Loaded from phone contacts',
+        updatedAt: now,
+      };
+    });
+    return { supported: true, granted: true, contacts: profiles };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Could not load saved contacts from your phone.';
+    return { supported: true, granted: false, contacts: [], error: message };
   }
 }
 
