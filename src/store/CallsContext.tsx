@@ -1809,8 +1809,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             `Signed in as ${redirectRes.user.displayName || redirectRes.user.email || 'Google user'}.`,
           );
         })
-        .catch(() => {
-          // Ignore stale/unrelated redirect errors on cold load
+        .catch((err) => {
+          if (cancelled) return;
+          const code = (err as { code?: string })?.code ?? '';
+          if (code && code !== 'auth/no-auth-event' && code !== 'auth/cancelled-popup-request') {
+            showNotice(`Google Sign-In could not finish (${code}). Please try again or use Email Login.`);
+          }
         });
     }
 
