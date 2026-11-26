@@ -140,20 +140,17 @@ export function AuthForm({
   };
 
   return (
-    <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 sm:p-6 space-y-4 shadow-sm">
+    <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 sm:p-7 space-y-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-            <ShieldCheck size={20} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-base sm:text-lg font-bold text-[#08246B] dark:text-white">
-              {mode === 'signin' ? 'Sign in to your account' : 'Create your private account'}
-            </h1>
-            <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-              Call Analyzer - ETH · Private per-user workspace
-            </p>
-          </div>
+        <div className="space-y-1 min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[#08246B] dark:text-white">
+            {mode === 'signin' ? 'Sign in' : 'Create account'}
+          </h2>
+          <p className="text-xs sm:text-[13px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+            {mode === 'signin'
+              ? 'Access your private call history, contacts & reminders.'
+              : 'Set up your private on-device call workspace.'}
+          </p>
         </div>
         {onClose && (
           <button
@@ -173,28 +170,28 @@ export function AuthForm({
         </div>
       )}
 
-      {/* Primary Option 1: Google Login (hidden in Android APK unless native Google Auth plugin is installed) */}
+      {/* Primary Option 1: Big Google Login (hidden in Android APK unless native Google Auth plugin is installed) */}
       {showGoogleButton && (
         <>
           <button
             type="button"
             disabled={googleBusy || emailBusy}
             onClick={() => void handleGoogle()}
-            className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-sm font-semibold text-white flex items-center justify-center gap-2 transition-colors"
+            className="w-full min-h-[52px] px-5 py-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-[15px] font-semibold text-white flex items-center justify-center gap-2.5 shadow-sm transition-colors"
           >
-            <LogIn size={17} />
+            <LogIn size={18} />
             {googleBusy ? 'Connecting Google...' : 'Continue with Google'}
           </button>
 
           <div className="flex items-center gap-3 text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
             <span className="h-px flex-1 bg-[#DDE4EA] dark:bg-[var(--dark-border)]" />
-            <span>or use email</span>
+            <span>or sign in with email</span>
             <span className="h-px flex-1 bg-[#DDE4EA] dark:bg-[var(--dark-border)]" />
           </div>
         </>
       )}
 
-      {/* Mode Switcher: Email Login vs Create Account */}
+      {/* Mode Switcher: Sign In vs Create Account */}
       <div
         role="tablist"
         aria-label="Account sign-in or registration"
@@ -210,7 +207,7 @@ export function AuthForm({
             setFormInfo(null);
             setGoogleBusy(false);
           }}
-          className={`relative min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+          className={`relative min-h-[42px] px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
             mode === 'signin'
               ? 'text-[#08246B] dark:text-white'
               : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
@@ -229,7 +226,7 @@ export function AuthForm({
             />
           )}
           <LogIn size={14} className="relative z-10" />
-          <span className="relative z-10">Email Login</span>
+          <span className="relative z-10">Sign In</span>
         </button>
         <button
           type="button"
@@ -241,7 +238,7 @@ export function AuthForm({
             setFormInfo(null);
             setGoogleBusy(false);
           }}
-          className={`relative min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+          className={`relative min-h-[42px] px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
             mode === 'signup'
               ? 'text-[#08246B] dark:text-white'
               : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
@@ -423,22 +420,22 @@ export function AuthForm({
         <button
           type="submit"
           disabled={emailBusy}
-          className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white disabled:opacity-50 text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+          className="w-full min-h-[52px] px-5 py-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white disabled:opacity-50 text-[15px] font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors"
         >
-          {mode === 'signin' ? <LogIn size={16} /> : <UserPlus size={16} />}
+          {mode === 'signin' ? <LogIn size={18} /> : <UserPlus size={18} />}
           {emailBusy
             ? mode === 'signin'
               ? 'Signing in...'
               : 'Creating account...'
             : mode === 'signin'
-              ? 'Sign in with Email'
+              ? 'Sign In'
               : 'Create Account'}
         </button>
       </form>
       </motion.div>
 
       {allowGuest && (
-        <div className="pt-2 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2">
+        <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2">
           <button
             type="button"
             disabled={emailBusy}
@@ -446,10 +443,10 @@ export function AuthForm({
             className="w-full min-h-[44px] px-4 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-2 transition-colors"
           >
             <Users size={15} className="text-[#FF6A00]" />
-            Log as guest (Explore samples)
+            Continue as Guest
           </button>
           <p className="text-[11px] text-center text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-            Guests can browse sample calls &amp; charts. Sign in or create an account to import data.
+            Preview with temporary demo calls — automatically cleared when you sign in.
           </p>
         </div>
       )}
@@ -464,6 +461,11 @@ export function AuthForm({
           See how it works · Animated App Guide
         </button>
       )}
+
+      <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+        <ShieldCheck size={13} className="text-[#10B981] shrink-0" />
+        <span>Your call logs and contacts stay strictly private on your device.</span>
+      </p>
     </div>
   );
 }

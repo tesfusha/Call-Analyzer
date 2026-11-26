@@ -1144,10 +1144,10 @@ function AppShell() {
             <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-[#08246B] dark:text-white">
-                  Guest Preview · Viewing sample data
+                  Guest Preview · Temporary demo
                 </p>
                 <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Sign in or create an account to import call logs, sync contacts, and save your own data.
+                  Demo calls clear automatically when you sign in — no sample contacts are ever saved.
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">

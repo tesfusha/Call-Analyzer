@@ -62,9 +62,12 @@ import {
 } from '@/src/lib/capacitor';
 import {
   DEFAULT_RELATIONSHIP_TAGS,
-  buildSampleContactProfiles,
+  LEGACY_SAMPLE_FAVORITE_KEYS,
   getContactKey,
   getUpcomingContactEvents,
+  isLegacySampleCall,
+  isLegacySampleContactProfile,
+  isLegacySampleScheduledCall,
   mergeTagOptions,
 } from '@/src/lib/contacts';
 import {
@@ -127,6 +130,7 @@ import {
   idbDeleteScoped,
   idbGetScoped,
   idbSetScoped,
+  idbSetScopedBatch,
   migrateUserLocalStorageToIdb,
   getScopedWithLegacyMigration,
 } from '@/src/lib/idbStorage';
@@ -463,7 +467,6 @@ type CallsContextValue = {
   addCustomTag: (tag: string) => string;
   importCalls: (records: CallRecord[]) => ImportCounts;
   importBackupPackage: (pkg: ParsedImportPackage) => BackupRestoreCounts;
-  loadSampleData: () => ImportCounts;
   patchCall: (id: string, patch: CallPatch, options?: { applyTagToContact?: boolean }) => void;
   removeCall: (id: string) => void;
   clearCalls: () => void;
@@ -634,10 +637,16 @@ async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUser
 
   const rawContacts = pick<Record<string, ContactProfile>>('contacts', {});
   const healedContacts: Record<string, ContactProfile> = {};
+  let removedSampleContacts = false;
   if (rawContacts && typeof rawContacts === 'object') {
     Object.entries(rawContacts).forEach(([k, profile]) => {
       if (profile && typeof profile === 'object') {
-        healedContacts[k] = healContactProfile(profile);
+        const healed = healContactProfile(profile);
+        if (isLegacySampleContactProfile(healed)) {
+          removedSampleContacts = true;
+          return;
+        }
+        healedContacts[k] = healed;
       }
     });
   }
@@ -675,12 +684,55 @@ async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUser
       ? rawPendingReg
       : null;
 
+  const allHealedCalls = Array.isArray(rawCalls) ? rawCalls.map(healCallRecord) : [];
+  const cleanedCalls = allHealedCalls.filter((call) => !isLegacySampleCall(call));
+  const removedSampleCalls = cleanedCalls.length !== allHealedCalls.length;
+
+  const allHealedScheduled = Array.isArray(rawScheduled)
+    ? rawScheduled.map(healScheduledCall)
+    : [];
+  const cleanedScheduled = allHealedScheduled.filter((s) => !isLegacySampleScheduledCall(s));
+  const removedSampleScheduled = cleanedScheduled.length !== allHealedScheduled.length;
+
+  const remainingCallKeys = new Set(cleanedCalls.map((c) => getContactKey(c.number)));
+  const rawFavArray = Array.isArray(rawFavorites) ? rawFavorites : [];
+  const cleanedFavorites =
+    removedSampleContacts || removedSampleCalls
+      ? rawFavArray.filter((fav) => {
+          const favKey = getContactKey(fav);
+          return (
+            !LEGACY_SAMPLE_FAVORITE_KEYS.has(favKey) ||
+            remainingCallKeys.has(favKey) ||
+            Boolean(healedContacts[favKey])
+          );
+        })
+      : rawFavArray;
+  const removedSampleFavorites = cleanedFavorites.length !== rawFavArray.length;
+
+  if (
+    removedSampleContacts ||
+    removedSampleCalls ||
+    removedSampleScheduled ||
+    removedSampleFavorites
+  ) {
+    const cleanupEntries: Array<{ key: string; value: unknown }> = [];
+    if (removedSampleContacts) cleanupEntries.push({ key: 'contacts', value: healedContacts });
+    if (removedSampleCalls) cleanupEntries.push({ key: 'calls', value: cleanedCalls });
+    if (removedSampleScheduled) {
+      cleanupEntries.push({ key: 'scheduledCalls', value: cleanedScheduled });
+    }
+    if (removedSampleFavorites) {
+      cleanupEntries.push({ key: 'favorites', value: cleanedFavorites });
+    }
+    void idbSetScopedBatch(uid, cleanupEntries);
+  }
+
   return {
     snapshot: {
-      calls: Array.isArray(rawCalls) ? rawCalls.map(healCallRecord) : [],
+      calls: cleanedCalls,
       contacts: healedContacts,
-      scheduledCalls: Array.isArray(rawScheduled) ? rawScheduled.map(healScheduledCall) : [],
-      favoritesArray: Array.isArray(rawFavorites) ? rawFavorites : [],
+      scheduledCalls: cleanedScheduled,
+      favoritesArray: cleanedFavorites,
       dismissedMissedArray: Array.isArray(rawDismissed) ? rawDismissed : [],
       mutedAlertKeys: Array.isArray(rawMuted) ? rawMuted : [],
       tariffs: sanitizeTariffs({
@@ -1679,42 +1731,16 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     };
     setUserPhone(null);
 
-    const sampleCalls = buildSampleCalls();
-    const sampleProfiles = buildSampleContactProfiles();
-    const sampleContactsMap: Record<string, ContactProfile> = {};
-    sampleProfiles.forEach((profile) => {
-      sampleContactsMap[profile.key] = profile;
-    });
-    const now = Date.now();
-    const sampleSchedules: ScheduledCall[] = [
-      {
-        id: 'sched-sample-1',
-        number: '+251911248890',
-        name: 'Dawit Bekele',
-        scheduledFor: now + 90 * 60_000,
-        note: 'Confirm invoice payment schedule',
-        status: 'pending',
-        notifiedAt: null,
-        createdAt: now,
-      },
-      {
-        id: 'sched-sample-2',
-        number: '+251922310442',
-        name: 'Sara Tadesse',
-        scheduledFor: now + 20 * 60_000,
-        note: 'Return missed call about design sync',
-        status: 'pending',
-        notifiedAt: null,
-        createdAt: now,
-      },
-    ];
+    // Strictly in-memory demo call log preview — zero saved contacts, never persisted,
+    // and completely cleared the moment the user signs in or exits guest mode.
+    const demoCalls = buildSampleCalls();
 
     applySnapshotToState({
       ...createEmptySnapshot(),
-      calls: sampleCalls,
-      contacts: sampleContactsMap,
-      scheduledCalls: sampleSchedules,
-      favoritesArray: ['+251911248890', '+251922310442'],
+      calls: demoCalls,
+      contacts: {},
+      scheduledCalls: [],
+      favoritesArray: [],
       profileName: 'Guest Preview',
     });
     setIsGuest(true);
@@ -1722,7 +1748,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setAuthPromptReason(null);
     setSyncStatus('guest');
     setLastSyncedAt(null);
-    showNotice('Viewing sample data in Guest mode.');
+    showNotice('Viewing temporary demo in Guest mode.');
   }, [applySnapshotToState, showNotice]);
 
   const exitGuestMode = useCallback(() => {
@@ -3914,60 +3940,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  const loadSampleData = useCallback((): ImportCounts => {
-    const user = requireSignedInUser();
-    if (!user) return { added: 0, duplicates: 0 };
-
-    const sample = buildSampleCalls();
-    const counts = importCalls(sample);
-    const sampleProfiles = buildSampleContactProfiles();
-    const currentContacts = stateRef.current.contacts;
-    const newProfiles = sampleProfiles.filter((profile) => !currentContacts[profile.key]);
-
-    if (newProfiles.length > 0) {
-      setContacts((prev) => {
-        const next = { ...prev };
-        newProfiles.forEach((profile) => {
-          if (!next[profile.key]) next[profile.key] = profile;
-        });
-        return next;
-      });
-    }
-
-    const now = Date.now();
-    const newSchedules: ScheduledCall[] =
-      stateRef.current.scheduledCalls.length === 0
-        ? [
-            {
-              id: 'sched-sample-1',
-              number: '+251911248890',
-              name: 'Dawit Bekele',
-              scheduledFor: now + 90 * 60_000,
-              note: 'Confirm invoice payment schedule',
-              status: 'pending',
-              notifiedAt: null,
-              createdAt: now,
-            },
-            {
-              id: 'sched-sample-2',
-              number: '+251922310442',
-              name: 'Sara Tadesse',
-              scheduledFor: now + 20 * 60_000,
-              note: 'Return missed call about design sync',
-              status: 'pending',
-              notifiedAt: null,
-              createdAt: now,
-            },
-          ]
-        : [];
-
-    if (newSchedules.length > 0) {
-      setScheduledCalls((prev) => (prev.length > 0 ? prev : newSchedules));
-    }
-
-    return counts;
-  }, [importCalls, requireSignedInUser]);
-
   const patchCall = useCallback(
     (id: string, patch: CallPatch, options?: { applyTagToContact?: boolean }) => {
       const user = requireSignedInUser();
@@ -5364,7 +5336,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       addCustomTag,
       importCalls,
       importBackupPackage,
-      loadSampleData,
       patchCall,
       removeCall,
       clearCalls,
@@ -5506,7 +5477,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       addCustomTag,
       importCalls,
       importBackupPackage,
-      loadSampleData,
       patchCall,
       removeCall,
       clearCalls,

@@ -7,6 +7,7 @@ import type {
   ContactBirthday,
   ContactEvent,
   ContactProfile,
+  ScheduledCall,
 } from '@/src/types/call';
 
 export const DEFAULT_RELATIONSHIP_TAGS = ['Family', 'Friends', 'Coworkers'] as const;
@@ -810,117 +811,49 @@ export async function pickPhoneContacts(): Promise<{
   }
 }
 
-export function buildSampleContactProfiles(now: Date = new Date()): ContactProfile[] {
-  const ecToday = toEthiopianDate(now);
-  const gTomorrow = new Date(now.getTime() + 2 * MS_PER_DAY);
-  const gNextWeek = new Date(now.getTime() + 6 * MS_PER_DAY);
-  const ecSoonDay = ecToday.day <= 25 ? ecToday.day + 4 : 3;
-  const ecSoonMonth = ecToday.day <= 25 ? ecToday.month : ((ecToday.month % 13) + 1);
+const LEGACY_SAMPLE_PROFILES: Record<string, string> = {
+  '911248890': 'dawit bekele',
+  '941505775': 'melek',
+  '912904411': 'hanna girma',
+  '945001872': 'abel tesfaye',
+  '933801122': 'yonas alemu',
+  '922310442': 'sara tadesse',
+};
 
-  return [
-    {
-      key: getContactKey('+251911248890'),
-      number: '+251911248890',
-      name: 'Dawit Bekele',
-      tag: 'Coworkers',
-      birthday: {
-        month: gTomorrow.getMonth() + 1,
-        day: gTomorrow.getDate(),
-        year: 1993,
-        calendar: 'gregorian',
-      },
-      events: [
-        {
-          id: 'dawit-project-launch',
-          title: 'Work Anniversary',
-          month: ecSoonMonth,
-          day: ecSoonDay,
-          calendar: 'ethiopian',
-        },
-      ],
-      notes: 'Lead partner on invoicing and weekly schedule coordination.',
-      updatedAt: now.getTime(),
-    },
-    {
-      key: getContactKey('+251941505775'),
-      number: '+251941505775',
-      name: 'Melek',
-      tag: 'Family',
-      birthday: {
-        month: ecToday.month,
-        day: ecToday.day,
-        year: 1995,
-        calendar: 'ethiopian',
-      },
-      events: [
-        {
-          id: 'melek-dinner',
-          title: 'Family Dinner Tradition',
-          month: gNextWeek.getMonth() + 1,
-          day: gNextWeek.getDate(),
-          calendar: 'gregorian',
-        },
-      ],
-      notes: 'Family primary contact — celebrates birthday on Ethiopian calendar.',
-      updatedAt: now.getTime(),
-    },
-    {
-      key: getContactKey('+251912904411'),
-      number: '+251912904411',
-      name: 'Hanna Girma',
-      tag: 'Family',
-      birthday: {
-        month: gNextWeek.getMonth() + 1,
-        day: gNextWeek.getDate(),
-        year: 1990,
-        calendar: 'gregorian',
-      },
-      events: [],
-      notes: 'Sister — check-in calls every few days.',
-      updatedAt: now.getTime(),
-    },
-    {
-      key: getContactKey('+251945001872'),
-      number: '+251945001872',
-      name: 'Abel Tesfaye',
-      tag: 'Friends',
-      birthday: {
-        month: ecSoonMonth,
-        day: ecSoonDay,
-        year: 1994,
-        calendar: 'ethiopian',
-      },
-      events: [],
-      notes: 'University friend — catch up regularly.',
-      updatedAt: now.getTime(),
-    },
-    {
-      key: getContactKey('+251933801122'),
-      number: '+251933801122',
-      name: 'Yonas Alemu',
-      tag: 'Coworkers',
-      birthday: null,
-      events: [
-        {
-          id: 'yonas-ops',
-          title: 'Quarterly Server Audit',
-          month: gTomorrow.getMonth() + 1,
-          day: gTomorrow.getDate(),
-          calendar: 'gregorian',
-        },
-      ],
-      notes: 'Infrastructure & tech lead.',
-      updatedAt: now.getTime(),
-    },
-    {
-      key: getContactKey('+251922310442'),
-      number: '+251922310442',
-      name: 'Sara Tadesse',
-      tag: 'Friends',
-      birthday: null,
-      events: [],
-      notes: 'Design & project sync.',
-      updatedAt: now.getTime(),
-    },
-  ];
+const LEGACY_ABELA_TEST_KEYS = new Set<string>(
+  Array.from({ length: 20 }, (_, i) => `9117788${80 + i}`),
+);
+
+export const LEGACY_SAMPLE_FAVORITE_KEYS = new Set<string>([
+  '911248890',
+  '922310442',
+]);
+
+/** Identifies legacy sample contact profiles previously seeded by demo/test helpers. */
+export function isLegacySampleContactProfile(profile: ContactProfile): boolean {
+  const key = getContactKey(profile.key || profile.number);
+  const name = (profile.name || '').trim().toLowerCase();
+  if (!key) return false;
+  const expected = LEGACY_SAMPLE_PROFILES[key];
+  if (expected && name === expected) return true;
+  if (LEGACY_ABELA_TEST_KEYS.has(key) && name === 'abela') return true;
+  return false;
+}
+
+/** Identifies legacy sample calls previously seeded into signed-in accounts. */
+export function isLegacySampleCall(call: CallRecord): boolean {
+  const key = getContactKey(call.number);
+  if (!key) return false;
+  const name = (call.name || '').trim().toLowerCase();
+  const note = (call.note || '').trim().toLowerCase();
+  const expected = LEGACY_SAMPLE_PROFILES[key];
+  if (expected && name === expected) return true;
+  if (key === '918440219' && !name && note === 'courier delivery call') return true;
+  if (LEGACY_ABELA_TEST_KEYS.has(key) && name === 'abela') return true;
+  return false;
+}
+
+/** Identifies legacy sample scheduled calls previously seeded into signed-in accounts. */
+export function isLegacySampleScheduledCall(sched: ScheduledCall): boolean {
+  return sched.id === 'sched-sample-1' || sched.id === 'sched-sample-2';
 }

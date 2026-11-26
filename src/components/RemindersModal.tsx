@@ -43,7 +43,6 @@ import {
 } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile } from '@/src/lib/export';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
-import { buildLongGapTestCalls } from '@/src/lib/import';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
 import {
   buildPeriodReport,
@@ -121,7 +120,6 @@ export function RemindersModal({
     unmuteAlertKey,
     dismissMissedCall,
     dismissLongGapCall,
-    importCalls,
     scheduleCall,
     completeScheduledCall,
     snoozeScheduledCall,
@@ -911,22 +909,9 @@ export function RemindersModal({
             </div>
 
             {longGapReturnCalls.length === 0 ? (
-              <div className="py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-2.5">
-                <p className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] flex-1 min-w-[200px]">
-                  No one has called after a {alertTypePrefs.longGapDays ?? 30}+ day gap in the last 7 days. You&apos;ll get an alert when a long-quiet contact reaches out.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const testCalls = buildLongGapTestCalls(calls);
-                    importCalls(testCalls);
-                    showNotice('Logged Abela calling after 45 days. Tap Abela to view Profile.', 'success');
-                  }}
-                  className="min-h-[34px] px-3 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] text-[11px] font-semibold text-[#08246B] dark:text-white whitespace-nowrap shrink-0 transition-colors"
-                >
-                  Log test call (Abela · 45d)
-                </button>
-              </div>
+              <p className="text-xs text-[#8A93A0] dark:text-[var(--dark-text-muted)] py-3 border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
+                No one has called after a {alertTypePrefs.longGapDays ?? 30}+ day gap in the last 7 days. You&apos;ll get an alert when a long-quiet contact reaches out.
+              </p>
             ) : (
               <div className="divide-y divide-[#DDE4EA] dark:divide-[var(--dark-border)] border-y border-[#DDE4EA] dark:border-[var(--dark-border)]">
                 {longGapReturnCalls.map((item) => {
