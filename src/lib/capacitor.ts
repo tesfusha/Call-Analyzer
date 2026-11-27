@@ -544,21 +544,30 @@ export async function syncNativeStatusBar(isDark: boolean, backgroundColor: stri
   }
 }
 
-export async function subscribeNativeAppResume(onResume: () => void): Promise<() => void> {
+export async function subscribeNativeAppLifecycle(handlers: {
+  onPause?: () => void;
+  onResume?: () => void;
+}): Promise<() => void> {
   if (typeof window === 'undefined') return () => {};
   const handles: CapacitorPluginHandle[] = [];
-  const onVisible = () => {
+  const onVisibilityChange = () => {
     if (document.visibilityState === 'visible') {
-      onResume();
+      handlers.onResume?.();
+    } else if (document.visibilityState === 'hidden') {
+      handlers.onPause?.();
     }
   };
-  document.addEventListener('visibilitychange', onVisible);
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   const appPlugin = getCapacitor()?.Plugins?.App;
   if (appPlugin && typeof appPlugin.addListener === 'function') {
     try {
       const h = await appPlugin.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) onResume();
+        if (isActive) {
+          handlers.onResume?.();
+        } else {
+          handlers.onPause?.();
+        }
       });
       if (h) handles.push(h);
     } catch {
@@ -567,7 +576,7 @@ export async function subscribeNativeAppResume(onResume: () => void): Promise<()
   }
 
   return () => {
-    document.removeEventListener('visibilitychange', onVisible);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     handles.forEach((h) => {
       try {
         void h.remove?.();
@@ -576,6 +585,10 @@ export async function subscribeNativeAppResume(onResume: () => void): Promise<()
       }
     });
   };
+}
+
+export async function subscribeNativeAppResume(onResume: () => void): Promise<() => void> {
+  return subscribeNativeAppLifecycle({ onResume });
 }
 
 export function hasNativeCallLogSyncPlugin(): boolean {

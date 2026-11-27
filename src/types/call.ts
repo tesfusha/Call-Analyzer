@@ -90,7 +90,7 @@ export type CalendarPrefs = {
 export type DateHeaderStyle = 'calls-strip' | 'sub-bar' | 'header' | 'hidden';
 
 export type BroadcastKind = 'update' | 'announcement' | 'tip' | 'urgent';
-export type BroadcastDisplayMode = 'banner' | 'popup';
+export type BroadcastDisplayMode = 'banner' | 'ticker' | 'ribbon' | 'popup';
 export type BroadcastAudience = 'all' | 'android' | 'web';
 
 export type BroadcastMessage = {

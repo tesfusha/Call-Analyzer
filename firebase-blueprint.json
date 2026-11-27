@@ -164,7 +164,7 @@
     },
     "BroadcastMessage": {
       "title": "BroadcastMessage",
-      "description": "Admin-published in-app update or announcement broadcast shown to verified users (banner or popup).",
+      "description": "Admin-published in-app update or announcement broadcast shown to verified users (banner, ticker, ribbon strip, or popup).",
       "type": "object",
       "properties": {
         "id": {
@@ -189,7 +189,7 @@
         },
         "displayMode": {
           "type": "string",
-          "enum": ["banner", "popup"]
+          "enum": ["banner", "ticker", "ribbon", "popup"]
         },
         "audience": {
           "type": "string",

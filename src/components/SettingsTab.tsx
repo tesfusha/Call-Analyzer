@@ -560,13 +560,16 @@ export function SettingsTab({
               ? 'In header'
               : 'Date hidden'
       }`,
-      security: pinEnabled
-        ? biometricUnlockEnabled
-          ? 'PIN + Fingerprint active'
-          : '4-digit lock active'
-        : biometricSavedLogin?.uid && authUser?.uid && biometricSavedLogin.uid === authUser.uid
-          ? 'Fingerprint sign-in active'
-          : 'No screen lock set',
+      security:
+        pinEnabled && biometricUnlockEnabled
+          ? 'PIN + Fingerprint lock active'
+          : biometricUnlockEnabled
+            ? 'Fingerprint lock active'
+            : pinEnabled
+              ? '4-digit lock active'
+              : biometricSavedLogin?.uid && authUser?.uid && biometricSavedLogin.uid === authUser.uid
+                ? 'Fingerprint sign-in active'
+                : 'No screen lock set',
       sim_tariffs: `${simLabels.sim1Label} / ${simLabels.sim2Label} · ${tariffs.billingMode}`,
       reminders: `${notificationsEnabled ? 'Alerts on' : 'Alerts off'} · ${
         reminderPrefs.missedCallReminderDelayMinutes
@@ -944,13 +947,13 @@ export function SettingsTab({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold text-[#08246B] dark:text-white">
-                  4-Digit Screen Lock PIN · {pinEnabled ? 'Active on this device' : 'Not set'}
+                  4-Digit Screen Lock PIN · {pinEnabled ? 'Active on this device' : 'Optional backup'}
                 </p>
                 <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Quick screen lock for casual privacy on this device (acts as backup for fingerprint unlock)
+                  Quick numeric PIN lock on this device (also works as a backup if you turn on Fingerprint App Lock)
                 </p>
               </div>
-              {pinEnabled && (
+              {(pinEnabled || biometricUnlockEnabled) && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -960,13 +963,15 @@ export function SettingsTab({
                     <Lock size={13} />
                     Lock screen
                   </button>
-                  <button
-                    type="button"
-                    onClick={clearAppPin}
-                    className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    Remove lock
-                  </button>
+                  {pinEnabled && (
+                    <button
+                      type="button"
+                      onClick={clearAppPin}
+                      className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 whitespace-nowrap shrink-0 transition-colors"
+                    >
+                      Remove PIN
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1026,16 +1031,18 @@ export function SettingsTab({
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {/* Option 1: Biometric Screen Unlock */}
+                  {/* Option 1: Standalone Fingerprint App Lock */}
                   <div className="flex items-center justify-between gap-3 pt-1">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-[#08246B] dark:text-white">
-                        Fingerprint Screen Unlock
+                        Fingerprint App Lock
                       </p>
                       <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                        {pinEnabled
-                          ? 'Use your fingerprint to open the lock screen (4-digit PIN stays as backup)'
-                          : 'Set a 4-digit backup PIN above first to turn on fingerprint unlock'}
+                        {biometricUnlockEnabled && pinEnabled
+                          ? 'Locks app on launch & after leaving (4-digit PIN works as backup)'
+                          : biometricUnlockEnabled
+                            ? 'Locks app on launch & after leaving using your fingerprint'
+                            : 'Require your fingerprint to open the app — works with or without a PIN'}
                       </p>
                     </div>
                     <button

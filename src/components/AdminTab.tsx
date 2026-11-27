@@ -27,6 +27,11 @@ import {
   UserX,
   Users,
 } from 'lucide-react';
+import {
+  BroadcastBannerCard,
+  BroadcastRibbonCard,
+  BroadcastTickerCard,
+} from '@/src/components/BroadcastOverlay';
 import { CategoryPanel, CategoryTabs } from '@/src/components/CategoryTabs';
 import { CollapsibleSection } from '@/src/components/CollapsibleSection';
 import { CustomSelect } from '@/src/components/CustomSelect';
@@ -1758,6 +1763,8 @@ export function AdminTab() {
                     ariaLabel="Broadcast display style"
                     options={[
                       { value: 'banner', label: 'Top Banner' },
+                      { value: 'ticker', label: 'Scrolling Ticker Bar' },
+                      { value: 'ribbon', label: 'Compact Accent Strip' },
                       { value: 'popup', label: 'Popup Modal' },
                     ]}
                   />
@@ -1864,6 +1871,57 @@ export function AdminTab() {
                 </div>
               </div>
 
+              {/* Live Display Style Preview */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Live Preview ({bcDisplayMode === 'ticker' ? 'Scrolling Ticker Bar' : bcDisplayMode === 'ribbon' ? 'Compact Accent Strip' : bcDisplayMode === 'popup' ? 'Popup Modal' : 'Top Banner'})
+                  </span>
+                </div>
+                {(() => {
+                  const previewItem: BroadcastMessage = {
+                    id: 'admin-preview',
+                    title: bcTitle.trim() || 'Call Analyzer v1.0.5 Update',
+                    message:
+                      bcMessage.trim() ||
+                      'Please keep your app updated for faster sync & fingerprint security',
+                    kind: bcKind,
+                    displayMode: bcDisplayMode,
+                    audience: bcAudience,
+                    actionLabel: bcActionLabel.trim() || null,
+                    actionUrl: bcActionUrl.trim() || null,
+                    active: true,
+                    createdBy: 'preview',
+                    createdAtMs: Date.now(),
+                    updatedAtMs: Date.now(),
+                  };
+                  if (bcDisplayMode === 'ticker') {
+                    return <BroadcastTickerCard item={previewItem} />;
+                  }
+                  if (bcDisplayMode === 'ribbon') {
+                    return <BroadcastRibbonCard item={previewItem} />;
+                  }
+                  if (bcDisplayMode === 'popup') {
+                    return (
+                      <div className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] p-3.5 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                            {previewItem.title}
+                          </p>
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#FF6A00] shrink-0">
+                            Modal Popup
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] line-clamp-2">
+                          {previewItem.message}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return <BroadcastBannerCard item={previewItem} />;
+                })()}
+              </div>
+
               {bcError && (
                 <p className="text-xs font-medium text-[#DC2626] dark:text-[#FCA5A5]">
                   {bcError}
@@ -1924,7 +1982,15 @@ export function AdminTab() {
                                   {meta.label}
                                 </span>
                                 <span aria-hidden="true">·</span>
-                                <span>{item.displayMode === 'popup' ? 'Popup' : 'Banner'}</span>
+                                <span>
+                                  {item.displayMode === 'popup'
+                                    ? 'Popup'
+                                    : item.displayMode === 'ticker'
+                                      ? 'Ticker Bar'
+                                      : item.displayMode === 'ribbon'
+                                        ? 'Accent Strip'
+                                        : 'Banner'}
+                                </span>
                                 <span aria-hidden="true">·</span>
                                 <span>
                                   {item.audience === 'all'

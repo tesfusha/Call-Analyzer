@@ -1082,8 +1082,10 @@ function AppShell() {
         onVerifyPin={unlockWithPin}
         onResetPin={clearAppPin}
         lockUntil={pinLockoutUntil}
+        pinEnabled={pinEnabled}
         biometricEnabled={biometricUnlockEnabled}
         onVerifyBiometric={unlockWithBiometric}
+        onSignOut={() => void signOutAccount()}
       />
     );
   }
@@ -1207,12 +1209,12 @@ function AppShell() {
             }
           />
 
-          {pinEnabled && (
+          {(pinEnabled || biometricUnlockEnabled) && (
             <button
               type="button"
               onClick={lockApp}
               aria-label="Lock screen"
-              title="Lock screen with PIN"
+              title="Lock screen"
               className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center gap-2 transition-colors"
             >
               <Lock size={14} className="text-[#FF6A00]" />
@@ -1337,7 +1339,7 @@ function AppShell() {
             </div>
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            {pinEnabled && (
+            {(pinEnabled || biometricUnlockEnabled) && (
               <button
                 type="button"
                 onClick={lockApp}

@@ -1,7 +1,7 @@
 {
-  "versionCode": 8,
-  "versionName": "1.0.0",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-1.0.0.apk",
-  "notes": "Call Analyzer - ETH v1.0.0 public release: Dual-SIM ETC/SFC call sync and costing, interactive charts & PDF statements, Ethiopian Calendar with Wish Composer, smarter Quiet Contacts, daily & contact streak share cards, PBKDF2 screen lock, and full support links in Settings -> About.",
+  "versionCode": 13,
+  "versionName": "1.0.5",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-1.0.5.apk",
+  "notes": "Call Analyzer - ETH v1.0.5: Fingerprint Screen Unlock & Sign-In, notification-style Support Inbox alerts, real-time Broadcasts for verified users, permanent native Google Sign-In, and zoom-locked mobile layout.",
   "mandatory": false
 }

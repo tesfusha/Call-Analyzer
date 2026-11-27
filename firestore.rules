@@ -253,7 +253,7 @@ service cloud.firestore {
         && isBoundedString(data.title, 2, 100)
         && isBoundedString(data.message, 4, 500)
         && data.kind in ['update', 'announcement', 'tip', 'urgent']
-        && data.displayMode in ['banner', 'popup']
+        && data.displayMode in ['banner', 'ticker', 'ribbon', 'popup']
         && data.audience in ['all', 'android', 'web']
         && (!('actionLabel' in data) || isNullableString(data.actionLabel, 40))
         && (!('actionUrl' in data) || data.actionUrl == null || (data.actionUrl is string && data.actionUrl.size() <= 300 && data.actionUrl.matches('^https://.*')))

@@ -4,8 +4,12 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BellRing,
   CheckCircle2,
+  Fingerprint,
   Flame,
   HeartHandshake,
+  LogIn,
+  Megaphone,
+  MessageSquare,
   Phone,
   ShieldCheck,
   Smartphone,
@@ -24,6 +28,11 @@ import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 const NOTE_ICONS = {
+  'fingerprint-auth': Fingerprint,
+  'inbox-pops': MessageSquare,
+  'live-broadcasts': Megaphone,
+  'native-google-auth': LogIn,
+  'no-zoom-polish': Smartphone,
   'exact-alarms-clean-header': null,
   'streak-counting': Flame,
   'mobile-modals': Smartphone,

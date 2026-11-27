@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '1.0.4';
-export const APP_VERSION_CODE = 12;
+export const APP_VERSION_NAME = '1.0.5';
+export const APP_VERSION_CODE = 13;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Exact-Minute Reminders, Broadcasts & Clean Header';
+export const APP_RELEASE_LABEL = 'Fingerprint Login, Inbox Popups & Live Broadcasts';
 export const APP_CONTACT_EMAIL = 'tesfutilahun33@gmail.com';
 export const APP_TELEGRAM_HANDLE = 't.me/callanalyzer_eth';
 export const APP_TELEGRAM_URL = 'https://t.me/callanalyzer_eth';
@@ -16,34 +16,34 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
-    id: 'exact-alarms-clean-header',
-    title: 'Exact-Minute Call Reminders & Customizable Date Header',
+    id: 'fingerprint-auth',
+    title: 'Fingerprint Screen Unlock & Quick Sign-In',
     detail:
-      'Scheduled callbacks now use Android AlarmClock wakeups so alerts fire right on time even when closed, and you can choose your preferred Ethiopian & Gregorian date placement in Settings → Appearance.',
+      'Unlock the app screen with your fingerprint (with 4-digit PIN backup) and enable one-touch Sign in with Fingerprint sealed by Android Keystore encryption in Settings → Security.',
   },
   {
-    id: 'notification-actions',
-    title: 'Back in Touch Return-Call Alerts (30+ Days)',
+    id: 'inbox-pops',
+    title: 'Notification-Style Support Inbox Alerts',
     detail:
-      'Get notified when someone calls after 30+ days (configurable 14d–90d), review them in Wishes & Alerts, and see a compact gap-days reconnect badge inside their profile.',
+      'Receive floating heads-up pop alerts and Android notifications whenever Admin replies or a user sends a new Inbox message, with direct one-tap Reply into the thread.',
   },
   {
-    id: 'mobile-modals',
-    title: 'Header Calendar, Charts & Compact Wish Composer',
+    id: 'live-broadcasts',
+    title: 'Live Broadcasts for Verified Accounts',
     detail:
-      'Stacked Ethiopian & Gregorian header date, clearer Talk-Time chart axes, cleaner Quiet Contacts cards, and single-row Wish Composer send buttons.',
+      'Announcements, update notices, and tips now sync live in real time and refresh on app resume with heads-up pop alerts for verified signed-in users.',
   },
   {
-    id: 'clean-call-logs',
-    title: 'Dual-SIM Sync, Costing & Fast Promo Video Export',
+    id: 'native-google-auth',
+    title: 'Permanent Native Android Google Sign-In',
     detail:
-      'Sync Ethio Telecom and Safaricom call logs on Android, export clean PDF statements, and render promo videos faster on Web & Android.',
+      'Google Sign-In now runs via a built-in native Android bridge so app updates and syncs stay reliable alongside Email & Fingerprint login.',
   },
   {
-    id: 'brand-launcher',
-    title: 'On-Device Privacy & 4-Digit Screen Lock',
+    id: 'no-zoom-polish',
+    title: 'Locked App Viewport & Cleaner Navigation',
     detail:
-      'All call history and contact details stay strictly on your phone, protected with optional PBKDF2-hashed 4-digit PIN lock and encrypted local storage.',
+      'Disabled accidental pinch-zoom and double-tap zoom across WebView and touch layouts so scrolling, charts, and modals feel crisp and steady.',
   },
 ] as const;
 

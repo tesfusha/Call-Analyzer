@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { AdminTab } from '@/src/components/AdminTab';
 import { BrandLogo } from '@/src/components/BrandLogo';
+import { BroadcastBanners } from '@/src/components/BroadcastOverlay';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
 import { firstGraphemes } from '@/src/lib/format';
@@ -75,6 +76,7 @@ export function AppShellV107({
     setThemeMode,
     toggleTheme,
     pinEnabled,
+    biometricUnlockEnabled,
     lockApp,
     authUser,
     isGuest,
@@ -258,7 +260,7 @@ export function AppShellV107({
             )}
           </button>
 
-          {pinEnabled && (
+          {(pinEnabled || biometricUnlockEnabled) && (
             <button
               type="button"
               onClick={lockApp}
@@ -367,6 +369,16 @@ export function AppShellV107({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {(pinEnabled || biometricUnlockEnabled) && (
+              <button
+                type="button"
+                onClick={lockApp}
+                aria-label="Lock screen"
+                className="w-10 h-10 rounded-xl text-[#626874] dark:text-[#989EA9] flex items-center justify-center"
+              >
+                <Lock size={16} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setActiveTab('calendar')}
@@ -399,6 +411,7 @@ export function AppShellV107({
       {/* Main Content */}
       <main className="flex-1 min-w-0 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:pb-10 overflow-x-clip">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-7">
+          <BroadcastBanners />
           {isGuest && (
             <div className="mb-5 rounded-2xl bg-white dark:bg-[#151921] border border-[#E2E5EA] dark:border-white/[0.08] px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-0">

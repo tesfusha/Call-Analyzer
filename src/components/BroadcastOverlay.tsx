@@ -67,36 +67,196 @@ function getKindMeta(kind: BroadcastKind) {
 export function BroadcastBanners() {
   const { activeBroadcasts, dismissedBroadcastIds, dismissBroadcast } = useCalls();
 
-  const banners = activeBroadcasts
+  const items = activeBroadcasts
     .filter(
-      (b) => b.displayMode === 'banner' && !dismissedBroadcastIds.includes(b.id),
+      (b) =>
+        (b.displayMode === 'banner' ||
+          b.displayMode === 'ticker' ||
+          b.displayMode === 'ribbon') &&
+        !dismissedBroadcastIds.includes(b.id),
     )
-    .slice(0, 2);
+    .slice(0, 3);
 
-  if (banners.length === 0) return null;
+  if (items.length === 0) return null;
 
   return (
     <div className="mb-4 space-y-2.5" role="region" aria-label="Updates and announcements">
-      {banners.map((item) => (
-        <BroadcastBannerCard
-          key={item.id}
-          item={item}
-          onDismiss={() => {
-            triggerHaptic('tap');
-            dismissBroadcast(item.id);
-          }}
-        />
-      ))}
+      {items.map((item) => {
+        const handleDismiss = () => {
+          triggerHaptic('tap');
+          dismissBroadcast(item.id);
+        };
+        if (item.displayMode === 'ticker') {
+          return (
+            <BroadcastTickerCard key={item.id} item={item} onDismiss={handleDismiss} />
+          );
+        }
+        if (item.displayMode === 'ribbon') {
+          return (
+            <BroadcastRibbonCard key={item.id} item={item} onDismiss={handleDismiss} />
+          );
+        }
+        return <BroadcastBannerCard key={item.id} item={item} onDismiss={handleDismiss} />;
+      })}
     </div>
   );
 }
 
-function BroadcastBannerCard({
+export function BroadcastTickerCard({
   item,
   onDismiss,
 }: {
   item: BroadcastMessage;
-  onDismiss: () => void;
+  onDismiss?: () => void;
+}) {
+  const meta = getKindMeta(item.kind);
+  const Icon = meta.icon;
+  const safeUrl = isSafeHttpsUrl(item.actionUrl) ? item.actionUrl.trim() : null;
+  const titleText = item.title.trim();
+  const bodyText = item.message.trim().replace(/\s+/g, ' ');
+  const combinedText = bodyText
+    ? `${titleText}  •  ${bodyText}`
+    : titleText;
+  const durationSeconds = Math.min(34, Math.max(14, Math.round(combinedText.length * 0.24)));
+
+  const tickerText = (
+    <span className="inline-flex items-center gap-2 text-[13px] font-semibold tracking-[0.01em] whitespace-nowrap pr-14">
+      <span>{combinedText}</span>
+      {safeUrl && (
+        <span className="inline-flex items-center gap-1 text-[#FF8A33] font-bold underline underline-offset-2">
+          {item.actionLabel?.trim() || 'Open'}
+          <ExternalLink size={11} />
+        </span>
+      )}
+    </span>
+  );
+
+  return (
+    <div
+      className="ca-ticker-wrap relative rounded-2xl border-[1.5px] border-[#FF6A00] bg-[#161920] text-white px-3.5 py-2.5 flex items-center gap-2 shadow-sm overflow-hidden"
+      style={{ '--ca-ticker-duration': `${durationSeconds}s` } as React.CSSProperties}
+    >
+      <div
+        className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[#FF6A00]"
+        aria-hidden="true"
+      >
+        {meta.flaticon ? (
+          <FlaticonIcon name={meta.flaticon} className="text-[19px]" />
+        ) : Icon ? (
+          <Icon size={19} strokeWidth={2.2} />
+        ) : (
+          <Megaphone size={19} strokeWidth={2.2} />
+        )}
+      </div>
+
+      {safeUrl ? (
+        <a
+          href={safeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ca-ticker-mask flex-1 min-w-0 overflow-hidden py-0.5 block focus:outline-none"
+          aria-label={`${combinedText} — ${item.actionLabel?.trim() || 'Open link'}`}
+        >
+          <div className="ca-ticker-track">
+            {tickerText}
+            <span className="ca-ticker-clone" aria-hidden="true">
+              {tickerText}
+            </span>
+          </div>
+        </a>
+      ) : (
+        <div className="ca-ticker-mask flex-1 min-w-0 overflow-hidden py-0.5">
+          <div className="ca-ticker-track">
+            {tickerText}
+            <span className="ca-ticker-clone" aria-hidden="true">
+              {tickerText}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={`Dismiss ${item.title}`}
+          className="w-7 h-7 rounded-lg text-white/65 hover:text-white hover:bg-white/10 flex items-center justify-center shrink-0 transition-colors"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function BroadcastRibbonCard({
+  item,
+  onDismiss,
+}: {
+  item: BroadcastMessage;
+  onDismiss?: () => void;
+}) {
+  const meta = getKindMeta(item.kind);
+  const Icon = meta.icon;
+  const safeUrl = isSafeHttpsUrl(item.actionUrl) ? item.actionUrl.trim() : null;
+  const singleLineBody = item.message.trim().replace(/\s+/g, ' ');
+
+  return (
+    <div
+      className={`rounded-xl border ${meta.accentBorder} ${meta.accentBg} px-3.5 py-2 flex items-center justify-between gap-2.5`}
+    >
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <span className={`shrink-0 ${meta.accentText}`} aria-hidden="true">
+          {meta.flaticon ? (
+            <FlaticonIcon name={meta.flaticon} className="text-[16px]" />
+          ) : (
+            Icon && <Icon size={16} />
+          )}
+        </span>
+        <p className="min-w-0 flex-1 text-xs text-[#08246B] dark:text-white truncate">
+          <span className={`font-bold uppercase tracking-wider text-[10px] mr-1.5 ${meta.accentText}`}>
+            {meta.label}
+          </span>
+          <span className="font-bold mr-1.5">{item.title}</span>
+          <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+            {singleLineBody}
+          </span>
+        </p>
+      </div>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        {safeUrl && (
+          <a
+            href={safeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white transition-colors ${meta.buttonBg}`}
+          >
+            <span>{item.actionLabel?.trim() || 'Open'}</span>
+            <ExternalLink size={11} />
+          </a>
+        )}
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label={`Dismiss ${item.title}`}
+            className="w-7 h-7 rounded-lg text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center shrink-0 transition-colors"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function BroadcastBannerCard({
+  item,
+  onDismiss,
+}: {
+  item: BroadcastMessage;
+  onDismiss?: () => void;
 }) {
   const meta = getKindMeta(item.kind);
   const Icon = meta.icon;
@@ -146,14 +306,16 @@ function BroadcastBannerCard({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={`Dismiss ${item.title}`}
-        className="w-8 h-8 rounded-lg text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center shrink-0 transition-colors"
-      >
-        <X size={15} />
-      </button>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={`Dismiss ${item.title}`}
+          className="w-8 h-8 rounded-lg text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center shrink-0 transition-colors"
+        >
+          <X size={15} />
+        </button>
+      )}
     </div>
   );
 }

@@ -67,6 +67,7 @@ import {
   scheduleNativeNotificationDetailed,
   setNativeBiometricUnlockEnabled,
   showNativeNotification,
+  subscribeNativeAppLifecycle,
   subscribeNativeAppResume,
   subscribeNativeCallLog,
   subscribeNativeNotificationActions,
@@ -1040,7 +1041,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionStatus>('prompt');
   const [pinHash, setPinHash] = useState<string>('');
+  const pinHashRef = useRef<string>('');
+  pinHashRef.current = pinHash;
   const [isLocked, setIsLocked] = useState<boolean>(false);
+  const internalNativeDialogDepthRef = useRef<number>(0);
+  const lastInternalDialogClosedAtRef = useRef<number>(0);
+  const backgroundedAtRef = useRef<number | null>(null);
+  const skipInitialLockOnFreshSignInRef = useRef<boolean>(false);
   const [pinLockoutUntil, setPinLockoutUntil] = useState<number>(0);
   const [biometricStatus, setBiometricStatus] = useState<NativeBiometricStatus | null>(null);
   const biometricStatusRef = useRef<NativeBiometricStatus | null>(null);
@@ -1976,11 +1983,24 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       // Clear any previous/guest state first, then hydrate ONLY this logged-in user's IndexedDB cache
       applySnapshotToState(createEmptySnapshot());
-      const { snapshot: scoped, pendingReg } = await readScopedUserStateAsync(uid);
+      const [{ snapshot: scoped, pendingReg }, bioStatus] = await Promise.all([
+        readScopedUserStateAsync(uid),
+        hasNativeBiometricPlugin() ? getNativeBiometricStatus(uid) : Promise.resolve(null),
+      ]);
       if (cancelled || myRun !== activeRun || auth.currentUser?.uid !== uid) {
         return;
       }
       applySnapshotToState(scoped);
+      if (bioStatus) {
+        biometricStatusRef.current = bioStatus;
+        setBiometricStatus(bioStatus);
+      }
+      const skipLockOnce = skipInitialLockOnFreshSignInRef.current;
+      skipInitialLockOnFreshSignInRef.current = false;
+      setIsLocked(
+        !skipLockOnce &&
+          (Boolean(scoped.pinHash) || Boolean(bioStatus?.available && bioStatus?.unlockEnabled)),
+      );
       const storedLockout = readPinLockoutState(userStorageKey(uid, 'pinLockout'));
       setPinLockoutUntil(storedLockout.lockUntil > Date.now() ? storedLockout.lockUntil : 0);
       accountMetaRef.current = {
@@ -2817,6 +2837,20 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     deliverSystemNotification,
   ]);
 
+  const runWithResumeLockSuppressed = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    internalNativeDialogDepthRef.current += 1;
+    try {
+      return await fn();
+    } finally {
+      internalNativeDialogDepthRef.current = Math.max(
+        0,
+        internalNativeDialogDepthRef.current - 1,
+      );
+      lastInternalDialogClosedAtRef.current = Date.now();
+      backgroundedAtRef.current = null;
+    }
+  }, []);
+
   const signInWithGoogle = useCallback(async (): Promise<AuthActionResult> => {
     try {
       if (isNativeCapacitor()) {
@@ -2826,7 +2860,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           showNotice(msg);
           return { ok: false, error: msg };
         }
-        const nativeCred = await runNativeGoogleSignIn();
+        const nativeCred = await runWithResumeLockSuppressed(() => runNativeGoogleSignIn());
         if (!nativeCred.idToken && !nativeCred.accessToken) {
           const msg =
             'Google Sign-In returned no ID token. Confirm google-services.json includes Web OAuth Client (client_type: 3) and try again.';
@@ -2909,7 +2943,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       showNotice(msg);
       return { ok: false, error: msg };
     }
-  }, [showNotice]);
+  }, [runWithResumeLockSuppressed, showNotice]);
 
   const signInWithEmail = useCallback(
     async (email: string, password: string): Promise<AuthActionResult> => {
@@ -3259,7 +3293,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         ? raw.kind
         : 'announcement';
     const displayMode: BroadcastDisplayMode =
-      raw.displayMode === 'popup' ? 'popup' : 'banner';
+      raw.displayMode === 'popup' ||
+      raw.displayMode === 'ticker' ||
+      raw.displayMode === 'ribbon'
+        ? raw.displayMode
+        : 'banner';
     const audience: BroadcastAudience =
       raw.audience === 'android' || raw.audience === 'web' ? raw.audience : 'all';
     return {
@@ -3307,7 +3345,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const newest = fresh[0];
       if (!newest) return;
 
-      if (newest.displayMode === 'banner') {
+      if (
+        newest.displayMode === 'banner' ||
+        newest.displayMode === 'ticker' ||
+        newest.displayMode === 'ribbon'
+      ) {
         const badgeLabel =
           newest.kind === 'update'
             ? 'App Update'
@@ -3570,7 +3612,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     } else {
       clearPinLockoutState('callanalyzer.guest.pinLockout');
     }
-    setIsLocked(false);
+    const stillLockedByBiometric = Boolean(
+      biometricStatusRef.current?.available && biometricStatusRef.current?.unlockEnabled,
+    );
+    setIsLocked(stillLockedByBiometric);
     showNotice('Screen lock PIN removed.', 'warning');
   }, [showNotice]);
 
@@ -3610,8 +3655,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   );
 
   const lockApp = useCallback(() => {
-    if (!pinHash) {
-      showNotice('Set a 4-digit screen lock PIN first.');
+    const hasBioLock = Boolean(
+      biometricStatusRef.current?.available && biometricStatusRef.current?.unlockEnabled,
+    );
+    if (!pinHash && !hasBioLock) {
+      showNotice('Turn on Fingerprint App Lock or a 4-digit PIN in Settings → Security first.');
       return;
     }
     triggerHaptic('tap');
@@ -3620,10 +3668,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const refreshBiometricStatus = useCallback(async () => {
     if (!hasNativeBiometricPlugin()) {
+      biometricStatusRef.current = null;
       setBiometricStatus(null);
       return;
     }
     const status = await getNativeBiometricStatus(auth.currentUser?.uid ?? null);
+    biometricStatusRef.current = status;
     setBiometricStatus(status);
   }, []);
 
@@ -3631,47 +3681,91 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     void refreshBiometricStatus();
   }, [authUser?.uid, refreshBiometricStatus]);
 
+  useEffect(() => {
+    if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid || isGuest) {
+      backgroundedAtRef.current = null;
+      return;
+    }
+    let unsub: (() => void) | null = null;
+    let cancelled = false;
+
+    void subscribeNativeAppLifecycle({
+      onPause: () => {
+        if (internalNativeDialogDepthRef.current > 0) return;
+        if (backgroundedAtRef.current === null) {
+          backgroundedAtRef.current = Date.now();
+        }
+      },
+      onResume: () => {
+        const bgAt = backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        if (bgAt === null) return;
+        if (internalNativeDialogDepthRef.current > 0) return;
+        if (Date.now() - lastInternalDialogClosedAtRef.current < 1500) return;
+        if (Date.now() - bgAt < 5000) return;
+        const hasPin = Boolean(pinHashRef.current);
+        const hasBio = Boolean(
+          biometricStatusRef.current?.available && biometricStatusRef.current?.unlockEnabled,
+        );
+        if (hasPin || hasBio) {
+          setIsLocked(true);
+        }
+      },
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unsub = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [authUser?.emailVerified, authUser?.uid, hydratedUid, isGuest]);
+
   const toggleBiometricUnlock = useCallback(
     async (enabled: boolean): Promise<boolean> => {
       const user = requireSignedInUser();
       if (!user) return false;
       if (!hasNativeBiometricPlugin()) {
-        showNotice('Fingerprint unlock is only available inside the Android APK.', 'warning');
-        return false;
-      }
-      if (enabled && !pinHash) {
-        showNotice('Set a 4-digit backup PIN first, then turn on Fingerprint Unlock.', 'warning');
+        showNotice('Fingerprint App Lock is only available inside the Android APK.', 'warning');
         return false;
       }
       try {
-        const res = await setNativeBiometricUnlockEnabled(user.uid, enabled);
+        const res = await runWithResumeLockSuppressed(() =>
+          setNativeBiometricUnlockEnabled(user.uid, enabled),
+        );
         await refreshBiometricStatus();
         if (res.cancelled) {
           showNotice('Fingerprint verification cancelled.');
           return false;
         }
         showNotice(
-          res.enabled ? 'Fingerprint screen unlock enabled.' : 'Fingerprint screen unlock disabled.',
+          res.enabled ? 'Fingerprint App Lock enabled.' : 'Fingerprint App Lock disabled.',
           res.enabled ? 'success' : 'tap',
         );
         return res.enabled;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Could not update fingerprint unlock.';
+        const msg = err instanceof Error ? err.message : 'Could not update Fingerprint App Lock.';
         showNotice(msg, 'warning');
         return false;
       }
     },
-    [pinHash, refreshBiometricStatus, requireSignedInUser, showNotice],
+    [refreshBiometricStatus, requireSignedInUser, runWithResumeLockSuppressed, showNotice],
   );
 
   const unlockWithBiometric = useCallback(async (): Promise<boolean> => {
     if (!hasNativeBiometricPlugin()) return false;
     try {
-      const res = await authenticateNativeBiometric({
-        title: 'Unlock Call Analyzer - ETH',
-        subtitle: 'Verify your fingerprint to view your calls and contacts',
-        negativeButtonText: 'Use PIN',
-      });
+      const res = await runWithResumeLockSuppressed(() =>
+        authenticateNativeBiometric({
+          title: 'Unlock Call Analyzer - ETH',
+          subtitle: 'Verify your fingerprint to view your calls and contacts',
+          negativeButtonText: pinHashRef.current ? 'Use PIN' : 'Cancel',
+        }),
+      );
       if (res.authenticated) {
         const user = auth.currentUser;
         const lockoutKey = user
@@ -3689,7 +3783,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       showNotice(msg, 'warning');
       return false;
     }
-  }, [showNotice]);
+  }, [runWithResumeLockSuppressed, showNotice]);
 
   const enableBiometricLogin = useCallback(
     async (password?: string): Promise<AuthActionResult> => {
@@ -3710,12 +3804,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       try {
         if (isGoogleUser) {
-          const res = await saveNativeBiometricLogin({
-            uid: user.uid,
-            email: user.email,
-            provider: 'google',
-            displayName,
-          });
+          const res = await runWithResumeLockSuppressed(() =>
+            saveNativeBiometricLogin({
+              uid: user.uid,
+              email: user.email!,
+              provider: 'google',
+              displayName,
+            }),
+          );
           await refreshBiometricStatus();
           if (res.cancelled) {
             return { ok: false, error: 'Fingerprint confirmation was cancelled.' };
@@ -3741,13 +3837,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         const cred = EmailAuthProvider.credential(user.email, cleanPwd);
         await reauthenticateWithCredential(user, cred);
 
-        const res = await saveNativeBiometricLogin({
-          uid: user.uid,
-          email: user.email,
-          provider: 'password',
-          password: cleanPwd,
-          displayName,
-        });
+        const res = await runWithResumeLockSuppressed(() =>
+          saveNativeBiometricLogin({
+            uid: user.uid,
+            email: user.email!,
+            provider: 'password',
+            password: cleanPwd,
+            displayName,
+          }),
+        );
         await refreshBiometricStatus();
         if (res.cancelled) {
           return { ok: false, error: 'Fingerprint confirmation was cancelled.' };
@@ -3767,7 +3865,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: msg };
       }
     },
-    [refreshBiometricStatus, requireSignedInUser, showNotice],
+    [refreshBiometricStatus, requireSignedInUser, runWithResumeLockSuppressed, showNotice],
   );
 
   const disableBiometricLogin = useCallback(async () => {
@@ -3782,13 +3880,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: msg };
     }
     try {
-      const unlocked = await unlockNativeBiometricLogin();
+      const unlocked = await runWithResumeLockSuppressed(() => unlockNativeBiometricLogin());
       if (unlocked.cancelled || !unlocked.authenticated) {
         return { ok: false };
       }
 
       if (unlocked.provider === 'google') {
-        const nativeCred = await runNativeSilentGoogleSignIn();
+        const nativeCred = await runWithResumeLockSuppressed(() => runNativeSilentGoogleSignIn());
         if (!nativeCred.idToken && !nativeCred.accessToken) {
           const msg =
             'Google session expired. Tap Continue with Google once to sign back in.';
@@ -3799,6 +3897,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           nativeCred.idToken,
           nativeCred.accessToken,
         );
+        skipInitialLockOnFreshSignInRef.current = true;
         const res = await signInWithCredential(auth, credential);
         setIsGuest(false);
         setAuthPromptMode('closed');
@@ -3815,6 +3914,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: msg };
       }
 
+      skipInitialLockOnFreshSignInRef.current = true;
       const cred = await signInWithEmailAndPassword(auth, unlocked.email, unlocked.password);
       lastPasswordCredRef.current = {
         uid: cred.user.uid,
@@ -3828,6 +3928,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       showNotice(`Signed in as ${cred.user.email || 'user'}.`);
       return { ok: true };
     } catch (error) {
+      skipInitialLockOnFreshSignInRef.current = false;
       const msg = mapFirebaseAuthError(
         error,
         error instanceof Error ? error.message : 'Could not complete fingerprint sign-in.',
@@ -3835,7 +3936,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       showNotice(msg, 'warning');
       return { ok: false, error: msg };
     }
-  }, [refreshBiometricStatus, showNotice]);
+  }, [refreshBiometricStatus, runWithResumeLockSuppressed, showNotice]);
 
   // Internal addCall workhorse used by both native Android sync and file/backup imports.
   // Deduplicates by normalized number + timestamp + duration (and ID) and merges
