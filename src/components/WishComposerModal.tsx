@@ -13,10 +13,10 @@ import {
   MessageSquare,
   RotateCcw,
   Send,
-  Sparkles,
   X,
 } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import {
   getInstalledMessagingApps,
@@ -643,11 +643,11 @@ export function WishComposerModal() {
             >
               {(
                 [
-                  { key: 'holiday', label: 'Holiday', icon: Sparkles },
-                  { key: 'birthday', label: 'Birthday', icon: Cake },
-                  { key: 'other', label: 'Other', icon: MessageSquare },
+                  { key: 'holiday', label: 'Holiday', icon: null, flaticon: 'fi-rr-calendar-star' },
+                  { key: 'birthday', label: 'Birthday', icon: Cake, flaticon: null },
+                  { key: 'other', label: 'Other', icon: MessageSquare, flaticon: null },
                 ] as const
-              ).map(({ key, label, icon: Icon }) => {
+              ).map(({ key, label, icon: Icon, flaticon }) => {
                 const active = category === key;
                 return (
                   <button
@@ -662,7 +662,11 @@ export function WishComposerModal() {
                         : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
                     }`}
                   >
-                    <Icon size={13} className="shrink-0" />
+                    {flaticon ? (
+                      <FlaticonIcon name={flaticon} className="text-[13px] shrink-0" />
+                    ) : (
+                      Icon && <Icon size={13} className="shrink-0" />
+                    )}
                     <span>{label}</span>
                   </button>
                 );
@@ -794,7 +798,7 @@ export function WishComposerModal() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                 <span className="inline-flex items-center gap-1 font-medium">
-                  <Sparkles size={12} className="text-[#FF6A00]" />
+                  <FlaticonIcon name="fi-rr-envelope-heart" className="text-[12px] text-[#FF6A00]" />
                   {hasSavedCustomTemplate ? 'Using your saved template' : 'Default text · edit freely'}
                 </span>
                 <span className="font-mono tabular-nums">

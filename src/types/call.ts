@@ -87,6 +87,66 @@ export type CalendarPrefs = {
   dateDisplay: 'ec-first' | 'both';
 };
 
+export type DateHeaderStyle = 'calls-strip' | 'sub-bar' | 'header' | 'hidden';
+
+export type BroadcastKind = 'update' | 'announcement' | 'tip' | 'urgent';
+export type BroadcastDisplayMode = 'banner' | 'popup';
+export type BroadcastAudience = 'all' | 'android' | 'web';
+
+export type BroadcastMessage = {
+  id: string;
+  title: string;
+  message: string;
+  kind: BroadcastKind;
+  displayMode: BroadcastDisplayMode;
+  audience: BroadcastAudience;
+  actionLabel: string | null;
+  actionUrl: string | null;
+  active: boolean;
+  createdBy: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type BroadcastInput = {
+  title: string;
+  message: string;
+  kind: BroadcastKind;
+  displayMode: BroadcastDisplayMode;
+  audience: BroadcastAudience;
+  actionLabel?: string | null;
+  actionUrl?: string | null;
+  active?: boolean;
+};
+
+export type SupportThreadStatus = 'open' | 'resolved';
+export type SupportSenderRole = 'user' | 'admin';
+
+export type SupportThread = {
+  uid: string;
+  userName: string;
+  userEmail: string;
+  userPhotoUrl: string | null;
+  status: SupportThreadStatus;
+  lastMessageText: string;
+  lastMessageSender: SupportSenderRole;
+  lastMessageAtMs: number;
+  unreadByAdmin: boolean;
+  unreadByUser: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type SupportMessage = {
+  id: string;
+  threadUid: string;
+  senderUid: string;
+  senderRole: SupportSenderRole;
+  senderName: string;
+  text: string;
+  createdAtMs: number;
+};
+
 export type ReminderPrefs = {
   callbackDelayMinutes: number;
   missedCallReminderEnabled: boolean;

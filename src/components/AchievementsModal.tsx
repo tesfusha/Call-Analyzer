@@ -12,13 +12,13 @@ import {
   PhoneCall,
   RefreshCw,
   Share2,
-  Sparkles,
   Tag,
   Trophy,
   Users,
   X,
 } from 'lucide-react';
 import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, initials } from '@/src/lib/format';
 import {
@@ -47,7 +47,7 @@ function BadgeIcon({
   const cls = earned
     ? 'text-[#FF6A00] shrink-0'
     : 'text-[#8A93A0] dark:text-[var(--dark-text-muted)] shrink-0';
-  if (icon === 'sparkles') return <Sparkles size={18} className={cls} />;
+  if (icon === 'sparkles') return <FlaticonIcon name="fi-rr-badge-check" className={`text-[18px] ${cls}`} />;
   if (icon === 'flame') return <Flame size={18} className={cls} />;
   if (icon === 'trophy') return <Trophy size={18} className={cls} />;
   if (icon === 'crown') return <Crown size={18} className={cls} />;

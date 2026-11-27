@@ -20,13 +20,13 @@ import {
   PhoneMissed,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   UserCheck,
   X,
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
 import {
   DEFAULT_RELATIONSHIP_TAGS,
@@ -493,7 +493,7 @@ export function RemindersModal({
     {
       key: 'wishes',
       label: 'Wishes',
-      icon: Sparkles,
+      flaticon: 'fi-rr-gift',
       count: upcomingEvents.length + upcomingHolidays.length,
     },
     {
@@ -734,7 +734,7 @@ export function RemindersModal({
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Sparkles size={15} className="text-[#FF6A00]" />
+                <FlaticonIcon name="fi-rr-calendar-star" className="text-[15px] text-[#FF6A00]" />
                 <h3 className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                   Ethiopian holiday wishes ({filteredWishRecipients.length})
                 </h3>
@@ -745,7 +745,7 @@ export function RemindersModal({
                   value={activeHoliday ? holidayUid(activeHoliday) : ''}
                   variant="inset"
                   compact
-                  icon={Sparkles}
+                  flaticon="fi-rr-calendar-star"
                   options={upcomingHolidays.map((h) => ({
                     value: holidayUid(h),
                     label: h.name,

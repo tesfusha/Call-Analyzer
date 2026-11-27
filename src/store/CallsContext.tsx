@@ -27,14 +27,17 @@ import {
 import {
   Timestamp,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocFromServer,
   getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import {
   type NotificationActionEvent,
@@ -174,6 +177,11 @@ import type {
   AlertTypePrefs,
   AuthProviderType,
   BadgeRecord,
+  BroadcastAudience,
+  BroadcastDisplayMode,
+  BroadcastInput,
+  BroadcastKind,
+  BroadcastMessage,
   CalendarPrefs,
   CallPatch,
   CallRecord,
@@ -182,6 +190,7 @@ import type {
   ContactProfile,
   ContactStreakStatus,
   DailyActiveRecord,
+  DateHeaderStyle,
   PointsHistoryEntry,
   ReconnectProgressRecord,
   RegisteredUserRecord,
@@ -204,6 +213,8 @@ const THEME_KEY = 'callanalyzer.theme.v3';
 const LEGACY_THEME_KEY = 'callanalyzer.theme.v2';
 const LEGACY_PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
 const FONT_SCALE_KEY = 'callanalyzer.fontSize.v1';
+const DATE_HEADER_STYLE_KEY = 'callanalyzer.dateHeaderStyle.v1';
+const DISMISSED_BROADCASTS_PREFIX = 'callanalyzer.dismissedBroadcasts.v1.';
 const CUSTOM_TAGS_KEY = 'callanalyzer.customTags.v1';
 
 const LEGACY_UNSCOPED_KEYS = [
@@ -401,6 +412,11 @@ type CallsContextValue = {
   systemIsDark: boolean;
   fontSizeScale: FontSizeScale;
   setFontSizeScale: (scale: FontSizeScale) => void;
+  dateHeaderStyle: DateHeaderStyle;
+  setDateHeaderStyle: (style: DateHeaderStyle) => void;
+  activeBroadcasts: BroadcastMessage[];
+  dismissedBroadcastIds: string[];
+  dismissBroadcast: (id: string) => void;
   profileName: string;
   userPhotoUrl: string | null;
   notificationsEnabled: boolean;
@@ -443,6 +459,10 @@ type CallsContextValue = {
   syncPhoneCalls: (options?: { fullResync?: boolean }) => Promise<void>;
   fetchRegisteredUsers: () => Promise<RegisteredUserRecord[]>;
   fetchDailyActiveRecords: () => Promise<DailyActiveRecord[]>;
+  fetchAllBroadcasts: () => Promise<BroadcastMessage[]>;
+  createBroadcast: (input: BroadcastInput) => Promise<BroadcastMessage>;
+  toggleBroadcastActive: (id: string, active: boolean) => Promise<void>;
+  deleteBroadcast: (id: string) => Promise<void>;
   setAppPin: (pin: string) => Promise<void>;
   clearAppPin: () => void;
   unlockWithPin: (pin: string) => Promise<boolean>;
@@ -909,6 +929,33 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const setFontSizeScale = useCallback((scale: FontSizeScale) => {
     triggerHaptic('tap');
     setFontSizeScaleState(scale);
+  }, []);
+
+  const [dateHeaderStyle, setDateHeaderStyleState] = useState<DateHeaderStyle>(() => {
+    try {
+      const saved = localStorage.getItem(DATE_HEADER_STYLE_KEY);
+      if (
+        saved === 'calls-strip' ||
+        saved === 'sub-bar' ||
+        saved === 'header' ||
+        saved === 'hidden'
+      ) {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'calls-strip';
+  });
+
+  const setDateHeaderStyle = useCallback((style: DateHeaderStyle) => {
+    triggerHaptic('tap');
+    setDateHeaderStyleState(style);
+    try {
+      localStorage.setItem(DATE_HEADER_STYLE_KEY, style);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const [customTags, setCustomTags] = useState<string[]>(() =>
@@ -3084,6 +3131,226 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       handleFirestoreError(error, OperationType.LIST, path);
     }
   }, []);
+
+  const [activeBroadcasts, setActiveBroadcasts] = useState<BroadcastMessage[]>([]);
+  const [dismissedBroadcastIds, setDismissedBroadcastIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const scopeKey = `${DISMISSED_BROADCASTS_PREFIX}${authUser?.uid ?? 'guest'}`;
+    try {
+      const raw = localStorage.getItem(scopeKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setDismissedBroadcastIds(
+            parsed.filter((item): item is string => typeof item === 'string'),
+          );
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    setDismissedBroadcastIds([]);
+  }, [authUser?.uid]);
+
+  const dismissBroadcast = useCallback(
+    (id: string) => {
+      if (!id) return;
+      const scopeKey = `${DISMISSED_BROADCASTS_PREFIX}${authUser?.uid ?? 'guest'}`;
+      setDismissedBroadcastIds((prev) => {
+        if (prev.includes(id)) return prev;
+        const next = [...prev, id].slice(-100);
+        try {
+          localStorage.setItem(scopeKey, JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    },
+    [authUser?.uid],
+  );
+
+  const parseBroadcastDoc = useCallback((docId: string, raw: Record<string, unknown>): BroadcastMessage => {
+    const toMs = (val: unknown): number => {
+      if (val instanceof Timestamp) return val.toMillis();
+      if (val && typeof (val as { toMillis?: () => number }).toMillis === 'function') {
+        return (val as { toMillis: () => number }).toMillis();
+      }
+      return typeof val === 'number' ? val : Date.now();
+    };
+    const kind: BroadcastKind =
+      raw.kind === 'update' ||
+      raw.kind === 'announcement' ||
+      raw.kind === 'tip' ||
+      raw.kind === 'urgent'
+        ? raw.kind
+        : 'announcement';
+    const displayMode: BroadcastDisplayMode =
+      raw.displayMode === 'popup' ? 'popup' : 'banner';
+    const audience: BroadcastAudience =
+      raw.audience === 'android' || raw.audience === 'web' ? raw.audience : 'all';
+    return {
+      id: typeof raw.id === 'string' && raw.id ? raw.id : docId,
+      title: typeof raw.title === 'string' ? raw.title : '',
+      message: typeof raw.message === 'string' ? raw.message : '',
+      kind,
+      displayMode,
+      audience,
+      actionLabel: typeof raw.actionLabel === 'string' ? raw.actionLabel : null,
+      actionUrl: typeof raw.actionUrl === 'string' ? raw.actionUrl : null,
+      active: Boolean(raw.active),
+      createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : '',
+      createdAtMs: toMs(raw.createdAt),
+      updatedAtMs: toMs(raw.updatedAt),
+    };
+  }, []);
+
+  const refreshActiveBroadcasts = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user || !user.emailVerified) {
+      setActiveBroadcasts([]);
+      return;
+    }
+    try {
+      const q = query(collection(db, 'broadcasts'), where('active', '==', true));
+      const snap = await getDocs(q);
+      const platform: BroadcastAudience = isNativeCapacitor() ? 'android' : 'web';
+      const items = snap.docs
+        .map((d) => parseBroadcastDoc(d.id, d.data() as Record<string, unknown>))
+        .filter((b) => b.active && (b.audience === 'all' || b.audience === platform))
+        .sort((a, b) => b.createdAtMs - a.createdAtMs);
+      setActiveBroadcasts(items);
+    } catch {
+      // Fail gracefully if offline or rules not yet propagated
+    }
+  }, [parseBroadcastDoc]);
+
+  useEffect(() => {
+    if (!authUser || !authUser.emailVerified) {
+      setActiveBroadcasts([]);
+      return;
+    }
+    void refreshActiveBroadcasts();
+  }, [authUser, refreshActiveBroadcasts]);
+
+  const fetchAllBroadcasts = useCallback(async (): Promise<BroadcastMessage[]> => {
+    const user = auth.currentUser;
+    if (!user || !user.emailVerified || !isAdminRef.current) {
+      return [];
+    }
+    const path = 'broadcasts';
+    try {
+      const snap = await getDocs(collection(db, 'broadcasts'));
+      return snap.docs
+        .map((d) => parseBroadcastDoc(d.id, d.data() as Record<string, unknown>))
+        .sort((a, b) => b.createdAtMs - a.createdAtMs);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  }, [parseBroadcastDoc]);
+
+  const createBroadcast = useCallback(
+    async (input: BroadcastInput): Promise<BroadcastMessage> => {
+      const user = auth.currentUser;
+      if (!user || !user.emailVerified || !isAdminRef.current) {
+        throw new Error('Admin access required.');
+      }
+      const title = clampStr(input.title, 100);
+      const message = clampStr(input.message, 500);
+      if (title.length < 2) throw new Error('Title must be at least 2 characters.');
+      if (message.length < 4) throw new Error('Message must be at least 4 characters.');
+
+      const rawLabel = input.actionLabel ? clampStr(input.actionLabel, 40) : '';
+      const rawUrl = input.actionUrl ? input.actionUrl.trim().slice(0, 300) : '';
+      if (rawUrl && !/^https:\/\/\S+$/i.test(rawUrl)) {
+        throw new Error('Action link must start with https://');
+      }
+
+      const randomSuffix = Math.random().toString(36).slice(2, 8);
+      const id = `bcast_${Date.now()}_${randomSuffix}`;
+      const path = `broadcasts/${id}`;
+      const actionLabel = rawLabel || null;
+      const actionUrl = rawUrl || null;
+      const active = input.active !== false;
+
+      try {
+        await setDoc(doc(db, 'broadcasts', id), {
+          id,
+          title,
+          message,
+          kind: input.kind,
+          displayMode: input.displayMode,
+          audience: input.audience,
+          actionLabel,
+          actionUrl,
+          active,
+          createdBy: user.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, path);
+      }
+
+      const nowMs = Date.now();
+      const created: BroadcastMessage = {
+        id,
+        title,
+        message,
+        kind: input.kind,
+        displayMode: input.displayMode,
+        audience: input.audience,
+        actionLabel,
+        actionUrl,
+        active,
+        createdBy: user.uid,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      };
+      void refreshActiveBroadcasts();
+      return created;
+    },
+    [refreshActiveBroadcasts],
+  );
+
+  const toggleBroadcastActive = useCallback(
+    async (id: string, active: boolean): Promise<void> => {
+      const user = auth.currentUser;
+      if (!user || !user.emailVerified || !isAdminRef.current) {
+        throw new Error('Admin access required.');
+      }
+      const path = `broadcasts/${id}`;
+      try {
+        await updateDoc(doc(db, 'broadcasts', id), {
+          active,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      }
+      void refreshActiveBroadcasts();
+    },
+    [refreshActiveBroadcasts],
+  );
+
+  const deleteBroadcast = useCallback(
+    async (id: string): Promise<void> => {
+      const user = auth.currentUser;
+      if (!user || !user.emailVerified || !isAdminRef.current) {
+        throw new Error('Admin access required.');
+      }
+      const path = `broadcasts/${id}`;
+      try {
+        await deleteDoc(doc(db, 'broadcasts', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, path);
+      }
+      void refreshActiveBroadcasts();
+    },
+    [refreshActiveBroadcasts],
+  );
 
   const setAppPin = useCallback(
     async (pin: string) => {
@@ -5423,6 +5690,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       systemIsDark,
       fontSizeScale,
       setFontSizeScale,
+      dateHeaderStyle,
+      setDateHeaderStyle,
+      activeBroadcasts,
+      dismissedBroadcastIds,
+      dismissBroadcast,
       profileName,
       userPhotoUrl,
       notificationsEnabled,
@@ -5465,6 +5737,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       syncPhoneCalls,
       fetchRegisteredUsers,
       fetchDailyActiveRecords,
+      fetchAllBroadcasts,
+      createBroadcast,
+      toggleBroadcastActive,
+      deleteBroadcast,
       setAppPin,
       clearAppPin,
       unlockWithPin,
@@ -5564,6 +5840,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       systemIsDark,
       fontSizeScale,
       setFontSizeScale,
+      dateHeaderStyle,
+      setDateHeaderStyle,
+      activeBroadcasts,
+      dismissedBroadcastIds,
+      dismissBroadcast,
       profileName,
       userPhotoUrl,
       notificationsEnabled,
@@ -5606,6 +5887,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       syncPhoneCalls,
       fetchRegisteredUsers,
       fetchDailyActiveRecords,
+      fetchAllBroadcasts,
+      createBroadcast,
+      toggleBroadcastActive,
+      deleteBroadcast,
       setAppPin,
       clearAppPin,
       unlockWithPin,

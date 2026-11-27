@@ -12,9 +12,9 @@ import {
   Phone,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   X,
 } from 'lucide-react';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { APP_NAME, APP_PRIVACY_NOTE, APP_VERSION } from '@/src/lib/appInfo';
 import { useBackHandler } from '@/src/lib/backNavigation';
@@ -224,7 +224,7 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-            <Sparkles size={16} />
+            <FlaticonIcon name="fi-rr-book-open-cover" className="text-[16px]" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">

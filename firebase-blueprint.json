@@ -161,6 +161,199 @@
           "format": "date-time"
         }
       }
+    },
+    "BroadcastMessage": {
+      "title": "BroadcastMessage",
+      "description": "Admin-published in-app update or announcement broadcast shown to verified users (banner or popup).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "message": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 500
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["update", "announcement", "tip", "urgent"]
+        },
+        "displayMode": {
+          "type": "string",
+          "enum": ["banner", "popup"]
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["all", "android", "web"]
+        },
+        "actionLabel": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "actionUrl": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "message",
+        "kind",
+        "displayMode",
+        "audience",
+        "active",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SupportThread": {
+      "title": "SupportThread",
+      "description": "Direct user-to-admin support conversation thread keyed by the verified user UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "userEmail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 254
+        },
+        "userPhotoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "resolved"]
+        },
+        "lastMessageText": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "lastMessageSender": {
+          "type": "string",
+          "enum": ["user", "admin"]
+        },
+        "lastMessageAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "unreadByAdmin": {
+          "type": "boolean"
+        },
+        "unreadByUser": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "userName",
+        "userEmail",
+        "status",
+        "lastMessageText",
+        "lastMessageSender",
+        "lastMessageAt",
+        "unreadByAdmin",
+        "unreadByUser",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Immutable chat message inside a user's support thread.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "threadUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["user", "admin"]
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "threadUid",
+        "senderUid",
+        "senderRole",
+        "senderName",
+        "text",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -187,6 +380,24 @@
         "$ref": "#/entities/AdminRole"
       },
       "description": "Console-managed admin role allowlist. Readable only by the matching verified UID; never writable by clients."
+    },
+    "/broadcasts/{broadcastId}": {
+      "schema": {
+        "$ref": "#/entities/BroadcastMessage"
+      },
+      "description": "Admin-managed app updates and announcements. Admin write-only; verified users can read active broadcasts."
+    },
+    "/supportThreads/{threadUid}": {
+      "schema": {
+        "$ref": "#/entities/SupportThread"
+      },
+      "description": "Direct user-to-admin support chat threads keyed by the verified user UID. Readable and writable only by the thread owner or an admin."
+    },
+    "/supportThreads/{threadUid}/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/SupportMessage"
+      },
+      "description": "Immutable chat messages inside a support thread. Accessible only to the thread owner or an admin."
     }
   }
 }

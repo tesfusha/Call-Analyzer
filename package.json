@@ -1,7 +1,7 @@
 {
   "name": "call-analyzer-eth",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -19,6 +19,7 @@
     "@capacitor/core": "^8.6.2",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/share": "^8.0.3",
+    "@flaticon/flaticon-uicons": "^3.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/express": "^5.0.6",
     "@vitejs/plugin-react": "^6.1.1",

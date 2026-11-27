@@ -5,7 +5,6 @@ import {
   Clock,
   RefreshCw,
   Search,
-  Sparkles,
   Tag,
   Upload,
   User,
@@ -14,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { SavedContactFormModal } from '@/src/components/SavedContactFormModal';
 import {
@@ -325,8 +325,8 @@ export function SavedContactsSection({
             )}
           </div>
 
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-x-auto flex-1 sm:flex-initial">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-x-auto no-scrollbar sm:flex-1">
               {(
                 [
                   { value: 'all', label: 'All' },
@@ -358,6 +358,8 @@ export function SavedContactsSection({
               ariaLabel="Sort saved contacts"
               variant="inset"
               compact
+              fullWidth
+              className="sm:w-auto shrink-0"
               activeHighlight={sortBy !== 'name'}
               options={[
                 { value: 'name', label: 'Sort: A–Z' },
@@ -550,7 +552,7 @@ export function SavedContactsSection({
                       }}
                       className="min-h-[38px] px-3 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
                     >
-                      <Sparkles size={13} className="text-[#FF6A00]" />
+                      <FlaticonIcon name="fi-rr-gift" className="text-[13px] text-[#FF6A00]" />
                       Wish
                     </button>
                     <button

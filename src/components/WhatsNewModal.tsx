@@ -9,11 +9,11 @@ import {
   Phone,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   UserCog,
   X,
 } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import {
   APP_NAME,
   APP_RELEASE_LABEL,
@@ -24,6 +24,7 @@ import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 const NOTE_ICONS = {
+  'exact-alarms-clean-header': null,
   'streak-counting': Flame,
   'mobile-modals': Smartphone,
   'brand-launcher': ShieldCheck,
@@ -97,7 +98,7 @@ export function WhatsNewModal({
                       What&apos;s New
                     </h2>
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] text-[11px] font-mono font-bold">
-                      <Sparkles size={11} />
+                      <FlaticonIcon name="fi-rr-badge-check" className="text-[11px]" />
                       v{APP_VERSION}
                     </span>
                   </div>
@@ -135,7 +136,11 @@ export function WhatsNewModal({
                       className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 flex items-start gap-3"
                     >
                       <div className="w-9 h-9 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#FF6A00] flex items-center justify-center shrink-0">
-                        <Icon size={17} />
+                        {Icon ? (
+                          <Icon size={17} />
+                        ) : (
+                          <FlaticonIcon name="fi-rr-rocket-lunch" className="text-[17px]" />
+                        )}
                       </div>
                       <div className="min-w-0 space-y-0.5">
                         <h3 className="text-xs font-bold text-[#08246B] dark:text-white">

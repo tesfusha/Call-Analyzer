@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { ChevronDown, Eye, Layers, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Eye, Layers, X } from 'lucide-react';
 import {
   setDesignVersion,
   useDesignVersion,
   type DesignVersion,
 } from '@/src/preview/designVersion';
+import { useCalls } from '@/src/store/CallsContext';
 
 const UNSLOP_PASSES = [
   '1. Spacing: Generous editorial rhythm, consistent padding, calmer 12px radii',
@@ -36,9 +37,15 @@ const V107_HIGHLIGHTS = [
 ] as const;
 
 export function VersionSwitcherBar() {
+  const { isAdmin } = useCalls();
   const version = useDesignVersion();
   const [notesOpen, setNotesOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
+
+  // Strictly admin-only and hidden in the default v1.0.4 production shell
+  if (!isAdmin || version === 'v1.0.3') {
+    return null;
+  }
 
   const handleSelect = (next: DesignVersion) => {
     setDesignVersion(next);
@@ -48,12 +55,21 @@ export function VersionSwitcherBar() {
     return (
       <div
         data-version-switcher="true"
-        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-4 right-3 sm:right-4 z-50"
+        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-4 right-3 sm:right-4 z-50 flex items-center gap-1.5"
       >
         <button
           type="button"
+          onClick={() => handleSelect('v1.0.3')}
+          aria-label="Exit UI preview and return to v1.0.4"
+          className="h-9 px-2.5 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[11px] font-semibold shadow-md flex items-center gap-1 transition-colors"
+        >
+          <ArrowLeft size={12} />
+          <span>Exit</span>
+        </button>
+        <button
+          type="button"
           onClick={() => setMinimized(false)}
-          aria-label="Open design version switcher"
+          aria-label="Open admin preview switcher"
           className="h-9 px-3 rounded-lg border border-[#D8D4CB] dark:border-white/[0.14] bg-white/95 dark:bg-[#16191E]/95 backdrop-blur-md text-[11px] font-mono font-semibold text-[#16181D] dark:text-[#F3F2EE] shadow-md flex items-center gap-1.5 hover:border-[#D95B16] transition-colors"
         >
           <Eye size={13} className="text-[#D95B16] dark:text-[#F0742B]" />
@@ -74,9 +90,7 @@ export function VersionSwitcherBar() {
       ? 'Business Call Analysis V1.0.7'
       : version === 'v1.0.6'
         ? 'Simple & Modern V1.0.6 Preview'
-        : version === 'v1.0.5'
-          ? 'Unslop V1.0.5 — 9 Passes'
-          : 'Original V1.0.3 (Untouched)';
+        : 'Unslop V1.0.5 — 9 Passes';
 
   return (
     <div
@@ -91,7 +105,7 @@ export function VersionSwitcherBar() {
                 {activeTitle}
               </p>
               <p className="text-[11px] text-[#5D626E] dark:text-[#989DA8]">
-                Compare live against original v1.0.3 (untouched)
+                Admin Preview Lab · hidden from regular users
               </p>
             </div>
             <button
@@ -119,21 +133,31 @@ export function VersionSwitcherBar() {
       <div className="inline-flex items-center gap-1 p-1 rounded-xl border border-[#D8D4CB] dark:border-white/[0.14] bg-white/95 dark:bg-[#16191E]/95 backdrop-blur-md shadow-lg">
         <button
           type="button"
+          onClick={() => handleSelect('v1.0.3')}
+          title="Return to Main v1.0.4"
+          className="h-8 px-2.5 rounded-lg bg-[#FF6A00] hover:bg-[#E65F00] text-[11px] font-semibold text-white flex items-center gap-1 whitespace-nowrap transition-colors"
+        >
+          <ArrowLeft size={12} />
+          <span>v1.0.4</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setNotesOpen((v) => !v)}
           aria-expanded={notesOpen}
           title="View preview changes"
           className="h-8 px-2 rounded-lg text-[11px] font-medium text-[#5D626E] dark:text-[#989DA8] hover:text-[#16181D] dark:hover:text-[#F3F2EE] hover:bg-[#EFECE6] dark:hover:bg-white/[0.06] flex items-center gap-1 whitespace-nowrap transition-colors"
         >
           <Layers size={12} />
-          <span className="hidden sm:inline">Compare</span>
+          <span className="hidden sm:inline">Notes</span>
         </button>
 
         <div
           role="group"
-          aria-label="Compare design version"
+          aria-label="Admin preview design version"
           className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-[#EFECE6] dark:bg-[#0E1013]"
         >
-          {(['v1.0.3', 'v1.0.5', 'v1.0.6', 'v1.0.7'] as const).map((ver) => {
+          {(['v1.0.5', 'v1.0.6', 'v1.0.7'] as const).map((ver) => {
             const active = version === ver;
             return (
               <button
@@ -147,9 +171,7 @@ export function VersionSwitcherBar() {
                       ? 'bg-[#0F2544] dark:bg-[#F4762C] text-white shadow-xs'
                       : ver === 'v1.0.6'
                         ? 'bg-[#E45A0D] text-white shadow-xs'
-                        : ver === 'v1.0.5'
-                          ? 'bg-[#16181D] dark:bg-[#F3F2EE] text-white dark:text-[#16181D] shadow-xs'
-                          : 'bg-white dark:bg-[#242830] text-[#16181D] dark:text-[#F3F2EE] shadow-xs'
+                        : 'bg-[#16181D] dark:bg-[#F3F2EE] text-white dark:text-[#16181D] shadow-xs'
                     : 'text-[#5D626E] dark:text-[#989DA8] hover:text-[#16181D] dark:hover:text-[#F3F2EE]'
                 }`}
               >
@@ -165,7 +187,7 @@ export function VersionSwitcherBar() {
             setNotesOpen(false);
             setMinimized(true);
           }}
-          aria-label="Minimize version switcher"
+          aria-label="Minimize preview bar"
           className="w-7 h-8 rounded-lg text-[#5D626E] dark:text-[#989DA8] hover:text-[#16181D] dark:hover:text-[#F3F2EE] hover:bg-[#EFECE6] dark:hover:bg-white/[0.06] flex items-center justify-center transition-colors"
         >
           <ChevronDown size={13} />

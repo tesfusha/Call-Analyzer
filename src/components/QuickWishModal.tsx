@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Cake, Copy, MessageSquare, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { Cake, Copy, MessageSquare, RotateCcw, Send, X } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { toWhatsAppPhoneDigits } from '@/src/lib/ethiopia';
 import {
   OTHER_WISH_PRESETS,
@@ -213,7 +214,7 @@ export function QuickWishModal({
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                  <Sparkles size={18} />
+                  <FlaticonIcon name="fi-rr-gift" className="text-[18px]" />
                 </div>
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold text-[#08246B] dark:text-white truncate">
@@ -242,11 +243,11 @@ export function QuickWishModal({
             >
               {(
                 [
-                  { key: 'holiday', label: 'Holiday', icon: Sparkles },
-                  { key: 'birthday', label: 'Birthday', icon: Cake },
-                  { key: 'other', label: 'Other', icon: MessageSquare },
+                  { key: 'holiday', label: 'Holiday', icon: null, flaticon: 'fi-rr-calendar-star' },
+                  { key: 'birthday', label: 'Birthday', icon: Cake, flaticon: null },
+                  { key: 'other', label: 'Other', icon: MessageSquare, flaticon: null },
                 ] as const
-              ).map(({ key, label, icon: Icon }) => (
+              ).map(({ key, label, icon: Icon, flaticon }) => (
                 <button
                   key={key}
                   type="button"
@@ -259,7 +260,11 @@ export function QuickWishModal({
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
                   }`}
                 >
-                  <Icon size={13} />
+                  {flaticon ? (
+                    <FlaticonIcon name={flaticon} className="text-[13px]" />
+                  ) : (
+                    Icon && <Icon size={13} />
+                  )}
                   <span>{label}</span>
                 </button>
               ))}

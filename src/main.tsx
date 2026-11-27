@@ -1,4 +1,5 @@
 import {createRoot} from 'react-dom/client';
+import '@flaticon/flaticon-uicons/css/regular/rounded.css';
 import App from './App.tsx';
 import './index.css';
 import {initDesignVersion} from './preview/designVersion';

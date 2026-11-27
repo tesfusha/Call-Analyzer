@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { CalendarPlus, Heart, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarPlus, Heart, Plus, Trash2 } from 'lucide-react';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { daysUntilAnnualDate } from '@/src/lib/contacts';
 import { getEthiopianMonthName } from '@/src/lib/ethiopianCalendar';
 import type { CalendarKind, ContactEvent } from '@/src/types/call';
@@ -177,7 +178,7 @@ export function SpecialEventsEditor({
         {/* Quick Presets */}
         <div className="space-y-1.5">
           <span className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] flex items-center gap-1">
-            <Sparkles size={11} className="text-[#FF6A00]" />
+            <FlaticonIcon name="fi-rr-party-horn" className="text-[11px] text-[#FF6A00]" />
             Quick presets
           </span>
           <div className="flex flex-wrap gap-1.5">

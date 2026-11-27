@@ -26,7 +26,6 @@ import {
   Search,
   ShieldAlert,
   ShieldBan,
-  Sparkles,
   Star,
   Tag,
   TrendingUp,
@@ -40,6 +39,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { AchievementsModal } from '@/src/components/AchievementsModal';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { CarrierUssdModal, type UssdCategory } from '@/src/components/CarrierUssdModal';
 import { CategoryPanel } from '@/src/components/CategoryTabs';
 import { CustomSelect } from '@/src/components/CustomSelect';
@@ -1832,7 +1832,7 @@ export const CallsTab = memo(function CallsTab({
                   )}
                   {upcomingHoliday && (
                     <span className="flex items-center gap-1.5 text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      <Sparkles size={14} className="text-[#FF6A00] shrink-0" />
+                      <FlaticonIcon name="fi-rr-calendar-star" className="text-[14px] text-[#FF6A00] shrink-0" />
                       <span>
                         {upcomingHoliday.name} (
                         {upcomingHoliday.isToday ? 'Today' : `in ${upcomingHoliday.daysUntil}d`})
@@ -2377,7 +2377,7 @@ export const CallsTab = memo(function CallsTab({
                 className="w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
               >
                 <span className="w-8 h-8 rounded-lg bg-[#F59E0B]/15 text-[#F59E0B] flex items-center justify-center shrink-0">
-                  <Sparkles size={15} />
+                  <FlaticonIcon name="fi-rr-gift" className="text-[15px]" />
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate">Wishes &amp; Alerts</span>

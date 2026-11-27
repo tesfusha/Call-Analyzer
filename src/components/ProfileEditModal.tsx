@@ -7,7 +7,6 @@ import {
   Lock,
   Phone,
   Share2,
-  Sparkles,
   User,
   X,
 } from 'lucide-react';
@@ -180,7 +179,7 @@ export function ProfileEditModal({
 
   const categories: Array<CategoryItem<ProfileTab>> = [
     { key: 'profile', label: 'Profile', icon: User },
-    { key: 'avatar', label: 'Avatar', icon: Sparkles },
+    { key: 'avatar', label: 'Avatar', flaticon: 'fi-rr-portrait' },
     { key: 'password', label: 'Password', icon: KeyRound },
   ];
 

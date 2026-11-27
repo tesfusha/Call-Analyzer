@@ -7,9 +7,9 @@ import {
   Clock,
   Phone,
   SlidersHorizontal,
-  Sparkles,
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import {
   formatEthiopianDate,
@@ -176,7 +176,7 @@ export function EthiopianCalendarView({
   const categories: Array<CategoryItem<CalendarCategory>> = useMemo(
     () => [
       { key: 'month', label: 'Month & Day', icon: CalendarDays },
-      { key: 'holidays', label: 'Holidays', icon: Sparkles, count: upcomingHolidays.length },
+      { key: 'holidays', label: 'Holidays', flaticon: 'fi-rr-calendar-star', count: upcomingHolidays.length },
       { key: 'prefs', label: 'Style', icon: SlidersHorizontal },
     ],
     [upcomingHolidays.length],
@@ -515,7 +515,7 @@ export function EthiopianCalendarView({
       <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-[#FF6A00]" />
+            <FlaticonIcon name="fi-rr-calendar-star" className="text-[16px] text-[#FF6A00]" />
             <h2 className="text-sm font-semibold text-[#08246B] dark:text-white">
               Upcoming Ethiopian Holidays
             </h2>

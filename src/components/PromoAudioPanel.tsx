@@ -6,12 +6,12 @@ import {
   Music,
   Pause,
   Play,
-  Sparkles,
   Square,
   Trash2,
   Upload,
   Volume2,
 } from 'lucide-react';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { auth } from '@/src/lib/firebase';
 import { triggerHaptic } from '@/src/lib/haptics';
 import {
@@ -649,7 +649,7 @@ export function PromoAudioPanel({
                     {generatingVoice ? (
                       <Loader2 size={14} className="animate-spin" />
                     ) : (
-                      <Sparkles size={14} className="text-[#FF6A00]" />
+                      <FlaticonIcon name="fi-rr-waveform-path" className="text-[14px] text-[#FF6A00]" />
                     )}
                     {generatingVoice ? 'Generating Voice...' : 'Generate Addis AI Voice'}
                   </button>

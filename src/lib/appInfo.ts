@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '1.0.3';
-export const APP_VERSION_CODE = 11;
+export const APP_VERSION_NAME = '1.0.4';
+export const APP_VERSION_CODE = 12;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Back in Touch Alerts, UI Polish & Promo Export';
+export const APP_RELEASE_LABEL = 'Exact-Minute Reminders, Broadcasts & Clean Header';
 export const APP_CONTACT_EMAIL = 'tesfutilahun33@gmail.com';
 export const APP_TELEGRAM_HANDLE = 't.me/callanalyzer_eth';
 export const APP_TELEGRAM_URL = 'https://t.me/callanalyzer_eth';
@@ -15,6 +15,12 @@ export const APP_PRIVACY_NOTE =
   'Your call logs, contacts, schedules, wish templates, and notes stay strictly on this device in private local storage — no call data, phone numbers, usernames, or contact names are ever sent to the cloud.';
 
 export const LATEST_RELEASE_NOTES = [
+  {
+    id: 'exact-alarms-clean-header',
+    title: 'Exact-Minute Call Reminders & Customizable Date Header',
+    detail:
+      'Scheduled callbacks now use Android AlarmClock wakeups so alerts fire right on time even when closed, and you can choose your preferred Ethiopian & Gregorian date placement in Settings → Appearance.',
+  },
   {
     id: 'notification-actions',
     title: 'Back in Touch Return-Call Alerts (30+ Days)',

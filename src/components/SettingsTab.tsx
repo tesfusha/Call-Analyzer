@@ -32,7 +32,6 @@ import {
   ShieldCheck,
   Signal,
   Smartphone,
-  Sparkles,
   Trash2,
   Trophy,
   Type,
@@ -45,6 +44,7 @@ import { AchievementsModal } from '@/src/components/AchievementsModal';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { ProfileEditModal } from '@/src/components/ProfileEditModal';
 import { BADGE_DEFINITIONS, POINTS_CONFIG } from '@/src/lib/gamificationConstants';
@@ -151,7 +151,7 @@ const ACCORDION_SECTIONS: AccordionSectionMeta[] = [
     id: 'appearance',
     title: 'Appearance, Theme & Font Size',
     icon: Palette,
-    keywords: 'appearance theme dark bright auto light font size text scale vibration haptics',
+    keywords: 'appearance theme dark bright auto light font size text scale vibration haptics date header banner strip placement',
   },
   {
     id: 'security',
@@ -187,9 +187,9 @@ const ACCORDION_SECTIONS: AccordionSectionMeta[] = [
   },
   {
     id: 'about',
-    title: 'About App, Updates & Contact',
+    title: 'About App, Help Bot & Support',
     icon: Info,
-    keywords: 'about version build updates whats new guide features privacy contact email telegram channel support',
+    keywords: 'about version build updates whats new guide features privacy contact email telegram channel support chatbot faq bot admin chat help',
   },
 ];
 
@@ -200,6 +200,7 @@ export function SettingsTab({
   onOpenAndroidSetup,
   onSelectContact,
   onCheckForUpdates,
+  onOpenHelpSupport,
 }: {
   onOpenReminders: () => void;
   onOpenGuide?: () => void;
@@ -207,6 +208,7 @@ export function SettingsTab({
   onOpenAndroidSetup?: () => void;
   onSelectContact?: (number: string) => void;
   onCheckForUpdates?: () => Promise<void>;
+  onOpenHelpSupport?: (initialTab?: 'bot' | 'admin') => void;
 }) {
   const {
     calls,
@@ -233,6 +235,8 @@ export function SettingsTab({
     toggleTheme,
     fontSizeScale,
     setFontSizeScale,
+    dateHeaderStyle,
+    setDateHeaderStyle,
     notificationsEnabled,
     setNotificationsEnabled,
     notificationPermission,
@@ -536,7 +540,15 @@ export function SettingsTab({
           : fontSizeScale === 'large'
             ? 'Larger'
             : 'Biggest'
-      } text`,
+      } text · ${
+        dateHeaderStyle === 'calls-strip'
+          ? 'Calls strip'
+          : dateHeaderStyle === 'sub-bar'
+            ? 'Sub-bar'
+            : dateHeaderStyle === 'header'
+              ? 'In header'
+              : 'Date hidden'
+      }`,
       security: pinEnabled ? '4-digit lock active' : 'No screen lock set',
       sim_tariffs: `${simLabels.sim1Label} / ${simLabels.sim2Label} · ${tariffs.billingMode}`,
       reminders: `${notificationsEnabled ? 'Alerts on' : 'Alerts off'} · ${
@@ -557,6 +569,7 @@ export function SettingsTab({
       themePreference,
       isDark,
       fontSizeScale,
+      dateHeaderStyle,
       pinEnabled,
       simLabels.sim1Label,
       simLabels.sim2Label,
@@ -775,6 +788,86 @@ export function SettingsTab({
                 <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                   Preview text &amp; Ethiopian dates scale smoothly while keeping icons crisp.
                 </p>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 rounded-xl bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Calendar size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-[#08246B] dark:text-white">
+                    Header &amp; Date Placement
+                  </h3>
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Keep the top bar clean with Logo + Name or choose where today&apos;s Ethiopian date appears
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {(
+                  [
+                    {
+                      key: 'calls-strip',
+                      label: 'Calls Strip',
+                      tag: 'Default',
+                      desc: 'Clean Logo + Name in top bar; tappable date strip at top of Calls.',
+                    },
+                    {
+                      key: 'sub-bar',
+                      label: 'Header Sub-Bar',
+                      tag: 'Compact',
+                      desc: 'Clean Logo + Name in top bar; slim date bar tucked right below.',
+                    },
+                    {
+                      key: 'header',
+                      label: 'In Top Header',
+                      tag: 'Classic',
+                      desc: 'Stack Ethiopian & Gregorian dates right below the app name.',
+                    },
+                    {
+                      key: 'hidden',
+                      label: 'Hidden',
+                      tag: 'Minimal',
+                      desc: 'Logo + Name only; view dates anytime inside the Calendar tab.',
+                    },
+                  ] as const
+                ).map((opt) => {
+                  const selected = dateHeaderStyle === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setDateHeaderStyle(opt.key)}
+                      className={`rounded-xl border p-3 text-left transition-colors ${
+                        selected
+                          ? 'border-[#FF6A00] bg-white dark:bg-[var(--dark-surface)] ring-1 ring-[#FF6A00]/30'
+                          : 'border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white/70 dark:bg-[var(--dark-surface)]/60 hover:border-[#FF6A00]/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-[#08246B] dark:text-white">
+                          {opt.label}
+                        </span>
+                        <span
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                            selected
+                              ? 'bg-[#FF6A00] text-white'
+                              : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
+                          }`}
+                        >
+                          {selected ? 'Active' : opt.tag}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        {opt.desc}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1900,7 +1993,7 @@ export function SettingsTab({
                     onClick={onOpenWhatsNew}
                     className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                   >
-                    <Sparkles size={15} className="text-[#FF6A00]" />
+                    <FlaticonIcon name="fi-rr-rocket-lunch" className="text-[15px] text-[#FF6A00]" />
                     What&apos;s New
                   </button>
                 )}
@@ -1933,6 +2026,57 @@ export function SettingsTab({
                 </div>
               ))}
             </div>
+
+            {onOpenHelpSupport && (
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                    Help Bot &amp; Admin Support
+                  </p>
+                  <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Instant offline guide or direct chat
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => onOpenHelpSupport('bot')}
+                    className="min-h-[52px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors group"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[18px]" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white group-hover:text-[#FF6A00] transition-colors">
+                        App Helper Bot
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        Interactive FAQ &amp; feature tour
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenHelpSupport('admin')}
+                    className="min-h-[52px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors group"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[#08246B]/35 text-[#08246B] dark:text-[#7FA6FF] flex items-center justify-center shrink-0">
+                      <FlaticonIcon name="fi-rr-user-headset" className="text-[18px]" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white group-hover:text-[#FF6A00] transition-colors">
+                        Chat with Admin
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        Direct support message thread
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">

@@ -2,16 +2,16 @@ import { useSyncExternalStore } from 'react';
 
 export type DesignVersion = 'v1.0.3' | 'v1.0.5' | 'v1.0.6' | 'v1.0.7';
 
-const STORAGE_KEY = 'callanalyzer.designPreviewVersion.v3';
+const STORAGE_KEY = 'callanalyzer.designPreviewVersion.v4';
 
 const listeners = new Set<() => void>();
 
 function readInitialVersion(): DesignVersion {
-  if (typeof window === 'undefined') return 'v1.0.7';
+  if (typeof window === 'undefined') return 'v1.0.3';
   try {
     const params = new URLSearchParams(window.location.search);
     const param = (params.get('v') || params.get('preview') || '').toLowerCase();
-    if (param === 'v1.0.3' || param === '1.0.3' || param === 'original') {
+    if (param === 'v1.0.3' || param === '1.0.3' || param === '1.0.4' || param === 'v1.0.4' || param === 'original' || param === 'main') {
       return 'v1.0.3';
     }
     if (param === 'v1.0.5' || param === '1.0.5' || param === 'unslop') {
@@ -30,7 +30,7 @@ function readInitialVersion(): DesignVersion {
   } catch {
     // Ignore storage errors in restricted environments
   }
-  return 'v1.0.7';
+  return 'v1.0.3';
 }
 
 let currentVersion: DesignVersion = readInitialVersion();
@@ -73,5 +73,5 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useDesignVersion(): DesignVersion {
-  return useSyncExternalStore(subscribe, getDesignVersion, () => 'v1.0.7');
+  return useSyncExternalStore(subscribe, getDesignVersion, () => 'v1.0.3');
 }

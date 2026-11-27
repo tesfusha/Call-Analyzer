@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { useBackHandler } from '@/src/lib/backNavigation';
 
 export type CustomSelectOption = {
@@ -27,6 +28,7 @@ export function CustomSelect({
   onChange,
   ariaLabel,
   icon: Icon,
+  flaticon,
   placeholder,
   activeHighlight = false,
   variant = 'surface',
@@ -41,6 +43,7 @@ export function CustomSelect({
   onChange: (value: string) => void;
   ariaLabel: string;
   icon?: LucideIcon;
+  flaticon?: string;
   placeholder?: string;
   activeHighlight?: boolean;
   variant?: 'surface' | 'inset';
@@ -323,7 +326,11 @@ export function CustomSelect({
         }`}
       >
         <span className="flex items-center gap-1.5 min-w-0">
-          {Icon && <Icon size={13} className="text-[#FF6A00] shrink-0" />}
+          {flaticon ? (
+            <FlaticonIcon name={flaticon} className="text-[13px] text-[#FF6A00] shrink-0" />
+          ) : (
+            Icon && <Icon size={13} className="text-[#FF6A00] shrink-0" />
+          )}
           <span className="truncate">{displayLabel}</span>
           {typeof selected?.count === 'number' && (
             <span className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] shrink-0">

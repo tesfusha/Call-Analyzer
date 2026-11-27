@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bell,
   Calendar,
+  ChevronRight,
   HelpCircle,
   Lock,
   LogIn,
@@ -23,6 +24,7 @@ import { AppGuideModal } from '@/src/components/AppGuideModal';
 import { AppLockOverlay } from '@/src/components/AppLockOverlay';
 import { AuthForm } from '@/src/components/AuthForm';
 import { BrandLogo } from '@/src/components/BrandLogo';
+import { BroadcastBanners, BroadcastPopupModal } from '@/src/components/BroadcastOverlay';
 import { CallDetailModal } from '@/src/components/CallDetailModal';
 import { CallsTab } from '@/src/components/CallsTab';
 import { ContactDetailModal } from '@/src/components/ContactDetailModal';
@@ -30,6 +32,11 @@ import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { ErrorBoundary } from '@/src/components/ErrorBoundary';
 import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
+import {
+  HelpSupportModal,
+  type HelpSupportInitialTab,
+} from '@/src/components/HelpSupportModal';
 import { LandingHero } from '@/src/components/LandingHero';
 import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
@@ -70,6 +77,7 @@ import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { firstGraphemes } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
 import { findLongGapReturnCalls, unreturnedMissedCalls } from '@/src/lib/reminders';
+import { subscribeUserSupportThread } from '@/src/lib/supportChat';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { CallsProvider, useCalls } from '@/src/store/CallsContext';
 import type { AppUpdateNotice, CallRecord, ContactMilestoneRecord, TabKey } from '@/src/types/call';
@@ -105,6 +113,7 @@ function AppShell() {
     themePreference,
     setThemeMode,
     toggleTheme,
+    dateHeaderStyle,
     pinEnabled,
     isLocked,
     pinLockoutUntil,
@@ -142,7 +151,11 @@ function AppShell() {
   } = useCalls();
 
   const isDark = theme === 'dark-gray';
-  const designVersion = useDesignVersion();
+  const rawDesignVersion = useDesignVersion();
+  const designVersion = isAdmin ? rawDesignVersion : 'v1.0.3';
+  useEffect(() => {
+    document.documentElement.dataset.designVersion = designVersion;
+  }, [designVersion]);
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(authPromptMode !== 'closed');
 
@@ -157,6 +170,9 @@ function AppShell() {
   >('action');
   const [guideOpen, setGuideOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [helpSupportOpen, setHelpSupportOpen] = useState(false);
+  const [helpSupportTab, setHelpSupportTab] = useState<HelpSupportInitialTab>('bot');
+  const [hasUnreadAdminReply, setHasUnreadAdminReply] = useState(false);
   const [androidSetupOpen, setAndroidSetupOpen] = useState(false);
   const [updateNotice, setUpdateNotice] = useState<AppUpdateNotice | null>(null);
   const [checkingVerify, setCheckingVerify] = useState(false);
@@ -242,6 +258,24 @@ function AppShell() {
     tabHistoryRef.current = ['calls'];
     resetExitBackTimer();
   }, [authUid, isGuest]);
+
+  const verifiedUserUid = authUser && authUser.emailVerified ? authUser.uid : null;
+  useEffect(() => {
+    if (!verifiedUserUid) {
+      setHasUnreadAdminReply(false);
+      return;
+    }
+    const unsub = subscribeUserSupportThread(verifiedUserUid, (thread) => {
+      setHasUnreadAdminReply(Boolean(thread?.unreadByUser));
+    });
+    return () => unsub();
+  }, [verifiedUserUid]);
+
+  const handleOpenHelpSupport = useCallback((initialTab: HelpSupportInitialTab = 'bot') => {
+    triggerHaptic('tap');
+    setHelpSupportTab(initialTab);
+    setHelpSupportOpen(true);
+  }, []);
 
   const handleCloseGuide = useCallback(() => {
     setGuideOpen(false);
@@ -969,16 +1003,23 @@ function AppShell() {
                 Call Analyzer - ETH
               </span>
             </div>
-            <div className="pl-[44px] space-y-0.5">
-              <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] leading-tight">
-                {headerDates.ec}
-              </p>
-              {headerDates.gc && (
-                <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight">
-                  {headerDates.gc}
+            {dateHeaderStyle !== 'hidden' && (
+              <button
+                type="button"
+                onClick={() => handleSwitchTab('calendar')}
+                className="pl-[44px] space-y-0.5 text-left hover:opacity-80 transition-opacity"
+                aria-label="Open Ethiopian Calendar"
+              >
+                <p className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] leading-tight">
+                  {headerDates.ec}
                 </p>
-              )}
-            </div>
+                {headerDates.gc && (
+                  <p className="text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight">
+                    {headerDates.gc}
+                  </p>
+                )}
+              </button>
+            )}
           </div>
 
           <nav className="space-y-1" aria-label="Primary navigation">
@@ -1060,6 +1101,20 @@ function AppShell() {
 
           <button
             type="button"
+            onClick={() => handleOpenHelpSupport(hasUnreadAdminReply ? 'admin' : 'bot')}
+            className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-between gap-2 whitespace-nowrap transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[16px] text-[#FF6A00]" />
+              Help Bot &amp; Support
+            </span>
+            {hasUnreadAdminReply && (
+              <span className="w-2 h-2 rounded-full bg-[#FF6A00] shrink-0" />
+            )}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setGuideOpen(true)}
             className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center gap-2.5 whitespace-nowrap transition-colors"
           >
@@ -1123,66 +1178,106 @@ function AppShell() {
           isDark ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
         }`}
       >
-        <div className="min-h-[58px] px-4 py-1.5 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <BrandLogo size={34} />
-          <div className="min-w-0">
-            <span className="block text-sm font-bold tracking-tight text-[#08246B] dark:text-white whitespace-nowrap truncate leading-tight">
-              Call Analyzer - ETH
-            </span>
-            <span className="block text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] leading-tight truncate">
-              {headerDates.ec}
-            </span>
-            {headerDates.gc && (
-              <span className="block text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight truncate">
-                {headerDates.gc}
+        <div className="min-h-[56px] px-3 sm:px-4 py-1.5 flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <BrandLogo size={32} />
+            <div className="min-w-0">
+              <span className="block text-[14.5px] font-bold tracking-tight text-[#08246B] dark:text-white whitespace-nowrap truncate leading-tight">
+                Call Analyzer - ETH
               </span>
-            )}
+              {dateHeaderStyle === 'header' && (
+                <>
+                  <span className="block text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] leading-tight truncate">
+                    {headerDates.ec}
+                  </span>
+                  {headerDates.gc && (
+                    <span className="block text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] leading-tight truncate">
+                      {headerDates.gc}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {pinEnabled && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            {pinEnabled && (
+              <button
+                type="button"
+                onClick={lockApp}
+                aria-label="Lock screen"
+                className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
+              >
+                <Lock size={16} />
+              </button>
+            )}
             <button
               type="button"
-              onClick={lockApp}
-              aria-label="Lock screen"
-              className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
+              onClick={() => handleSwitchTab('settings')}
+              aria-label={authUser ? 'Account settings' : 'Sign in or open settings'}
+              className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
             >
-              <Lock size={16} />
+              {(userPhotoUrl || authUser?.photoURL) ? (
+                <img
+                  src={userPhotoUrl || authUser?.photoURL || ''}
+                  alt={profileName || authUser?.displayName || 'Account'}
+                  referrerPolicy="no-referrer"
+                  className="w-6 h-6 rounded-full object-cover border border-[#DDE4EA] dark:border-[var(--dark-border)]"
+                />
+              ) : (
+                <LogIn size={17} className={authUser ? 'text-[#10B981]' : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'} />
+              )}
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => handleOpenHelpSupport(hasUnreadAdminReply ? 'admin' : 'bot')}
+              aria-label="Help Bot and Chat with Admin"
+              className="relative min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] shrink-0"
+            >
+              <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[18px]" />
+              {hasUnreadAdminReply && (
+                <span className="absolute top-2 right-1.5 w-2 h-2 rounded-full bg-[#FF6A00]" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenReminders}
+              aria-label="Notifications, wishes, and follow-ups"
+              className="min-h-[44px] px-2 flex items-center justify-center gap-1 rounded-xl text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0"
+            >
+              <Bell size={18} />
+              {pendingFollowUps > 0 && (
+                <span className="text-xs font-mono font-bold tabular-nums">
+                  {pendingFollowUps}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {dateHeaderStyle === 'sub-bar' && activeTab === 'calls' && (
           <button
             type="button"
-            onClick={() => handleSwitchTab('settings')}
-            aria-label={authUser ? 'Account settings' : 'Sign in or open settings'}
-            className="min-h-[44px] min-w-[38px] flex items-center justify-center rounded-xl text-[#08246B] dark:text-white hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)]"
+            onClick={() => handleSwitchTab('calendar')}
+            aria-label="Open Ethiopian Calendar"
+            className="w-full px-4 py-1.5 border-t border-[#EEF2F6] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)]/70 flex items-center justify-between gap-2 text-left active:opacity-80 transition-opacity"
           >
-            {(userPhotoUrl || authUser?.photoURL) ? (
-              <img
-                src={userPhotoUrl || authUser?.photoURL || ''}
-                alt={profileName || authUser?.displayName || 'Account'}
-                referrerPolicy="no-referrer"
-                className="w-6 h-6 rounded-full object-cover border border-[#DDE4EA] dark:border-[var(--dark-border)]"
-              />
-            ) : (
-              <LogIn size={17} className={authUser ? 'text-[#10B981]' : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'} />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={handleOpenReminders}
-            aria-label="Notifications, wishes, and follow-ups"
-            className="min-h-[44px] px-2 flex items-center justify-center gap-1 rounded-xl text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 shrink-0"
-          >
-            <Bell size={18} />
-            {pendingFollowUps > 0 && (
-              <span className="text-xs font-mono font-bold tabular-nums">
-                {pendingFollowUps}
+            <span className="flex items-center gap-2 min-w-0">
+              <Calendar size={13} className="text-[#FF6A00] shrink-0" />
+              <span className="text-[11px] font-mono font-semibold tabular-nums text-[#FF6A00] truncate">
+                {headerDates.ec}
               </span>
-            )}
+              {headerDates.gc && (
+                <>
+                  <span className="text-[#CBD5E1] dark:text-[var(--dark-border)] text-[10px]">•</span>
+                  <span className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                    {headerDates.gc}
+                  </span>
+                </>
+              )}
+            </span>
+            <ChevronRight size={13} className="text-[#8A93A0] shrink-0" />
           </button>
-        </div>
-        </div>
+        )}
       </header>
 
       {/* Main Content */}
@@ -1191,6 +1286,8 @@ function AppShell() {
           ref={mainContentRef}
           className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-7"
         >
+          <BroadcastBanners />
+
           {isGuest && (
             <div className="mb-4 rounded-2xl bg-[#FFF0E6] dark:bg-[#FF6A00]/12 border border-[#FF6A00]/35 px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-0">
@@ -1224,6 +1321,30 @@ function AppShell() {
 
           {visitedTabs.has('calls') && (
             <div className={activeTab === 'calls' ? 'block' : 'hidden'}>
+              {dateHeaderStyle === 'calls-strip' && (
+                <button
+                  type="button"
+                  onClick={() => handleSwitchTab('calendar')}
+                  aria-label="Open Ethiopian Calendar"
+                  className="md:hidden mb-3 w-full px-3.5 py-2 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00]/60 flex items-center justify-between gap-2 text-left transition-colors"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <Calendar size={14} className="text-[#FF6A00] shrink-0" />
+                    <span className="text-xs font-mono font-semibold tabular-nums text-[#08246B] dark:text-white truncate">
+                      {headerDates.ec}
+                    </span>
+                    {headerDates.gc && (
+                      <>
+                        <span className="text-[#CBD5E1] dark:text-[var(--dark-border)] text-xs">·</span>
+                        <span className="text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                          {headerDates.gc}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                  <ChevronRight size={14} className="text-[#8A93A0] shrink-0" />
+                </button>
+              )}
               <CallsTab
                 isActive={activeTab === 'calls'}
                 onSelectCall={handleSelectCall}
@@ -1261,6 +1382,7 @@ function AppShell() {
                 onOpenReminders={handleOpenReminders}
                 onOpenGuide={handleOpenGuide}
                 onOpenWhatsNew={handleOpenWhatsNew}
+                onOpenHelpSupport={handleOpenHelpSupport}
                 onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
                 onSelectContact={handleSelectContact}
                 onCheckForUpdates={handleManualUpdateCheck}
@@ -1284,7 +1406,7 @@ function AppShell() {
         }`}
       >
         <div
-          className={`h-16 grid items-center px-1 ${
+          className={`h-16 grid items-center px-0.5 ${
             visibleTabs.length === 6 ? 'grid-cols-6' : 'grid-cols-5'
           }`}
         >
@@ -1298,23 +1420,27 @@ function AppShell() {
                 key={tab.key}
                 type="button"
                 onClick={() => handleSwitchTab(tab.key)}
-                className={`relative h-14 flex flex-col items-center justify-center gap-1 rounded-xl transition-colors ${
+                className={`relative h-14 min-w-0 px-0.5 flex flex-col items-center justify-center gap-1 rounded-xl transition-colors ${
                   active ? 'text-[#FF6A00]' : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
                 }`}
               >
                 {active && (
                   <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute top-0 left-3 right-3 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00]"
+                    className="pointer-events-none absolute top-0 left-2.5 right-2.5 h-[3px] max-h-[3px] rounded-full bg-[#FF6A00]"
                   />
                 )}
                 {showNewBadge && (
-                  <span className="pointer-events-none absolute top-1.5 right-2 px-1 py-[1px] rounded bg-[#FF6A00] text-white text-[8px] font-bold uppercase tracking-wider leading-none">
+                  <span className="pointer-events-none absolute top-1.5 right-1.5 px-1 py-[1px] rounded bg-[#FF6A00] text-white text-[8px] font-bold uppercase tracking-wider leading-none">
                     NEW
                   </span>
                 )}
-                <Icon size={19} className="shrink-0" />
-                <span className="text-[10px] font-semibold leading-none whitespace-nowrap">
+                <Icon size={18} className="shrink-0" />
+                <span
+                  className={`${
+                    visibleTabs.length === 6 ? 'text-[9.5px] tracking-tight' : 'text-[10px]'
+                  } font-semibold leading-none whitespace-nowrap truncate max-w-full`}
+                >
                   {tab.label}
                 </span>
               </button>
@@ -1406,6 +1532,14 @@ function AppShell() {
       />
 
       <UpdateNoticeModal update={updateNotice} onDismiss={handleDismissUpdate} />
+
+      <BroadcastPopupModal />
+
+      <HelpSupportModal
+        open={helpSupportOpen}
+        initialTab={helpSupportTab}
+        onClose={() => setHelpSupportOpen(false)}
+      />
 
       <AnimatePresence>
         {authPromptMode !== 'closed' && (
