@@ -20,7 +20,6 @@ import {
   sendPasswordResetEmail,
   signInWithCredential,
   signInWithEmailAndPassword,
-  signInWithPopup,
   signOut,
   updatePassword,
   updateProfile,
@@ -42,6 +41,7 @@ import {
   type NotificationMeta,
   acknowledgeNativeSyncedCalls,
   cancelNativeNotification,
+  consumeDeliveredNativeNotificationKeys,
   fetchNativeRecentCalls,
   getCallLogSyncPermissionStatus,
   getNativeNotificationPermission,
@@ -54,6 +54,7 @@ import {
   runNativeGoogleSignIn,
   runNativeSignOut,
   scheduleNativeNotification,
+  scheduleNativeNotificationDetailed,
   showNativeNotification,
   subscribeNativeCallLog,
   subscribeNativeNotificationActions,
@@ -85,8 +86,8 @@ import {
   auth,
   clampStr,
   db,
-  googleProvider,
   handleFirestoreError,
+  signInWithGooglePopupSync,
 } from '@/src/lib/firebase';
 import {
   buildCallDedupKey,
@@ -959,6 +960,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [pinLockoutUntil, setPinLockoutUntil] = useState<number>(0);
   const [notificationActionTarget, setNotificationActionTarget] =
     useState<NotificationActionTarget | null>(null);
+  const nativeScheduledSigRef = useRef<Map<string, string>>(new Map());
   const clearNotificationActionTarget = useCallback(() => {
     setNotificationActionTarget(null);
   }, []);
@@ -2399,17 +2401,125 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [alertSnoozedDate, todayEat],
   );
 
+  // Reconcile pending user-scheduled call reminders with Android AlarmClock and drain delivered keys
+  useEffect(() => {
+    if (!isNativeCapacitor() || !hasNativeNotificationsPlugin()) return;
+    if (!hydratedUid) return;
+
+    let cancelled = false;
+    const syncNativeAlarms = async () => {
+      const deliveredKeys = await consumeDeliveredNativeNotificationKeys();
+      if (cancelled) return;
+      const deliveredSet = new Set(deliveredKeys);
+      if (deliveredSet.size > 0) {
+        const deliveredAt = Date.now();
+        setScheduledCalls((prev) => {
+          let changed = false;
+          const next = prev.map((item) => {
+            if (deliveredSet.has(item.id) && !item.notifiedAt) {
+              changed = true;
+              return { ...item, notifiedAt: deliveredAt };
+            }
+            return item;
+          });
+          return changed ? next : prev;
+        });
+      }
+
+      const mutedSet = new Set(mutedAlertKeys);
+      const now = Date.now();
+      const activeIds = new Set<string>();
+      const sigMap = nativeScheduledSigRef.current;
+
+      for (const item of scheduledCalls) {
+        const isMuted =
+          mutedSet.has(`sched:${item.id}`) ||
+          mutedSet.has(`contact:${getContactKey(item.number)}`);
+        const shouldSchedule =
+          notificationsEnabled &&
+          alertTypePrefs.scheduledCalls &&
+          item.status === 'pending' &&
+          !item.notifiedAt &&
+          !deliveredSet.has(item.id) &&
+          !isMuted &&
+          item.scheduledFor > now + 1_500;
+
+        if (!shouldSchedule) continue;
+        activeIds.add(item.id);
+
+        const label = formatDisplayNameOrPhone(item.name, item.number);
+        const title = `Call reminder: ${label}`;
+        const body = item.note?.trim() || `Scheduled call to ${item.number}`;
+        const sig = `${item.scheduledFor}|${title}|${body}`;
+        if (sigMap.get(item.id) === sig) continue;
+
+        sigMap.set(item.id, sig);
+        void scheduleNativeNotificationDetailed(item.id, title, body, item.scheduledFor, {
+          category: 'schedule',
+          number: item.number,
+          contactKey: getContactKey(item.number),
+          eventId: item.id,
+          muteKey: `sched:${item.id}`,
+        });
+      }
+
+      for (const [id] of Array.from(sigMap.entries())) {
+        if (!activeIds.has(id)) {
+          sigMap.delete(id);
+          const matching = scheduledCalls.find((s) => s.id === id);
+          if (!matching || matching.status !== 'pending' || !notificationsEnabled || !alertTypePrefs.scheduledCalls) {
+            void cancelNativeNotification(id);
+          }
+        }
+      }
+    };
+
+    void syncNativeAlarms();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void syncNativeAlarms();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [
+    hydratedUid,
+    scheduledCalls,
+    mutedAlertKeys,
+    notificationsEnabled,
+    alertTypePrefs.scheduledCalls,
+  ]);
+
   // Trigger callback reminders (toast + system notification) when scheduled time arrives
   useEffect(() => {
     const mutedSet = new Set(mutedAlertKeys);
-    const checkDue = () => {
-      const now = Date.now();
-      const dueUnnotified = scheduledCalls.filter(
-        (item) => item.status === 'pending' && item.scheduledFor <= now && !item.notifiedAt,
-      );
-      if (dueUnnotified.length === 0) return;
+    const nativeMode = isNativeCapacitor() && hasNativeNotificationsPlugin();
+    let cancelled = false;
 
-      const updatedItems: ScheduledCall[] = dueUnnotified.map((item) => ({
+    const checkDue = async () => {
+      const now = Date.now();
+      // On native Android, give AlarmManager.setAlarmClock a 4s window to deliver cleanly
+      // and check whether native already delivered while the app was closed.
+      const graceMs = nativeMode ? 4_000 : 0;
+      const candidates = scheduledCalls.filter(
+        (item) =>
+          item.status === 'pending' &&
+          item.scheduledFor + graceMs <= now &&
+          !item.notifiedAt,
+      );
+      if (candidates.length === 0) return;
+
+      let deliveredSet = new Set<string>();
+      if (nativeMode) {
+        const keys = await consumeDeliveredNativeNotificationKeys();
+        if (cancelled) return;
+        deliveredSet = new Set(keys);
+      }
+
+      const updatedItems: ScheduledCall[] = candidates.map((item) => ({
         ...item,
         notifiedAt: now,
       }));
@@ -2418,7 +2528,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       if (!alertTypePrefs.scheduledCalls || isAlertsSnoozedToday) return;
 
-      const first = dueUnnotified.find(
+      const needsDelivery = candidates.filter((item) => !deliveredSet.has(item.id));
+      if (needsDelivery.length === 0) return;
+
+      const first = needsDelivery.find(
         (item) =>
           !mutedSet.has(`sched:${item.id}`) &&
           !mutedSet.has(`contact:${getContactKey(item.number)}`),
@@ -2428,7 +2541,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const label = formatDisplayNameOrPhone(first.name, first.number);
       showNotice(`Scheduled call reminder: ${label}`);
 
-      if (notificationsEnabled && !isWithinQuietHours(reminderPrefs)) {
+      // Explicit user-scheduled call reminders always notify even during quiet hours.
+      if (notificationsEnabled) {
         void deliverSystemNotification(
           first.id,
           `Call reminder: ${label}`,
@@ -2444,14 +2558,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    checkDue();
-    const timer = setInterval(checkDue, 5_000);
-    return () => clearInterval(timer);
+    void checkDue();
+    const timer = setInterval(() => {
+      void checkDue();
+    }, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [
     scheduledCalls,
     mutedAlertKeys,
     notificationsEnabled,
-    reminderPrefs,
     alertTypePrefs.scheduledCalls,
     isAlertsSnoozedToday,
     showNotice,
@@ -2637,7 +2755,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         return { ok: true };
       }
 
-      const res = await signInWithPopup(auth, googleProvider);
+      const res = await signInWithGooglePopupSync();
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -2662,12 +2780,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         showNotice('Sign-in cancelled.');
         return { ok: false, error: 'Sign-in was cancelled.' };
       }
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/operation-not-supported-in-this-environment'
-      ) {
+      if (code === 'auth/popup-blocked') {
         const msg =
-          'Your browser blocked the Google sign-in popup. Allow popups for this site (or open in Chrome/Safari) and tap Continue with Google again.';
+          'Your browser blocked the Google sign-in popup (auth/popup-blocked). Allow popups for this site in your browser settings/address bar and tap Continue with Google again.';
+        showNotice(msg);
+        return { ok: false, error: msg };
+      }
+      if (code === 'auth/operation-not-supported-in-this-environment') {
+        const msg =
+          'Google Sign-In is not supported in this browser mode (auth/operation-not-supported-in-this-environment). Open the site in Chrome or Safari, or use Email Login below.';
         showNotice(msg);
         return { ok: false, error: msg };
       }
@@ -4183,14 +4304,16 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
       if (
         notificationsEnabled &&
-        !isWithinQuietHours(reminderPrefs) &&
         isNativeCapacitor() &&
         hasNativeNotificationsPlugin()
       ) {
-        void scheduleNativeNotification(
+        const title = `Call reminder: ${notifyLabel}`;
+        const body = item.note || `Scheduled call to ${number}`;
+        nativeScheduledSigRef.current.set(item.id, `${item.scheduledFor}|${title}|${body}`);
+        void scheduleNativeNotificationDetailed(
           item.id,
-          `Call reminder: ${notifyLabel}`,
-          item.note || `Scheduled call to ${number}`,
+          title,
+          body,
           item.scheduledFor,
           {
             category: 'schedule',
@@ -4199,7 +4322,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             eventId: item.id,
             muteKey: `sched:${item.id}`,
           },
-        );
+        ).then((res) => {
+          if (res.mode === 'inexact') {
+            showNotice(
+              'Scheduled — allow Alarms & reminders in phone Settings for exact-minute alerts.',
+            );
+          }
+        });
       }
 
       showNotice(`Scheduled call with ${notifyLabel}.`, 'success');
@@ -4208,7 +4337,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [
       contacts,
       notificationsEnabled,
-      reminderPrefs,
       requireSignedInUser,
       showNotice,
     ],
@@ -4264,15 +4392,17 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         !skipNativeAlarm &&
         updatedItem &&
         notificationsEnabled &&
-        !isWithinQuietHours(reminderPrefs) &&
         isNativeCapacitor() &&
         hasNativeNotificationsPlugin()
       ) {
         const snoozeLabel = formatDisplayNameOrPhone(updatedItem.name, updatedItem.number);
-        void scheduleNativeNotification(
+        const title = `Call reminder: ${snoozeLabel}`;
+        const body = updatedItem.note || `Scheduled call to ${updatedItem.number}`;
+        nativeScheduledSigRef.current.set(id, `${nextTime}|${title}|${body}`);
+        void scheduleNativeNotificationDetailed(
           id,
-          `Call reminder: ${snoozeLabel}`,
-          updatedItem.note || `Scheduled call to ${updatedItem.number}`,
+          title,
+          body,
           nextTime,
           {
             category: 'schedule',
@@ -4287,7 +4417,6 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     },
     [
       notificationsEnabled,
-      reminderPrefs,
       requireSignedInUser,
       showNotice,
     ],

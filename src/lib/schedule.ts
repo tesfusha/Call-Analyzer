@@ -29,6 +29,23 @@ export function toDateTimeLocalValue(timestamp: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+export function parseDateTimeLocalValue(value: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(value.trim());
+  if (m) {
+    const dt = new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      m[6] ? Number(m[6]) : 0,
+      0,
+    );
+    return dt.getTime();
+  }
+  return Date.parse(value);
+}
+
 export function tomorrowAtHour(hour = 9, now: Date = new Date()): number {
   const d = new Date(now);
   d.setDate(d.getDate() + 1);

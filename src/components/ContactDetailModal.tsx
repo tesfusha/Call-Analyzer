@@ -51,6 +51,7 @@ import {
   buildScheduledCallIcs,
   formatScheduledCountdown,
   formatScheduledLabel,
+  parseDateTimeLocalValue,
   toDateTimeLocalValue,
 } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone, sanitizeSocialUsername } from '@/src/lib/security';
@@ -791,7 +792,7 @@ export function ContactDetailModal({
               <button
                 type="button"
                 onClick={() => {
-                  const parsed = Date.parse(scheduleAt);
+                  const parsed = parseDateTimeLocalValue(scheduleAt);
                   if (Number.isNaN(parsed)) return;
                   scheduleCall({
                     number: contactCalls[0]?.number || contactNumber,

@@ -57,6 +57,7 @@ import {
   buildScheduledCallIcs,
   formatScheduledCountdown,
   formatScheduledLabel,
+  parseDateTimeLocalValue,
   toDateTimeLocalValue,
 } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
@@ -1029,7 +1030,7 @@ export function RemindersModal({
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const parsed = Date.parse(schedAt);
+                  const parsed = parseDateTimeLocalValue(schedAt);
                   if (!schedNumber.trim() || Number.isNaN(parsed)) {
                     showNotice('Enter a valid number and date/time.');
                     return;

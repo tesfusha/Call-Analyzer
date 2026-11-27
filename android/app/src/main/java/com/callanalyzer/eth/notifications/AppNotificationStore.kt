@@ -134,10 +134,49 @@ class AppNotificationStore(context: Context) {
         return current
     }
 
+    @Synchronized
+    fun markDelivered(idKey: String) {
+        val clean = idKey.trim()
+        if (clean.isEmpty()) return
+        val current = readDeliveredKeys().toMutableList()
+        if (!current.contains(clean)) {
+            current.add(clean)
+        }
+        val capped = if (current.size > 100) current.takeLast(100) else current
+        val arr = JSONArray()
+        capped.forEach { arr.put(it) }
+        prefs.edit().putString(KEY_DELIVERED_KEYS, arr.toString()).commit()
+    }
+
+    @Synchronized
+    fun drainDeliveredKeys(): List<String> {
+        val keys = readDeliveredKeys()
+        if (keys.isNotEmpty()) {
+            prefs.edit().remove(KEY_DELIVERED_KEYS).commit()
+        }
+        return keys
+    }
+
+    private fun readDeliveredKeys(): List<String> {
+        val raw = prefs.getString(KEY_DELIVERED_KEYS, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            val list = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val item = arr.optString(i, "").trim()
+                if (item.isNotEmpty()) list.add(item)
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     private fun saveScheduledList(list: List<ScheduledNotificationRecord>) {
         val arr = JSONArray()
         list.forEach { arr.put(it.toJson()) }
-        prefs.edit().putString(KEY_SCHEDULED, arr.toString()).apply()
+        // Use commit() so swiping the app away right after scheduling never drops the alarm record.
+        prefs.edit().putString(KEY_SCHEDULED, arr.toString()).commit()
     }
 
     private fun readPendingArray(): JSONArray {
@@ -153,5 +192,6 @@ class AppNotificationStore(context: Context) {
         private const val PREFS_NAME = "app_notifications_store"
         private const val KEY_SCHEDULED = "scheduled_notifications"
         private const val KEY_PENDING_ACTIONS = "pending_notification_actions"
+        private const val KEY_DELIVERED_KEYS = "delivered_notification_keys"
     }
 }

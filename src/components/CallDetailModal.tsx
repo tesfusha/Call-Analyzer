@@ -8,7 +8,7 @@ import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
-import { toDateTimeLocalValue } from '@/src/lib/schedule';
+import { parseDateTimeLocalValue, toDateTimeLocalValue } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
@@ -439,7 +439,7 @@ export function CallDetailModal({
               <button
                 type="button"
                 onClick={() => {
-                  const parsed = Date.parse(scheduleAt);
+                  const parsed = parseDateTimeLocalValue(scheduleAt);
                   if (Number.isNaN(parsed)) return;
                   scheduleCall({
                     number: call.number,

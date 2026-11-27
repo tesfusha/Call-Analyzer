@@ -37,6 +37,11 @@ import { UpdateNoticeModal } from '@/src/components/UpdateNoticeModal';
 import { UsageTab } from '@/src/components/UsageTab';
 import { WhatsNewModal } from '@/src/components/WhatsNewModal';
 import { WishComposerModal } from '@/src/components/WishComposerModal';
+import { useDesignVersion } from '@/src/preview/designVersion';
+import { LandingHeroV105 } from '@/src/preview/LandingHeroV105';
+import { VersionSwitcherBar } from '@/src/preview/VersionSwitcherBar';
+import { AppShellV106 } from '@/src/preview/v106/AppShellV106';
+import { AppShellV107 } from '@/src/preview/v107/AppShellV107';
 import { App as CapacitorApp } from '@capacitor/app';
 import { DiscardChangesModal } from '@/src/components/DiscardChangesModal';
 import {
@@ -137,6 +142,7 @@ function AppShell() {
   } = useCalls();
 
   const isDark = theme === 'dark-gray';
+  const designVersion = useDesignVersion();
   const prefersReducedMotion = useReducedMotion();
   useLockBodyScroll(authPromptMode !== 'closed');
 
@@ -835,8 +841,11 @@ function AppShell() {
               transition={{ duration: 0.16 }}
               className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
             >
-              <div className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
+              <div
+                data-unslop-toast="true"
+                className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md"
+              >
+                <span data-unslop-toast-dot="true" className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
                 <span className="truncate">{notice}</span>
               </div>
             </motion.div>
@@ -871,7 +880,11 @@ function AppShell() {
         </header>
 
         <main className="flex-1 flex items-center justify-center pb-10">
-          <LandingHero onOpenGuide={() => setGuideOpen(true)} />
+          {designVersion === 'v1.0.5' || designVersion === 'v1.0.6' || designVersion === 'v1.0.7' ? (
+            <LandingHeroV105 onOpenGuide={() => setGuideOpen(true)} />
+          ) : (
+            <LandingHero onOpenGuide={() => setGuideOpen(true)} />
+          )}
         </main>
 
         <AppGuideModal open={guideOpen} onClose={handleCloseGuide} />
@@ -887,8 +900,11 @@ function AppShell() {
               transition={{ duration: 0.16 }}
               className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
             >
-              <div className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
+              <div
+                data-unslop-toast="true"
+                className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md"
+              >
+                <span data-unslop-toast-dot="true" className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
                 <span className="truncate">{notice}</span>
               </div>
             </motion.div>
@@ -909,9 +925,42 @@ function AppShell() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col md:flex-row">
+    <>
+      {designVersion === 'v1.0.7' ? (
+        <AppShellV107
+          headerDates={headerDates}
+          pendingFollowUps={pendingFollowUps}
+          onSelectCall={handleSelectCall}
+          onSelectContact={handleSelectContact}
+          onCallBack={handleCallBack}
+          onOpenReminders={handleOpenReminders}
+          onOpenWishes={handleOpenWishes}
+          onOpenGuide={handleOpenGuide}
+          onOpenWhatsNew={handleOpenWhatsNew}
+          onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+          onCheckForUpdates={handleManualUpdateCheck}
+        />
+      ) : designVersion === 'v1.0.6' ? (
+        <AppShellV106
+          headerDates={headerDates}
+          pendingFollowUps={pendingFollowUps}
+          onSelectCall={handleSelectCall}
+          onSelectContact={handleSelectContact}
+          onCallBack={handleCallBack}
+          onOpenReminders={handleOpenReminders}
+          onOpenWishes={handleOpenWishes}
+          onOpenGuide={handleOpenGuide}
+          onOpenWhatsNew={handleOpenWhatsNew}
+          onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+          onCheckForUpdates={handleManualUpdateCheck}
+        />
+      ) : (
+        <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col md:flex-row">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:sticky md:top-0 md:flex md:h-screen md:w-56 lg:w-64 md:shrink-0 md:flex-col md:overflow-y-auto border-r border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] p-4 justify-between gap-4">
+      <aside
+        data-unslop-sidebar="true"
+        className="hidden md:sticky md:top-0 md:flex md:h-screen md:w-56 lg:w-64 md:shrink-0 md:flex-col md:overflow-y-auto border-r border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] p-4 justify-between gap-4"
+      >
         <div className="space-y-5">
           <div className="px-1 pt-1 space-y-1">
             <div className="flex items-center gap-2.5">
@@ -942,6 +991,7 @@ function AppShell() {
                 <button
                   key={tab.key}
                   type="button"
+                  data-unslop-nav-active={active ? 'true' : undefined}
                   onClick={() => handleSwitchTab(tab.key)}
                   className={`w-full min-h-[44px] px-3 py-2.5 rounded-xl flex items-center gap-3 text-sm font-semibold whitespace-nowrap transition-colors ${
                     active
@@ -962,7 +1012,7 @@ function AppShell() {
           </nav>
         </div>
 
-        <div className="space-y-2">
+        <div data-unslop-sidebar-footer="true" className="space-y-2">
           <DarkModeToggle
             isDark={isDark}
             mode={themePreference}
@@ -1068,6 +1118,7 @@ function AppShell() {
 
       {/* Mobile Top Header */}
       <header
+        data-unslop-mobile-header="true"
         className={`md:hidden sticky top-0 z-30 pt-[env(safe-area-inset-top)] border-b border-[#DDE4EA] dark:border-[var(--dark-border)] ${
           isDark ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
         }`}
@@ -1226,6 +1277,7 @@ function AppShell() {
 
       {/* Mobile Bottom Tab Bar */}
       <nav
+        data-unslop-bottom-nav="true"
         aria-label="Mobile navigation"
         className={`md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] pb-[env(safe-area-inset-bottom)] ${
           isDark ? 'bg-[#111214]' : 'bg-white dark:bg-[var(--dark-surface)]'
@@ -1270,6 +1322,8 @@ function AppShell() {
           })}
         </div>
       </nav>
+        </div>
+      )}
 
       {/* Modals */}
       <CallDetailModal
@@ -1399,14 +1453,17 @@ function AppShell() {
             transition={{ duration: 0.16 }}
             className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-[calc(100vw-2rem)]"
           >
-            <div className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
+            <div
+              data-unslop-toast="true"
+              className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-[var(--dark-elevated)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-1.5 text-xs font-medium text-[#08246B] dark:text-white shadow-md"
+            >
+              <span data-unslop-toast-dot="true" className="w-1.5 h-1.5 rounded-full bg-[#FF6A00] shrink-0" />
               <span className="truncate">{notice}</span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 }
 
@@ -1415,6 +1472,7 @@ export default function App() {
     <ErrorBoundary>
       <CallsProvider>
         <AppShell />
+        <VersionSwitcherBar />
       </CallsProvider>
     </ErrorBoundary>
   );

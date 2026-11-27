@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.callanalyzer.eth.MainActivity
 import com.callanalyzer.eth.R
 import com.callanalyzer.eth.calllog.NotificationHelper
 import org.json.JSONObject
@@ -93,6 +94,8 @@ object AppNotificationDisplay {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setShowWhen(true)
             .setPriority(priority)
+            .setDefaults(if (isSchedule) NotificationCompat.DEFAULT_ALL else NotificationCompat.DEFAULT_SOUND)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(if (isSchedule) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_EVENT)
             .setAutoCancel(true)
             .setContentIntent(viewPendingIntent)
@@ -189,7 +192,7 @@ object AppNotificationDisplay {
         }
     }
 
-    fun scheduleAlarm(context: Context, record: ScheduledNotificationRecord) {
+    fun scheduleAlarm(context: Context, record: ScheduledNotificationRecord): String {
         val appContext = context.applicationContext
         val store = AppNotificationStore(appContext)
         store.upsertScheduled(record)
@@ -197,7 +200,7 @@ object AppNotificationDisplay {
         val now = System.currentTimeMillis()
         if (record.triggerAtMs <= now + 500L) {
             store.removeScheduled(record.id)
-            showNotification(
+            val shown = showNotification(
                 context = appContext,
                 id = record.id,
                 idKey = record.idKey,
@@ -212,26 +215,56 @@ object AppNotificationDisplay {
                 occasionType = record.occasionType,
                 occasionKey = record.occasionKey
             )
-            return
+            if (shown) {
+                store.markDelivered(record.idKey)
+            }
+            return "immediate"
         }
 
-        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val pendingIntent = buildAlarmPendingIntent(appContext, record.id)
+        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return "unavailable"
+        val pendingIntent = buildAlarmPendingIntent(appContext, record)
         val triggerAt = record.triggerAtMs.coerceAtLeast(now + 500L)
 
-        try {
-            val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                alarmManager.canScheduleExactAlarms()
-            } else {
-                true
+        val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+
+        // User-scheduled call reminders use setAlarmClock() when exact alarms are allowed.
+        // Unlike setExactAndAllowWhileIdle(), setAlarmClock() wakes the device out of Doze
+        // BEFORE triggerAt and bypasses Samsung/Xiaomi/Tecno App Standby throttling.
+        if (canExact && record.category == "schedule") {
+            try {
+                val showIntent = PendingIntent.getActivity(
+                    appContext,
+                    alarmShowRequestCode(record.id),
+                    Intent(appContext, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                val info = AlarmManager.AlarmClockInfo(triggerAt, showIntent)
+                alarmManager.setAlarmClock(info, pendingIntent)
+                return "alarm_clock"
+            } catch (_: SecurityException) {
+                // Fall through to exact/inexact fallback below
+            } catch (_: Exception) {
+                // Fall through to exact/inexact fallback below
             }
+        }
+
+        return try {
             if (canExact) {
                 alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                "exact"
             } else {
                 alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                "inexact"
             }
         } catch (_: SecurityException) {
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            "inexact"
         }
     }
 
@@ -302,16 +335,34 @@ object AppNotificationDisplay {
         put("handledNatively", handledNatively)
     }
 
-    private fun buildAlarmPendingIntent(context: Context, id: Int): PendingIntent {
+    private fun buildAlarmPendingIntent(context: Context, record: ScheduledNotificationRecord): PendingIntent {
         val intent = Intent(context, AppNotificationAlarmReceiver::class.java).apply {
-            putExtra(EXTRA_NOTIFICATION_ID, id)
+            putExtrasFromPayload(
+                actionId = "alarm",
+                id = record.id,
+                idKey = record.idKey,
+                title = record.title,
+                body = record.body,
+                category = record.category,
+                number = record.number,
+                contactKey = record.contactKey,
+                eventId = record.eventId,
+                muteKey = record.muteKey,
+                wishText = record.wishText,
+                occasionType = record.occasionType,
+                occasionKey = record.occasionKey
+            )
         }
         return PendingIntent.getBroadcast(
             context,
-            alarmRequestCode(id),
+            alarmRequestCode(record.id),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    private fun alarmShowRequestCode(id: Int): Int {
+        return 1_200_000 + kotlin.math.abs(id % 1_000_000)
     }
 
     private fun buildActivityActionPendingIntent(

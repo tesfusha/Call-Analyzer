@@ -1,5 +1,6 @@
 package com.callanalyzer.eth.calllog
 
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,9 +13,15 @@ class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         if (context == null || intent == null) return
         val action = intent.action ?: return
-        if (action != Intent.ACTION_BOOT_COMPLETED &&
+        val isExactAlarmPermChanged =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
+        if (!isExactAlarmPermChanged &&
+            action != Intent.ACTION_BOOT_COMPLETED &&
             action != Intent.ACTION_LOCKED_BOOT_COMPLETED &&
             action != Intent.ACTION_MY_PACKAGE_REPLACED &&
+            action != Intent.ACTION_TIME_SET &&
+            action != Intent.ACTION_TIMEZONE_CHANGED &&
             action != "android.intent.action.QUICKBOOT_POWERON" &&
             action != "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {

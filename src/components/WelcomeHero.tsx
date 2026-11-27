@@ -2,6 +2,8 @@ import { RefreshCw, Upload, X } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import type { UpcomingHoliday } from '@/src/lib/ethiopianCalendar';
+import { useDesignVersion } from '@/src/preview/designVersion';
+import { WelcomeHeroV105 } from '@/src/preview/WelcomeHeroV105';
 
 function getTimeGreeting(name: string): string {
   const hour = new Date().getHours();
@@ -39,6 +41,25 @@ export function WelcomeHero({
   onImportFile: () => void;
   onDismiss: () => void;
 }) {
+  const designVersion = useDesignVersion();
+  if (designVersion === 'v1.0.5') {
+    return (
+      <WelcomeHeroV105
+        displayName={displayName}
+        callsCount={callsCount}
+        savedContactsCount={savedContactsCount}
+        unreturnedCount={unreturnedCount}
+        upcomingHoliday={upcomingHoliday}
+        defaultLang={defaultLang}
+        canSyncPhone={canSyncPhone}
+        syncingPhone={syncingPhone}
+        onSyncPhone={onSyncPhone}
+        onImportFile={onImportFile}
+        onDismiss={onDismiss}
+      />
+    );
+  }
+
   const greeting = getTimeGreeting(displayName);
   const todayEc = `${formatEthiopianShort(new Date(), defaultLang)} EC`;
 

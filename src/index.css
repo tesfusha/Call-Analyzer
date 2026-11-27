@@ -74,3 +74,311 @@ html[data-font-scale='xlarge'] {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ============================================================================
+   V1.0.5 UNSLOP PREVIEW — Strictly scoped to data-design-version="v1.0.5"
+   When switched to v1.0.3, ZERO rules below apply (original UI stays intact).
+   ============================================================================ */
+
+/* --- Dark Mode Palette & Optical Compensation (Pass 2 & Pass 5) --- */
+html.dark[data-design-version="v1.0.5"],
+html.dark-gray[data-design-version="v1.0.5"] {
+  --dark-canvas: #0E1013;
+  --dark-surface: #15181D;
+  --dark-surface-95: rgba(14, 16, 19, 0.92);
+  --dark-elevated: #1E2229;
+  --dark-elevated-60: rgba(30, 34, 41, 0.72);
+  --dark-elevated-70: rgba(30, 34, 41, 0.84);
+  --dark-border: rgba(255, 255, 255, 0.085);
+  --dark-border-70: rgba(255, 255, 255, 0.055);
+  --dark-border-strong: rgba(255, 255, 255, 0.16);
+  --dark-text-secondary: #989DA8;
+  --dark-text-muted: #6E7480;
+}
+
+html.dark[data-design-version="v1.0.5"] body {
+  background-color: #0E1013;
+  color: #F3F2EE;
+  letter-spacing: 0.004em;
+}
+
+/* --- Pass 5: Display Typography & Tabular Discipline (Both Modes) --- */
+html[data-design-version="v1.0.5"] .v105-display,
+html[data-design-version="v1.0.5"] h1,
+html[data-design-version="v1.0.5"] h2 {
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', 'Noto Sans Ethiopic', sans-serif;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+/* --- Pass 1 & Pass 7: Refined Precision Geometry & Focus Rings --- */
+html[data-design-version="v1.0.5"] .rounded-2xl {
+  border-radius: 0.875rem;
+}
+
+html[data-design-version="v1.0.5"] .rounded-xl {
+  border-radius: 0.625rem;
+}
+
+html[data-design-version="v1.0.5"] button:focus-visible,
+html[data-design-version="v1.0.5"] a:focus-visible,
+html[data-design-version="v1.0.5"] input:focus-visible,
+html[data-design-version="v1.0.5"] select:focus-visible,
+html[data-design-version="v1.0.5"] textarea:focus-visible {
+  outline: 2px solid #D95B16;
+  outline-offset: 2px;
+}
+
+html.dark[data-design-version="v1.0.5"] button:focus-visible,
+html.dark[data-design-version="v1.0.5"] a:focus-visible,
+html.dark[data-design-version="v1.0.5"] input:focus-visible,
+html.dark[data-design-version="v1.0.5"] select:focus-visible,
+html.dark[data-design-version="v1.0.5"] textarea:focus-visible {
+  outline-color: #F0742B;
+}
+
+/* --- Pass 9: Crisp Motion & Tactile Feedback --- */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-design-version="v1.0.5"] button {
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    transition-duration: 150ms;
+  }
+
+  html[data-design-version="v1.0.5"] button:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+}
+
+/* --- Pass 2: Light Mode 60-30-10 Palette (Strictly :not(.dark) — Zero Dark Leakage) --- */
+html[data-design-version="v1.0.5"]:not(.dark) body {
+  background-color: #F7F6F3;
+  color: #16181D;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#F5F7FA\] {
+  background-color: #F7F6F3;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#EEF2F6\] {
+  background-color: #EFECE6;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:bg-\[\#EEF2F6\]:hover {
+  background-color: #EFECE6;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#F8FAFC\] {
+  background-color: #FAF9F6;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .text-\[\#08246B\] {
+  color: #16181D;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:text-\[\#08246B\]:hover {
+  color: #16181D;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .text-\[\#4B5563\] {
+  color: #5D626E;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .text-\[\#8A93A0\] {
+  color: #7D828C;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .border-\[\#DDE4EA\] {
+  border-color: #E6E3DC;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#DDE4EA\] {
+  background-color: #E6E3DC;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#08246B\] {
+  background-color: #16181D;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:bg-\[\#0D328E\]:hover,
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:bg-\[\#0B308E\]:hover {
+  background-color: #262A33;
+}
+
+/* Restrained Ethiopian Saffron Accent (Light Mode) */
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#FF6A00\] {
+  background-color: #D95B16;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:bg-\[\#E65F00\]:hover,
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:bg-\[\#FF6A00\]:hover {
+  background-color: #BF4D10;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .text-\[\#FF6A00\] {
+  color: #C95212;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .bg-\[\#FFF0E6\] {
+  background-color: #FBF4EE;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:bg-\[\#FFF0E6\]:hover {
+  background-color: #F5EAE0;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .border-\[\#FF6A00\] {
+  border-color: #D95B16;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .hover\:border-\[\#FF6A00\]:hover {
+  border-color: #CFCAC0;
+}
+
+/* Restrained Saffron Accent (Dark Mode) */
+html.dark[data-design-version="v1.0.5"] .bg-\[\#FF6A00\] {
+  background-color: #E06722;
+}
+
+html.dark[data-design-version="v1.0.5"] .hover\:bg-\[\#E65F00\]:hover {
+  background-color: #CC5A19;
+}
+
+html.dark[data-design-version="v1.0.5"] .text-\[\#FF6A00\] {
+  color: #F0742B;
+}
+
+html.dark[data-design-version="v1.0.5"] .hover\:border-\[\#FF6A00\]:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* --- Pass 3: Quiet Secondary Button Icons (Reserve Accent Strictly for Primary CTAs) --- */
+html[data-design-version="v1.0.5"]:not(.dark) button.border svg.text-\[\#FF6A00\],
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-sidebar-footer="true"] svg.text-\[\#FF6A00\] {
+  color: #5D626E;
+}
+
+html.dark[data-design-version="v1.0.5"] button.border svg.text-\[\#FF6A00\],
+html.dark[data-design-version="v1.0.5"] [data-unslop-sidebar-footer="true"] svg.text-\[\#FF6A00\] {
+  color: #989DA8;
+}
+
+/* --- Pass 6: Quiet Editorial Segmented Category Tabs (Replaces Loud Orange Boxes) --- */
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-tabs="category"] {
+  background-color: #EFECE6;
+  border-color: #E6E3DC;
+  border-radius: 0.75rem;
+  padding: 0.25rem;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-tabs="category"] [role="tab"][aria-selected="true"] {
+  background-color: #FFFFFF;
+  color: #16181D;
+  box-shadow: 0 1px 2px rgba(22, 24, 29, 0.08), 0 0 0 1px rgba(22, 24, 29, 0.04);
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-tabs="category"] [role="tab"][aria-selected="true"] .font-mono {
+  color: #C95212;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-tabs="category"] {
+  background-color: #0E1013;
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.25rem;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-tabs="category"] [role="tab"][aria-selected="true"] {
+  background-color: #22262E;
+  color: #F3F2EE;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-tabs="category"] [role="tab"][aria-selected="true"] .font-mono {
+  color: #F0742B;
+}
+
+/* --- Pass 6: Calm Desktop Sidebar & Unboxed Footer Utility Rows --- */
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-sidebar="true"] {
+  background-color: #FAF9F6;
+  border-right-color: #E6E3DC;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-sidebar="true"] {
+  background-color: #121519;
+  border-right-color: rgba(255, 255, 255, 0.075);
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-sidebar="true"] [data-unslop-nav-active="true"] {
+  background-color: #EFECE6;
+  color: #16181D;
+  box-shadow: inset 2.5px 0 0 #D95B16;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-sidebar="true"] [data-unslop-nav-active="true"] {
+  background-color: rgba(255, 255, 255, 0.07);
+  color: #F3F2EE;
+  box-shadow: inset 2.5px 0 0 #F0742B;
+}
+
+html[data-design-version="v1.0.5"] [data-unslop-sidebar-footer="true"] {
+  padding-top: 0.75rem;
+  border-top: 1px solid #E6E3DC;
+  gap: 0.25rem;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-sidebar-footer="true"] {
+  border-top-color: rgba(255, 255, 255, 0.075);
+}
+
+html[data-design-version="v1.0.5"] [data-unslop-sidebar-footer="true"] > button.border {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+/* --- Pass 7: Frosted Mobile Chrome & High-Contrast Clean Toasts --- */
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-mobile-header="true"],
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-bottom-nav="true"] {
+  background-color: rgba(247, 246, 243, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: #E6E3DC;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-mobile-header="true"],
+html.dark[data-design-version="v1.0.5"] [data-unslop-bottom-nav="true"] {
+  background-color: rgba(14, 16, 19, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-design-version="v1.0.5"] [data-unslop-toast-dot="true"] {
+  display: none;
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) [data-unslop-toast="true"] {
+  background-color: #16181D;
+  color: #F7F6F3;
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.875rem;
+}
+
+html.dark[data-design-version="v1.0.5"] [data-unslop-toast="true"] {
+  background-color: #F3F2EE;
+  color: #16181D;
+  border-color: rgba(255, 255, 255, 0.2);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.875rem;
+}
+
+/* --- Pass 8: Crisp Modal Backdrops & Single-Elevation Surface Polish --- */
+html[data-design-version="v1.0.5"] .bg-black\/60 {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+html[data-design-version="v1.0.5"]:not(.dark) .shadow-sm {
+  box-shadow: 0 1px 2px rgba(22, 24, 29, 0.04);
+}
+
+

@@ -3,6 +3,7 @@ package com.callanalyzer.eth.calllog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import java.util.concurrent.Executors
 
 class MissedCallAlarmReceiver : BroadcastReceiver() {
@@ -12,11 +13,27 @@ class MissedCallAlarmReceiver : BroadcastReceiver() {
         if (callId <= 0L) return
 
         val appContext = context.applicationContext
+        val wakeLock = try {
+            val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "callanalyzer:MissedCallAlarm")?.apply {
+                setReferenceCounted(false)
+                acquire(15_000L)
+            }
+        } catch (_: Exception) {
+            null
+        }
         val pendingResult = goAsync()
         executor.execute {
             try {
                 handleAlarm(appContext, callId)
             } finally {
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (_: Exception) {
+                    // Ignore wake lock release errors
+                }
                 pendingResult.finish()
             }
         }

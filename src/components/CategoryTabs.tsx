@@ -46,6 +46,7 @@ export function CategoryTabs<T extends string>({
   return (
     <div
       role="tablist"
+      data-unslop-tabs="category"
       aria-label={ariaLabel}
       className={`${layoutClass} items-center gap-1 p-1 rounded-2xl ${containerBg} border border-[#DDE4EA] dark:border-[var(--dark-border)] ${className}`}
     >

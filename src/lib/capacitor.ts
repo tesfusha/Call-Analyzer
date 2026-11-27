@@ -171,9 +171,10 @@ type NativeAppNotificationsPlugin = {
       body: string;
       triggerAtMs: number;
     } & NotificationMeta,
-  ) => Promise<void>;
+  ) => Promise<{ scheduled?: boolean; mode?: string } | void>;
   cancelNotification?: (opts: { id: number }) => Promise<void>;
   getPendingActions?: () => Promise<{ actions?: NotificationActionEvent[] }>;
+  getDeliveredKeys?: () => Promise<{ keys?: string[] }>;
   addListener?: (
     eventName: 'notificationAction',
     listener: (event: NotificationActionEvent) => void,
@@ -769,17 +770,24 @@ export async function showNativeNotification(
   }
 }
 
-export async function scheduleNativeNotification(
+export type NativeScheduleResult = {
+  scheduled: boolean;
+  mode: 'alarm_clock' | 'exact' | 'inexact' | 'immediate' | 'unavailable';
+};
+
+export async function scheduleNativeNotificationDetailed(
   idKey: string,
   title: string,
   body: string,
   triggerAtMs: number,
   meta?: NotificationMeta,
-): Promise<boolean> {
+): Promise<NativeScheduleResult> {
   const plugin = getCapacitor()?.Plugins?.AppNotifications;
-  if (!plugin || typeof plugin.scheduleNotification !== 'function') return false;
+  if (!plugin || typeof plugin.scheduleNotification !== 'function') {
+    return { scheduled: false, mode: 'unavailable' };
+  }
   try {
-    await plugin.scheduleNotification({
+    const res = await plugin.scheduleNotification({
       id: hashNotificationId(idKey),
       idKey,
       title,
@@ -794,10 +802,34 @@ export async function scheduleNativeNotification(
       occasionType: meta?.occasionType ?? null,
       occasionKey: meta?.occasionKey ?? null,
     });
-    return true;
+    const rawMode = res && typeof res === 'object' ? res.mode : undefined;
+    const mode: NativeScheduleResult['mode'] =
+      rawMode === 'alarm_clock' ||
+      rawMode === 'exact' ||
+      rawMode === 'inexact' ||
+      rawMode === 'immediate' ||
+      rawMode === 'unavailable'
+        ? rawMode
+        : 'exact';
+    const scheduled =
+      res && typeof res === 'object' && typeof res.scheduled === 'boolean'
+        ? res.scheduled
+        : mode !== 'unavailable';
+    return { scheduled, mode };
   } catch {
-    return false;
+    return { scheduled: false, mode: 'unavailable' };
   }
+}
+
+export async function scheduleNativeNotification(
+  idKey: string,
+  title: string,
+  body: string,
+  triggerAtMs: number,
+  meta?: NotificationMeta,
+): Promise<boolean> {
+  const res = await scheduleNativeNotificationDetailed(idKey, title, body, triggerAtMs, meta);
+  return res.scheduled;
 }
 
 export async function cancelNativeNotification(idKey: string): Promise<void> {
@@ -807,6 +839,19 @@ export async function cancelNativeNotification(idKey: string): Promise<void> {
     await plugin.cancelNotification({ id: hashNotificationId(idKey) });
   } catch {
     // ignore
+  }
+}
+
+export async function consumeDeliveredNativeNotificationKeys(): Promise<string[]> {
+  const plugin = getCapacitor()?.Plugins?.AppNotifications;
+  if (!plugin || typeof plugin.getDeliveredKeys !== 'function') return [];
+  try {
+    const res = await plugin.getDeliveredKeys();
+    return Array.isArray(res?.keys)
+      ? res.keys.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+      : [];
+  } catch {
+    return [];
   }
 }
 

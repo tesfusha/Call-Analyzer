@@ -142,8 +142,12 @@ class AppNotificationsPlugin : Plugin() {
             occasionKey = call.getString("occasionKey")?.takeIf { it.isNotBlank() }
         )
 
-        AppNotificationDisplay.scheduleAlarm(context, record)
-        call.resolve()
+        val mode = AppNotificationDisplay.scheduleAlarm(context, record)
+        call.resolve(
+            JSObject()
+                .put("scheduled", mode != "unavailable")
+                .put("mode", mode)
+        )
     }
 
     @PluginMethod
@@ -164,6 +168,14 @@ class AppNotificationsPlugin : Plugin() {
             out.put(JSObject.fromJSONObject(item))
         }
         call.resolve(JSObject().put("actions", out))
+    }
+
+    @PluginMethod
+    fun getDeliveredKeys(call: PluginCall) {
+        val delivered = AppNotificationStore(context).drainDeliveredKeys()
+        val out = JSArray()
+        delivered.forEach { out.put(it) }
+        call.resolve(JSObject().put("keys", out))
     }
 
     private fun resolvePermissionState(): String {

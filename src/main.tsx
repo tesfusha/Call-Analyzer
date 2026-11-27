@@ -1,6 +1,7 @@
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import {initDesignVersion} from './preview/designVersion';
 
 declare global {
   interface Window {
@@ -10,6 +11,7 @@ declare global {
 }
 
 try {
+  initDesignVersion();
   const rootEl = document.getElementById('root');
   if (!rootEl) throw new Error('Missing #root element');
   createRoot(rootEl).render(<App />);
