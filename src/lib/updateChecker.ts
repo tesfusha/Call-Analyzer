@@ -92,16 +92,22 @@ export function isUpdateCheckDue(now = Date.now()): boolean {
   return last === 0 || now - last >= UPDATE_CHECK_INTERVAL_MS;
 }
 
-export async function checkForAppUpdate(options?: {
+export type UpdateCheckResult =
+  | { status: 'update-available'; notice: AppUpdateNotice }
+  | { status: 'up-to-date' }
+  | { status: 'offline' }
+  | { status: 'unreachable' };
+
+export async function checkForAppUpdateDetailed(options?: {
   force?: boolean;
   ignoreDismissed?: boolean;
-}): Promise<AppUpdateNotice | null> {
+}): Promise<UpdateCheckResult> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return null;
+    return { status: 'offline' };
   }
 
   const url = resolveUpdateManifestUrl();
-  if (!isSafeHttpsUrl(url)) return null;
+  if (!isSafeHttpsUrl(url)) return { status: 'unreachable' };
 
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
@@ -115,26 +121,35 @@ export async function checkForAppUpdate(options?: {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { status: 'unreachable' };
 
     const json: unknown = await response.json();
     setLastUpdateCheckAt(Date.now());
 
     const notice = parseUpdateManifest(json);
-    if (!notice) return null;
-    if (notice.versionCode <= APP_VERSION_CODE) return null;
+    if (!notice) return { status: 'unreachable' };
+    if (notice.versionCode <= APP_VERSION_CODE) {
+      return { status: 'up-to-date' };
+    }
 
     if (!notice.mandatory && !options?.ignoreDismissed && !options?.force) {
       if (getDismissedUpdateCode() >= notice.versionCode) {
-        return null;
+        return { status: 'up-to-date' };
       }
     }
 
-    return notice;
+    return { status: 'update-available', notice };
   } catch {
-    // Fail silently when offline, blocked, or unreachable.
-    return null;
+    return { status: 'unreachable' };
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+export async function checkForAppUpdate(options?: {
+  force?: boolean;
+  ignoreDismissed?: boolean;
+}): Promise<AppUpdateNotice | null> {
+  const result = await checkForAppUpdateDetailed(options);
+  return result.status === 'update-available' ? result.notice : null;
 }

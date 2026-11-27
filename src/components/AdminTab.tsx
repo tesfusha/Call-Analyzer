@@ -1806,7 +1806,7 @@ export function AdminTab() {
                   maxLength={100}
                   value={bcTitle}
                   onChange={(e) => setBcTitle(e.target.value)}
-                  placeholder="e.g. Call Analyzer v1.0.5 is now available"
+                  placeholder="e.g. Call Analyzer v1.0.6 is now available"
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
                 />
               </div>
@@ -1881,7 +1881,7 @@ export function AdminTab() {
                 {(() => {
                   const previewItem: BroadcastMessage = {
                     id: 'admin-preview',
-                    title: bcTitle.trim() || 'Call Analyzer v1.0.5 Update',
+                    title: bcTitle.trim() || 'Call Analyzer v1.0.6 Update',
                     message:
                       bcMessage.trim() ||
                       'Please keep your app updated for faster sync & fingerprint security',

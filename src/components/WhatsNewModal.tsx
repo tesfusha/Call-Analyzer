@@ -28,6 +28,8 @@ import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 const NOTE_ICONS = {
+  'fingerprint-app-lock': Fingerprint,
+  'broadcast-ticker': Megaphone,
   'fingerprint-auth': Fingerprint,
   'inbox-pops': MessageSquare,
   'live-broadcasts': Megaphone,

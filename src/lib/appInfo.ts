@@ -1,8 +1,8 @@
 export const APP_NAME = 'Call Analyzer - ETH';
-export const APP_VERSION_NAME = '1.0.5';
-export const APP_VERSION_CODE = 13;
+export const APP_VERSION_NAME = '1.0.6';
+export const APP_VERSION_CODE = 14;
 export const APP_VERSION = APP_VERSION_NAME;
-export const APP_RELEASE_LABEL = 'Fingerprint Login, Inbox Popups & Live Broadcasts';
+export const APP_RELEASE_LABEL = 'Fingerprint App Lock & Broadcast Ticker Styles';
 export const APP_CONTACT_EMAIL = 'tesfutilahun33@gmail.com';
 export const APP_TELEGRAM_HANDLE = 't.me/callanalyzer_eth';
 export const APP_TELEGRAM_URL = 'https://t.me/callanalyzer_eth';
@@ -16,10 +16,16 @@ export const APP_PRIVACY_NOTE =
 
 export const LATEST_RELEASE_NOTES = [
   {
-    id: 'fingerprint-auth',
-    title: 'Fingerprint Screen Unlock & Quick Sign-In',
+    id: 'fingerprint-app-lock',
+    title: 'Standalone Fingerprint App Lock',
     detail:
-      'Unlock the app screen with your fingerprint (with 4-digit PIN backup) and enable one-touch Sign in with Fingerprint sealed by Android Keystore encryption in Settings → Security.',
+      'Turn on Fingerprint App Lock directly in Settings → Security without requiring a 4-digit PIN first. Automatically locks on launch and when returning after leaving the app.',
+  },
+  {
+    id: 'broadcast-ticker',
+    title: 'Scrolling Ticker Bar & Accent Strip Broadcasts',
+    detail:
+      'Added new high-contrast Scrolling Ticker Bar and Compact Accent Strip display styles with edge-fade marquee animation and live Admin preview.',
   },
   {
     id: 'inbox-pops',
@@ -28,22 +34,16 @@ export const LATEST_RELEASE_NOTES = [
       'Receive floating heads-up pop alerts and Android notifications whenever Admin replies or a user sends a new Inbox message, with direct one-tap Reply into the thread.',
   },
   {
-    id: 'live-broadcasts',
-    title: 'Live Broadcasts for Verified Accounts',
-    detail:
-      'Announcements, update notices, and tips now sync live in real time and refresh on app resume with heads-up pop alerts for verified signed-in users.',
-  },
-  {
     id: 'native-google-auth',
     title: 'Permanent Native Android Google Sign-In',
     detail:
-      'Google Sign-In now runs via a built-in native Android bridge so app updates and syncs stay reliable alongside Email & Fingerprint login.',
+      'Google Sign-In runs via the built-in native Android bridge alongside Email & Fingerprint sign-in.',
   },
   {
     id: 'no-zoom-polish',
-    title: 'Locked App Viewport & Cleaner Navigation',
+    title: 'Locked App Viewport & Update Diagnostics',
     detail:
-      'Disabled accidental pinch-zoom and double-tap zoom across WebView and touch layouts so scrolling, charts, and modals feel crisp and steady.',
+      'Locked pinch-zoom/double-tap zoom across WebView and improved manual update-check status reporting.',
   },
 ] as const;
 

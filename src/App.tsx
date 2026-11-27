@@ -64,6 +64,7 @@ import {
 } from '@/src/lib/backNavigation';
 import {
   checkForAppUpdate,
+  checkForAppUpdateDetailed,
   dismissUpdateVersionCode,
   isUpdateCheckDue,
 } from '@/src/lib/updateChecker';
@@ -148,7 +149,6 @@ function AppShell() {
     popNotifications,
     pushPopNotification,
     dismissPopNotification,
-    dismissBroadcast,
     setPendingAdminChatThreadUid,
     syncPhoneCalls,
     toggleFavorite,
@@ -245,11 +245,18 @@ function AppShell() {
   }, []);
 
   const handleManualUpdateCheck = useCallback(async () => {
-    const result = await checkForAppUpdate({ force: true, ignoreDismissed: true });
-    if (result) {
-      setUpdateNotice(result);
-    } else {
+    const result = await checkForAppUpdateDetailed({ force: true, ignoreDismissed: true });
+    if (result.status === 'update-available') {
+      setUpdateNotice(result.notice);
+    } else if (result.status === 'up-to-date') {
       showNotice(`You are on the latest version (v${APP_VERSION}).`, 'tap');
+    } else if (result.status === 'offline') {
+      showNotice('You are offline. Connect to the internet to check for updates.', 'warning');
+    } else {
+      showNotice(
+        'Update check unavailable — host version.json at your update URL or use Admin Broadcasts.',
+        'warning',
+      );
     }
   }, [showNotice]);
 
@@ -1691,10 +1698,6 @@ function AppShell() {
           } else if (item.kind === 'inbox-admin') {
             setPendingAdminChatThreadUid(item.threadUid ?? null);
             handleSwitchTab('admin');
-          } else if (item.kind === 'broadcast') {
-            if (item.broadcastId) {
-              dismissBroadcast(item.broadcastId);
-            }
           }
         }}
       />
