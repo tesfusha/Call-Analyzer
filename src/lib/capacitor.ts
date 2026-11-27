@@ -1,3 +1,4 @@
+import firebaseConfig from '@/firebase-applet-config.json';
 import type { CallDirection, CallRecord, SimSlot } from '@/src/types/call';
 
 type CapacitorPluginHandle = {
@@ -5,10 +6,60 @@ type CapacitorPluginHandle = {
 };
 
 type NativeFirebaseAuthPlugin = {
-  signInWithGoogle?: (opts?: { skipNativeAuth?: boolean; useCredentialManager?: boolean }) => Promise<{
+  signInWithGoogle?: (opts?: {
+    skipNativeAuth?: boolean;
+    useCredentialManager?: boolean;
+    serverClientId?: string;
+  }) => Promise<{
+    credential?: { idToken?: string | null; accessToken?: string | null } | null;
+  }>;
+  signInSilentGoogle?: (opts?: {
+    serverClientId?: string;
+  }) => Promise<{
     credential?: { idToken?: string | null; accessToken?: string | null } | null;
   }>;
   signOut?: () => Promise<void>;
+};
+
+export type NativeBiometricStatus = {
+  available: boolean;
+  reason: string;
+  unlockEnabled: boolean;
+  hasSavedLogin: boolean;
+  savedUid: string | null;
+  savedEmail: string | null;
+  savedProvider: 'password' | 'google' | null;
+  savedDisplayName: string | null;
+};
+
+type NativeBiometricAuthPlugin = {
+  getStatus?: (opts?: { uid?: string }) => Promise<Partial<NativeBiometricStatus>>;
+  authenticate?: (opts?: {
+    title?: string;
+    subtitle?: string;
+    negativeButtonText?: string;
+  }) => Promise<{ authenticated?: boolean; cancelled?: boolean; error?: string }>;
+  setBiometricUnlockEnabled?: (opts: {
+    uid: string;
+    enabled: boolean;
+  }) => Promise<{ enabled?: boolean; cancelled?: boolean }>;
+  saveLoginCredential?: (opts: {
+    uid: string;
+    email: string;
+    provider: 'password' | 'google';
+    password?: string;
+    displayName?: string;
+  }) => Promise<{ saved?: boolean; cancelled?: boolean; email?: string; provider?: string }>;
+  signInWithBiometric?: () => Promise<{
+    authenticated?: boolean;
+    cancelled?: boolean;
+    uid?: string;
+    email?: string;
+    provider?: 'password' | 'google';
+    displayName?: string;
+    password?: string;
+  }>;
+  clearSavedLoginCredential?: () => Promise<{ cleared?: boolean }>;
 };
 
 type NativeSystemBarsPlugin = {
@@ -218,6 +269,7 @@ type CapacitorGlobal = {
   isPluginAvailable?: (name: string) => boolean;
   Plugins?: {
     FirebaseAuthentication?: NativeFirebaseAuthPlugin;
+    BiometricAuth?: NativeBiometricAuthPlugin;
     SystemBars?: NativeSystemBarsPlugin;
     StatusBar?: NativeStatusBarPlugin;
     App?: NativeAppPlugin;
@@ -292,11 +344,31 @@ export async function runNativeGoogleSignIn(): Promise<{
   if (!plugin || typeof plugin.signInWithGoogle !== 'function') {
     throw new Error('NATIVE_GOOGLE_AUTH_UNAVAILABLE');
   }
-  const result = await plugin.signInWithGoogle({ useCredentialManager: false });
+  const result = await plugin.signInWithGoogle({
+    useCredentialManager: false,
+    serverClientId: firebaseConfig.oAuthClientId,
+  });
   return {
     idToken: result?.credential?.idToken ?? null,
     accessToken: result?.credential?.accessToken ?? null,
   };
+}
+
+export async function runNativeSilentGoogleSignIn(): Promise<{
+  idToken: string | null;
+  accessToken: string | null;
+}> {
+  const plugin = getCapacitor()?.Plugins?.FirebaseAuthentication;
+  if (plugin && typeof plugin.signInSilentGoogle === 'function') {
+    const result = await plugin.signInSilentGoogle({
+      serverClientId: firebaseConfig.oAuthClientId,
+    });
+    return {
+      idToken: result?.credential?.idToken ?? null,
+      accessToken: result?.credential?.accessToken ?? null,
+    };
+  }
+  return runNativeGoogleSignIn();
 }
 
 export async function runNativeSignOut(): Promise<void> {
@@ -308,6 +380,135 @@ export async function runNativeSignOut(): Promise<void> {
     } catch {
       // ignore native sign-out error
     }
+  }
+}
+
+export function hasNativeBiometricPlugin(): boolean {
+  const cap = getCapacitor();
+  if (!cap) return false;
+  if (typeof cap.isPluginAvailable === 'function') {
+    try {
+      if (cap.isPluginAvailable('BiometricAuth')) {
+        return typeof cap.Plugins?.BiometricAuth?.getStatus === 'function';
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return typeof cap.Plugins?.BiometricAuth?.getStatus === 'function';
+}
+
+export async function getNativeBiometricStatus(
+  uid?: string | null,
+): Promise<NativeBiometricStatus | null> {
+  const plugin = getCapacitor()?.Plugins?.BiometricAuth;
+  if (!plugin || typeof plugin.getStatus !== 'function') return null;
+  try {
+    const res = await plugin.getStatus(uid ? { uid } : {});
+    return {
+      available: Boolean(res?.available),
+      reason: String(res?.reason || 'unavailable'),
+      unlockEnabled: Boolean(res?.unlockEnabled),
+      hasSavedLogin: Boolean(res?.hasSavedLogin),
+      savedUid: typeof res?.savedUid === 'string' && res.savedUid ? res.savedUid : null,
+      savedEmail: typeof res?.savedEmail === 'string' && res.savedEmail ? res.savedEmail : null,
+      savedProvider:
+        res?.savedProvider === 'google' || res?.savedProvider === 'password'
+          ? res.savedProvider
+          : null,
+      savedDisplayName:
+        typeof res?.savedDisplayName === 'string' && res.savedDisplayName
+          ? res.savedDisplayName
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function authenticateNativeBiometric(opts?: {
+  title?: string;
+  subtitle?: string;
+  negativeButtonText?: string;
+}): Promise<{ authenticated: boolean; cancelled: boolean; error?: string }> {
+  const plugin = getCapacitor()?.Plugins?.BiometricAuth;
+  if (!plugin || typeof plugin.authenticate !== 'function') {
+    return { authenticated: false, cancelled: false, error: 'Biometric prompt unavailable.' };
+  }
+  const res = await plugin.authenticate(opts);
+  return {
+    authenticated: Boolean(res?.authenticated),
+    cancelled: Boolean(res?.cancelled),
+    error: typeof res?.error === 'string' ? res.error : undefined,
+  };
+}
+
+export async function setNativeBiometricUnlockEnabled(
+  uid: string,
+  enabled: boolean,
+): Promise<{ enabled: boolean; cancelled?: boolean }> {
+  const plugin = getCapacitor()?.Plugins?.BiometricAuth;
+  if (!plugin || typeof plugin.setBiometricUnlockEnabled !== 'function') {
+    throw new Error('NATIVE_BIOMETRIC_UNAVAILABLE');
+  }
+  const res = await plugin.setBiometricUnlockEnabled({ uid, enabled });
+  return {
+    enabled: Boolean(res?.enabled),
+    cancelled: Boolean(res?.cancelled),
+  };
+}
+
+export async function saveNativeBiometricLogin(opts: {
+  uid: string;
+  email: string;
+  provider: 'password' | 'google';
+  password?: string;
+  displayName?: string;
+}): Promise<{ saved: boolean; cancelled?: boolean }> {
+  const plugin = getCapacitor()?.Plugins?.BiometricAuth;
+  if (!plugin || typeof plugin.saveLoginCredential !== 'function') {
+    throw new Error('NATIVE_BIOMETRIC_UNAVAILABLE');
+  }
+  const res = await plugin.saveLoginCredential(opts);
+  return {
+    saved: Boolean(res?.saved),
+    cancelled: Boolean(res?.cancelled),
+  };
+}
+
+export async function unlockNativeBiometricLogin(): Promise<{
+  authenticated: boolean;
+  cancelled: boolean;
+  uid?: string;
+  email?: string;
+  provider?: 'password' | 'google';
+  displayName?: string;
+  password?: string;
+}> {
+  const plugin = getCapacitor()?.Plugins?.BiometricAuth;
+  if (!plugin || typeof plugin.signInWithBiometric !== 'function') {
+    throw new Error('NATIVE_BIOMETRIC_UNAVAILABLE');
+  }
+  const res = await plugin.signInWithBiometric();
+  return {
+    authenticated: Boolean(res?.authenticated),
+    cancelled: Boolean(res?.cancelled),
+    uid: typeof res?.uid === 'string' ? res.uid : undefined,
+    email: typeof res?.email === 'string' ? res.email : undefined,
+    provider:
+      res?.provider === 'google' || res?.provider === 'password' ? res.provider : undefined,
+    displayName: typeof res?.displayName === 'string' ? res.displayName : undefined,
+    password: typeof res?.password === 'string' ? res.password : undefined,
+  };
+}
+
+export async function clearNativeBiometricLogin(): Promise<void> {
+  const plugin = getCapacitor()?.Plugins?.BiometricAuth;
+  if (!plugin || typeof plugin.clearSavedLoginCredential !== 'function') return;
+  try {
+    await plugin.clearSavedLoginCredential();
+  } catch {
+    // ignore
   }
 }
 
@@ -341,6 +542,40 @@ export async function syncNativeStatusBar(isDark: boolean, backgroundColor: stri
   } catch {
     // ignore native status bar errors
   }
+}
+
+export async function subscribeNativeAppResume(onResume: () => void): Promise<() => void> {
+  if (typeof window === 'undefined') return () => {};
+  const handles: CapacitorPluginHandle[] = [];
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') {
+      onResume();
+    }
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
+  const appPlugin = getCapacitor()?.Plugins?.App;
+  if (appPlugin && typeof appPlugin.addListener === 'function') {
+    try {
+      const h = await appPlugin.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) onResume();
+      });
+      if (h) handles.push(h);
+    } catch {
+      // ignore
+    }
+  }
+
+  return () => {
+    document.removeEventListener('visibilitychange', onVisible);
+    handles.forEach((h) => {
+      try {
+        void h.remove?.();
+      } catch {
+        // ignore
+      }
+    });
+  };
 }
 
 export function hasNativeCallLogSyncPlugin(): boolean {

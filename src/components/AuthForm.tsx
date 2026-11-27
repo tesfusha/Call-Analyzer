@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import {
   Eye,
   EyeOff,
+  Fingerprint,
   HelpCircle,
   Lock,
   LogIn,
@@ -37,11 +38,15 @@ export function AuthForm({
     createAccountWithEmail,
     sendPasswordReset,
     enterGuestMode,
+    biometricAvailable,
+    biometricSavedLogin,
+    signInWithBiometric,
   } = useCalls();
 
   const prefersReducedMotion = useReducedMotion();
   const isNative = isNativeCapacitor();
   const showGoogleButton = !isNative || hasNativeGoogleAuth();
+  const showBiometricButton = biometricAvailable && Boolean(biometricSavedLogin);
   const [mode, setMode] = useState<AuthFormMode>(initialMode);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -51,6 +56,7 @@ export function AuthForm({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -95,6 +101,18 @@ export function AuthForm({
       if (!res.ok && res.error) setFormError(res.error);
     } finally {
       setGoogleBusy(false);
+    }
+  };
+
+  const handleBiometric = async () => {
+    setFormError(null);
+    setFormInfo(null);
+    setBiometricBusy(true);
+    try {
+      const res = await signInWithBiometric();
+      if (!res.ok && res.error) setFormError(res.error);
+    } finally {
+      setBiometricBusy(false);
     }
   };
 
@@ -170,12 +188,32 @@ export function AuthForm({
         </div>
       )}
 
+      {/* Fingerprint Quick Login (Android APK when saved for an account on this device) */}
+      {showBiometricButton && biometricSavedLogin && (
+        <button
+          type="button"
+          disabled={biometricBusy || googleBusy || emailBusy}
+          onClick={() => void handleBiometric()}
+          className="w-full min-h-[52px] px-4 py-2.5 rounded-xl bg-[#08246B] hover:bg-[#0B308E] dark:bg-[#1D2B4A] dark:hover:bg-[#24365E] disabled:opacity-50 text-white flex items-center justify-center gap-2.5 shadow-sm transition-colors"
+        >
+          <Fingerprint size={20} className="text-[#FF6A00] shrink-0" />
+          <span className="text-left min-w-0">
+            <span className="block text-[14px] font-semibold leading-tight">
+              {biometricBusy ? 'Verifying fingerprint...' : 'Sign in with Fingerprint'}
+            </span>
+            <span className="block text-[11px] text-white/75 truncate">
+              {biometricSavedLogin.email}
+            </span>
+          </span>
+        </button>
+      )}
+
       {/* Primary Option 1: Big Google Login (hidden in Android APK unless native Google Auth plugin is installed) */}
       {showGoogleButton && (
         <>
           <button
             type="button"
-            disabled={googleBusy || emailBusy}
+            disabled={googleBusy || biometricBusy || emailBusy}
             onClick={() => void handleGoogle()}
             className="w-full min-h-[52px] px-5 py-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-[15px] font-semibold text-white flex items-center justify-center gap-2.5 shadow-sm transition-colors"
           >

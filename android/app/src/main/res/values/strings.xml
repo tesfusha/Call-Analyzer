@@ -4,4 +4,5 @@
     <string name="title_activity_main">Call Analyzer - ETH</string>
     <string name="package_name">com.callanalyzer.eth</string>
     <string name="custom_url_scheme">com.callanalyzer.eth</string>
+    <string name="firebase_web_client_id" translatable="false">144291874445-mchm1assmkgc81f9lvg5onhrajkn31mp.apps.googleusercontent.com</string>
 </resources>

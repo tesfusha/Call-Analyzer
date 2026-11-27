@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Delete, Lock } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Delete, Fingerprint, Lock } from 'lucide-react';
 import { BrandLogo } from '@/src/components/BrandLogo';
 
 function formatCountdown(totalSeconds: number): string {
@@ -15,15 +15,20 @@ export function AppLockOverlay({
   onVerifyPin,
   onResetPin,
   lockUntil = 0,
+  biometricEnabled = false,
+  onVerifyBiometric,
 }: {
   onVerifyPin: (pin: string) => Promise<boolean>;
   onResetPin: () => void;
   lockUntil?: number;
+  biometricEnabled?: boolean;
+  onVerifyBiometric?: () => Promise<boolean>;
 }) {
   const [digits, setDigits] = useState('');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const autoPromptedRef = useRef(false);
 
   const remainingSeconds =
     lockUntil > nowMs ? Math.max(1, Math.ceil((lockUntil - nowMs) / 1000)) : 0;
@@ -41,6 +46,24 @@ export function AppLockOverlay({
     }, 500);
     return () => window.clearInterval(id);
   }, [lockUntil]);
+
+  const handleBiometric = useCallback(async () => {
+    if (checking || isLockedOut || !onVerifyBiometric) return;
+    setChecking(true);
+    setError('');
+    try {
+      await onVerifyBiometric();
+    } finally {
+      setChecking(false);
+    }
+  }, [checking, isLockedOut, onVerifyBiometric]);
+
+  useEffect(() => {
+    if (!biometricEnabled || !onVerifyBiometric || isLockedOut) return;
+    if (autoPromptedRef.current) return;
+    autoPromptedRef.current = true;
+    void handleBiometric();
+  }, [biometricEnabled, onVerifyBiometric, isLockedOut, handleBiometric]);
 
   const submitPin = async (code: string) => {
     if (isLockedOut) return;
@@ -92,7 +115,7 @@ export function AppLockOverlay({
             <span>Screen Locked</span>
           </div>
           <h1 className="text-lg font-bold text-[#08246B] dark:text-white">
-            Enter 4-digit PIN
+            {biometricEnabled && onVerifyBiometric ? 'Verify Fingerprint or PIN' : 'Enter 4-digit PIN'}
           </h1>
           <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
             Casual screen lock on this device to hide calls and contacts from view
@@ -166,6 +189,18 @@ export function AppLockOverlay({
             <Delete size={20} />
           </button>
         </div>
+
+        {biometricEnabled && onVerifyBiometric && !isLockedOut && (
+          <button
+            type="button"
+            disabled={checking}
+            onClick={() => void handleBiometric()}
+            className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border border-[#FF6A00]/35 hover:border-[#FF6A00] text-xs font-semibold text-[#FF6A00] flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <Fingerprint size={16} />
+            Unlock with Fingerprint
+          </button>
+        )}
 
         <button
           type="button"

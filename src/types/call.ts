@@ -364,3 +364,17 @@ export type AppUpdateNotice = {
   notes: string;
   mandatory: boolean;
 };
+
+export type InAppNotificationPop = {
+  id: string;
+  kind: 'inbox-user' | 'inbox-admin' | 'broadcast';
+  title: string;
+  body: string;
+  badgeLabel: string;
+  actionLabel: string;
+  senderPhotoUrl?: string | null;
+  threadUid?: string;
+  broadcastId?: string;
+  broadcastKind?: BroadcastKind;
+  createdAtMs: number;
+};

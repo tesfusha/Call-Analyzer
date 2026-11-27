@@ -83,6 +83,7 @@ export function AppShellV107({
     openAuthPrompt,
     exitGuestMode,
     isAdmin,
+    pendingAdminChatThreadUid,
     showNotice,
   } = useCalls();
 
@@ -93,6 +94,12 @@ export function AppShellV107({
   useEffect(() => {
     setBizState(loadBusinessState(uid));
   }, [uid]);
+
+  useEffect(() => {
+    if (isAdmin && pendingAdminChatThreadUid) {
+      setActiveTab('admin');
+    }
+  }, [isAdmin, pendingAdminChatThreadUid]);
 
   const updateBizState = useCallback(
     (updater: (prev: BusinessStateSnapshot) => BusinessStateSnapshot) => {

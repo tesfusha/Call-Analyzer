@@ -40,14 +40,19 @@ import {
   where,
 } from 'firebase/firestore';
 import {
+  type NativeBiometricStatus,
   type NotificationActionEvent,
   type NotificationMeta,
   acknowledgeNativeSyncedCalls,
+  authenticateNativeBiometric,
   cancelNativeNotification,
+  clearNativeBiometricLogin,
   consumeDeliveredNativeNotificationKeys,
   fetchNativeRecentCalls,
   getCallLogSyncPermissionStatus,
+  getNativeBiometricStatus,
   getNativeNotificationPermission,
+  hasNativeBiometricPlugin,
   hasNativeCallLogPlugin,
   hasNativeCallLogSyncPlugin,
   hasNativeGoogleAuth,
@@ -56,13 +61,18 @@ import {
   requestNativeNotificationPermission,
   runNativeGoogleSignIn,
   runNativeSignOut,
+  runNativeSilentGoogleSignIn,
+  saveNativeBiometricLogin,
   scheduleNativeNotification,
   scheduleNativeNotificationDetailed,
+  setNativeBiometricUnlockEnabled,
   showNativeNotification,
+  subscribeNativeAppResume,
   subscribeNativeCallLog,
   subscribeNativeNotificationActions,
   syncNativeCallLogIncremental,
   syncNativeStatusBar,
+  unlockNativeBiometricLogin,
   updateNativeMissedCallSettings,
 } from '@/src/lib/capacitor';
 import {
@@ -191,6 +201,7 @@ import type {
   ContactStreakStatus,
   DailyActiveRecord,
   DateHeaderStyle,
+  InAppNotificationPop,
   PointsHistoryEntry,
   ReconnectProgressRecord,
   RegisteredUserRecord,
@@ -215,6 +226,7 @@ const LEGACY_PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
 const FONT_SCALE_KEY = 'callanalyzer.fontSize.v1';
 const DATE_HEADER_STYLE_KEY = 'callanalyzer.dateHeaderStyle.v1';
 const DISMISSED_BROADCASTS_PREFIX = 'callanalyzer.dismissedBroadcasts.v1.';
+const SEEN_BROADCAST_POPS_PREFIX = 'callanalyzer.seenBroadcastPops.v1.';
 const CUSTOM_TAGS_KEY = 'callanalyzer.customTags.v1';
 
 const LEGACY_UNSCOPED_KEYS = [
@@ -417,6 +429,17 @@ type CallsContextValue = {
   activeBroadcasts: BroadcastMessage[];
   dismissedBroadcastIds: string[];
   dismissBroadcast: (id: string) => void;
+  popNotifications: InAppNotificationPop[];
+  pushPopNotification: (item: Omit<InAppNotificationPop, 'createdAtMs'>) => void;
+  dismissPopNotification: (id: string) => void;
+  pendingAdminChatThreadUid: string | null;
+  setPendingAdminChatThreadUid: (uid: string | null) => void;
+  deliverSystemNotification: (
+    idKey: string,
+    title: string,
+    body: string,
+    meta?: NotificationMeta,
+  ) => Promise<boolean>;
   profileName: string;
   userPhotoUrl: string | null;
   notificationsEnabled: boolean;
@@ -427,6 +450,20 @@ type CallsContextValue = {
   pinEnabled: boolean;
   isLocked: boolean;
   pinLockoutUntil: number;
+  biometricAvailable: boolean;
+  biometricUnlockEnabled: boolean;
+  biometricSavedLogin: {
+    uid: string | null;
+    email: string;
+    provider: 'password' | 'google';
+    displayName: string | null;
+  } | null;
+  refreshBiometricStatus: () => Promise<void>;
+  toggleBiometricUnlock: (enabled: boolean) => Promise<boolean>;
+  enableBiometricLogin: (password?: string) => Promise<AuthActionResult>;
+  disableBiometricLogin: () => Promise<void>;
+  signInWithBiometric: () => Promise<AuthActionResult>;
+  unlockWithBiometric: () => Promise<boolean>;
   authUser: User | null;
   authLoading: boolean;
   isGuest: boolean;
@@ -1005,6 +1042,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [pinHash, setPinHash] = useState<string>('');
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [pinLockoutUntil, setPinLockoutUntil] = useState<number>(0);
+  const [biometricStatus, setBiometricStatus] = useState<NativeBiometricStatus | null>(null);
+  const biometricStatusRef = useRef<NativeBiometricStatus | null>(null);
+  biometricStatusRef.current = biometricStatus;
+  const lastPasswordCredRef = useRef<{ uid: string; email: string; password: string } | null>(null);
+  const [popNotifications, setPopNotifications] = useState<InAppNotificationPop[]>([]);
+  const [pendingAdminChatThreadUid, setPendingAdminChatThreadUid] = useState<string | null>(null);
   const [notificationActionTarget, setNotificationActionTarget] =
     useState<NotificationActionTarget | null>(null);
   const nativeScheduledSigRef = useRef<Map<string, string>>(new Map());
@@ -2879,6 +2922,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
       try {
         const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+        lastPasswordCredRef.current = { uid: cred.user.uid, email: cleanEmail, password };
         setIsGuest(false);
         setAuthPromptMode('closed');
         setAuthPromptReason(null);
@@ -3008,6 +3052,10 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const signOutAccount = useCallback(async () => {
     try {
+      const keepSilentGoogle =
+        Boolean(biometricStatusRef.current?.hasSavedLogin) &&
+        biometricStatusRef.current?.savedProvider === 'google';
+      lastPasswordCredRef.current = null;
       hydratedUidRef.current = null;
       setHydratedUid(null);
       workspaceReadyRef.current = null;
@@ -3025,7 +3073,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
       await signOut(auth);
-      await runNativeSignOut();
+      if (!keepSilentGoogle) {
+        await runNativeSignOut();
+      }
       dailyAlertCacheRef.current = null;
       clearLegacyUnscopedKeys();
       applySnapshotToState(createEmptySnapshot());
@@ -3134,6 +3184,26 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const [activeBroadcasts, setActiveBroadcasts] = useState<BroadcastMessage[]>([]);
   const [dismissedBroadcastIds, setDismissedBroadcastIds] = useState<string[]>([]);
+  const dismissedBroadcastIdsRef = useRef<string[]>([]);
+  dismissedBroadcastIdsRef.current = dismissedBroadcastIds;
+
+  const pushPopNotification = useCallback(
+    (item: Omit<InAppNotificationPop, 'createdAtMs'>) => {
+      const entry: InAppNotificationPop = {
+        ...item,
+        createdAtMs: Date.now(),
+      };
+      setPopNotifications((prev) => {
+        const filtered = prev.filter((p) => p.id !== entry.id);
+        return [...filtered.slice(-4), entry];
+      });
+    },
+    [],
+  );
+
+  const dismissPopNotification = useCallback((id: string) => {
+    setPopNotifications((prev) => prev.filter((p) => p.id !== id));
+  }, []);
 
   useEffect(() => {
     const scopeKey = `${DISMISSED_BROADCASTS_PREFIX}${authUser?.uid ?? 'guest'}`;
@@ -3168,8 +3238,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      dismissPopNotification(`bcast-pop-${id}`);
     },
-    [authUser?.uid],
+    [authUser?.uid, dismissPopNotification],
   );
 
   const parseBroadcastDoc = useCallback((docId: string, raw: Record<string, unknown>): BroadcastMessage => {
@@ -3207,6 +3278,78 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const notifyNewBroadcasts = useCallback(
+    (uid: string, items: BroadcastMessage[]) => {
+      if (items.length === 0) return;
+      const seenKey = `${SEEN_BROADCAST_POPS_PREFIX}${uid}`;
+      let seenIds: string[] = [];
+      try {
+        const raw = localStorage.getItem(seenKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+          seenIds = parsed.filter((x): x is string => typeof x === 'string');
+        }
+      } catch {
+        seenIds = [];
+      }
+      const seenSet = new Set(seenIds);
+      const dismissedSet = new Set(dismissedBroadcastIdsRef.current);
+      const fresh = items.filter((b) => !seenSet.has(b.id) && !dismissedSet.has(b.id));
+      if (fresh.length === 0) return;
+
+      const updatedSeen = [...seenSet, ...fresh.map((b) => b.id)].slice(-120);
+      try {
+        localStorage.setItem(seenKey, JSON.stringify(updatedSeen));
+      } catch {
+        // ignore storage errors
+      }
+
+      const newest = fresh[0];
+      if (!newest) return;
+
+      if (newest.displayMode === 'banner') {
+        const badgeLabel =
+          newest.kind === 'update'
+            ? 'App Update'
+            : newest.kind === 'tip'
+              ? 'Tip'
+              : newest.kind === 'urgent'
+                ? 'Important'
+                : 'Announcement';
+        pushPopNotification({
+          id: `bcast-pop-${newest.id}`,
+          kind: 'broadcast',
+          title: newest.title,
+          body: newest.message,
+          badgeLabel,
+          actionLabel: newest.actionLabel?.trim() || 'Got it',
+          broadcastId: newest.id,
+          broadcastKind: newest.kind,
+        });
+      }
+
+      if (stateRef.current.notificationsEnabled) {
+        void deliverSystemNotification(`broadcast-${newest.id}`, newest.title, newest.message, {
+          category: 'other',
+        });
+      }
+    },
+    [deliverSystemNotification, pushPopNotification],
+  );
+
+  const applyBroadcastSnapshot = useCallback(
+    (uid: string, docs: Array<{ id: string; data: () => Record<string, unknown> }>) => {
+      const platform: BroadcastAudience = isNativeCapacitor() ? 'android' : 'web';
+      const items = docs
+        .map((d) => parseBroadcastDoc(d.id, d.data()))
+        .filter((b) => b.active && (b.audience === 'all' || b.audience === platform))
+        .sort((a, b) => b.createdAtMs - a.createdAtMs);
+      setActiveBroadcasts(items);
+      notifyNewBroadcasts(uid, items);
+    },
+    [notifyNewBroadcasts, parseBroadcastDoc],
+  );
+
   const refreshActiveBroadcasts = useCallback(async () => {
     const user = auth.currentUser;
     if (!user || !user.emailVerified) {
@@ -3216,24 +3359,59 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     try {
       const q = query(collection(db, 'broadcasts'), where('active', '==', true));
       const snap = await getDocs(q);
-      const platform: BroadcastAudience = isNativeCapacitor() ? 'android' : 'web';
-      const items = snap.docs
-        .map((d) => parseBroadcastDoc(d.id, d.data() as Record<string, unknown>))
-        .filter((b) => b.active && (b.audience === 'all' || b.audience === platform))
-        .sort((a, b) => b.createdAtMs - a.createdAtMs);
-      setActiveBroadcasts(items);
-    } catch {
-      // Fail gracefully if offline or rules not yet propagated
+      applyBroadcastSnapshot(
+        user.uid,
+        snap.docs.map((d) => ({
+          id: d.id,
+          data: () => d.data() as Record<string, unknown>,
+        })),
+      );
+    } catch (err) {
+      console.warn('Could not refresh broadcasts:', err);
     }
-  }, [parseBroadcastDoc]);
+  }, [applyBroadcastSnapshot]);
 
   useEffect(() => {
     if (!authUser || !authUser.emailVerified) {
       setActiveBroadcasts([]);
       return;
     }
-    void refreshActiveBroadcasts();
-  }, [authUser, refreshActiveBroadcasts]);
+    const uid = authUser.uid;
+    const q = query(collection(db, 'broadcasts'), where('active', '==', true));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        applyBroadcastSnapshot(
+          uid,
+          snap.docs.map((d) => ({
+            id: d.id,
+            data: () => d.data() as Record<string, unknown>,
+          })),
+        );
+      },
+      (err) => {
+        console.warn('Broadcast listener error:', err);
+      },
+    );
+
+    let unsubResume: (() => void) | null = null;
+    let cancelled = false;
+    void subscribeNativeAppResume(() => {
+      void refreshActiveBroadcasts();
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unsubResume = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
+      unsubResume?.();
+    };
+  }, [authUser, applyBroadcastSnapshot, refreshActiveBroadcasts]);
 
   const fetchAllBroadcasts = useCallback(async (): Promise<BroadcastMessage[]> => {
     const user = auth.currentUser;
@@ -3439,6 +3617,225 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     triggerHaptic('tap');
     setIsLocked(true);
   }, [pinHash, showNotice]);
+
+  const refreshBiometricStatus = useCallback(async () => {
+    if (!hasNativeBiometricPlugin()) {
+      setBiometricStatus(null);
+      return;
+    }
+    const status = await getNativeBiometricStatus(auth.currentUser?.uid ?? null);
+    setBiometricStatus(status);
+  }, []);
+
+  useEffect(() => {
+    void refreshBiometricStatus();
+  }, [authUser?.uid, refreshBiometricStatus]);
+
+  const toggleBiometricUnlock = useCallback(
+    async (enabled: boolean): Promise<boolean> => {
+      const user = requireSignedInUser();
+      if (!user) return false;
+      if (!hasNativeBiometricPlugin()) {
+        showNotice('Fingerprint unlock is only available inside the Android APK.', 'warning');
+        return false;
+      }
+      if (enabled && !pinHash) {
+        showNotice('Set a 4-digit backup PIN first, then turn on Fingerprint Unlock.', 'warning');
+        return false;
+      }
+      try {
+        const res = await setNativeBiometricUnlockEnabled(user.uid, enabled);
+        await refreshBiometricStatus();
+        if (res.cancelled) {
+          showNotice('Fingerprint verification cancelled.');
+          return false;
+        }
+        showNotice(
+          res.enabled ? 'Fingerprint screen unlock enabled.' : 'Fingerprint screen unlock disabled.',
+          res.enabled ? 'success' : 'tap',
+        );
+        return res.enabled;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not update fingerprint unlock.';
+        showNotice(msg, 'warning');
+        return false;
+      }
+    },
+    [pinHash, refreshBiometricStatus, requireSignedInUser, showNotice],
+  );
+
+  const unlockWithBiometric = useCallback(async (): Promise<boolean> => {
+    if (!hasNativeBiometricPlugin()) return false;
+    try {
+      const res = await authenticateNativeBiometric({
+        title: 'Unlock Call Analyzer - ETH',
+        subtitle: 'Verify your fingerprint to view your calls and contacts',
+        negativeButtonText: 'Use PIN',
+      });
+      if (res.authenticated) {
+        const user = auth.currentUser;
+        const lockoutKey = user
+          ? userStorageKey(user.uid, 'pinLockout')
+          : 'callanalyzer.guest.pinLockout';
+        clearPinLockoutState(lockoutKey);
+        setPinLockoutUntil(0);
+        triggerHaptic('success');
+        setIsLocked(false);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Fingerprint verification failed.';
+      showNotice(msg, 'warning');
+      return false;
+    }
+  }, [showNotice]);
+
+  const enableBiometricLogin = useCallback(
+    async (password?: string): Promise<AuthActionResult> => {
+      const user = requireSignedInUser();
+      if (!user || !user.email) {
+        return { ok: false, error: 'Sign in with a verified account first.' };
+      }
+      if (!hasNativeBiometricPlugin()) {
+        const msg = 'Fingerprint sign-in is only available inside the Android APK.';
+        showNotice(msg, 'warning');
+        return { ok: false, error: msg };
+      }
+
+      const providerIds = user.providerData.map((p) => p.providerId);
+      const isGoogleUser =
+        providerIds.includes('google.com') && !providerIds.includes('password');
+      const displayName = stateRef.current.profileName || user.displayName || user.email.split('@')[0];
+
+      try {
+        if (isGoogleUser) {
+          const res = await saveNativeBiometricLogin({
+            uid: user.uid,
+            email: user.email,
+            provider: 'google',
+            displayName,
+          });
+          await refreshBiometricStatus();
+          if (res.cancelled) {
+            return { ok: false, error: 'Fingerprint confirmation was cancelled.' };
+          }
+          if (res.saved) {
+            showNotice(`Fingerprint sign-in enabled for ${user.email}.`, 'success');
+            return { ok: true };
+          }
+          return { ok: false, error: 'Could not enable fingerprint sign-in.' };
+        }
+
+        const cleanPwd =
+          password?.trim() ||
+          (lastPasswordCredRef.current?.uid === user.uid &&
+          lastPasswordCredRef.current.email.toLowerCase() === user.email.toLowerCase()
+            ? lastPasswordCredRef.current.password
+            : '');
+
+        if (!cleanPwd) {
+          return { ok: false, error: 'Enter your current password to enable fingerprint sign-in.' };
+        }
+
+        const cred = EmailAuthProvider.credential(user.email, cleanPwd);
+        await reauthenticateWithCredential(user, cred);
+
+        const res = await saveNativeBiometricLogin({
+          uid: user.uid,
+          email: user.email,
+          provider: 'password',
+          password: cleanPwd,
+          displayName,
+        });
+        await refreshBiometricStatus();
+        if (res.cancelled) {
+          return { ok: false, error: 'Fingerprint confirmation was cancelled.' };
+        }
+        if (res.saved) {
+          lastPasswordCredRef.current = { uid: user.uid, email: user.email, password: cleanPwd };
+          showNotice(`Fingerprint sign-in enabled for ${user.email}.`, 'success');
+          return { ok: true };
+        }
+        return { ok: false, error: 'Could not save encrypted fingerprint sign-in.' };
+      } catch (err) {
+        const msg = mapFirebaseAuthError(
+          err,
+          err instanceof Error ? err.message : 'Could not enable fingerprint sign-in.',
+        );
+        showNotice(msg, 'warning');
+        return { ok: false, error: msg };
+      }
+    },
+    [refreshBiometricStatus, requireSignedInUser, showNotice],
+  );
+
+  const disableBiometricLogin = useCallback(async () => {
+    await clearNativeBiometricLogin();
+    await refreshBiometricStatus();
+    showNotice('Fingerprint sign-in removed from this device.', 'tap');
+  }, [refreshBiometricStatus, showNotice]);
+
+  const signInWithBiometric = useCallback(async (): Promise<AuthActionResult> => {
+    if (!hasNativeBiometricPlugin()) {
+      const msg = 'Fingerprint sign-in is only available inside the Android APK.';
+      return { ok: false, error: msg };
+    }
+    try {
+      const unlocked = await unlockNativeBiometricLogin();
+      if (unlocked.cancelled || !unlocked.authenticated) {
+        return { ok: false };
+      }
+
+      if (unlocked.provider === 'google') {
+        const nativeCred = await runNativeSilentGoogleSignIn();
+        if (!nativeCred.idToken && !nativeCred.accessToken) {
+          const msg =
+            'Google session expired. Tap Continue with Google once to sign back in.';
+          showNotice(msg, 'warning');
+          return { ok: false, error: msg };
+        }
+        const credential = GoogleAuthProvider.credential(
+          nativeCred.idToken,
+          nativeCred.accessToken,
+        );
+        const res = await signInWithCredential(auth, credential);
+        setIsGuest(false);
+        setAuthPromptMode('closed');
+        setAuthPromptReason(null);
+        showNotice(`Signed in as ${res.user.displayName || res.user.email || 'Google user'}.`);
+        return { ok: true };
+      }
+
+      if (!unlocked.email || !unlocked.password) {
+        const msg = 'Saved fingerprint login was incomplete. Sign in with password once.';
+        await clearNativeBiometricLogin();
+        await refreshBiometricStatus();
+        showNotice(msg, 'warning');
+        return { ok: false, error: msg };
+      }
+
+      const cred = await signInWithEmailAndPassword(auth, unlocked.email, unlocked.password);
+      lastPasswordCredRef.current = {
+        uid: cred.user.uid,
+        email: unlocked.email,
+        password: unlocked.password,
+      };
+      setIsGuest(false);
+      setAuthPromptMode('closed');
+      setAuthPromptReason(null);
+      triggerHaptic('success');
+      showNotice(`Signed in as ${cred.user.email || 'user'}.`);
+      return { ok: true };
+    } catch (error) {
+      const msg = mapFirebaseAuthError(
+        error,
+        error instanceof Error ? error.message : 'Could not complete fingerprint sign-in.',
+      );
+      showNotice(msg, 'warning');
+      return { ok: false, error: msg };
+    }
+  }, [refreshBiometricStatus, showNotice]);
 
   // Internal addCall workhorse used by both native Android sync and file/backup imports.
   // Deduplicates by normalized number + timestamp + duration (and ID) and merges
@@ -5695,6 +6092,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       activeBroadcasts,
       dismissedBroadcastIds,
       dismissBroadcast,
+      popNotifications,
+      pushPopNotification,
+      dismissPopNotification,
+      pendingAdminChatThreadUid,
+      setPendingAdminChatThreadUid,
+      deliverSystemNotification,
       profileName,
       userPhotoUrl,
       notificationsEnabled,
@@ -5705,6 +6108,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       pinEnabled,
       isLocked,
       pinLockoutUntil,
+      biometricAvailable: Boolean(biometricStatus?.available),
+      biometricUnlockEnabled: Boolean(biometricStatus?.unlockEnabled),
+      biometricSavedLogin:
+        biometricStatus?.hasSavedLogin && biometricStatus.savedEmail
+          ? {
+              uid: biometricStatus.savedUid,
+              email: biometricStatus.savedEmail,
+              provider: biometricStatus.savedProvider ?? 'password',
+              displayName: biometricStatus.savedDisplayName,
+            }
+          : null,
+      refreshBiometricStatus,
+      toggleBiometricUnlock,
+      enableBiometricLogin,
+      disableBiometricLogin,
+      signInWithBiometric,
+      unlockWithBiometric,
       authUser,
       authLoading,
       isGuest,
@@ -5845,6 +6265,12 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       activeBroadcasts,
       dismissedBroadcastIds,
       dismissBroadcast,
+      popNotifications,
+      pushPopNotification,
+      dismissPopNotification,
+      pendingAdminChatThreadUid,
+      setPendingAdminChatThreadUid,
+      deliverSystemNotification,
       profileName,
       userPhotoUrl,
       notificationsEnabled,
@@ -5855,6 +6281,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       pinEnabled,
       isLocked,
       pinLockoutUntil,
+      biometricStatus,
+      refreshBiometricStatus,
+      toggleBiometricUnlock,
+      enableBiometricLogin,
+      disableBiometricLogin,
+      signInWithBiometric,
+      unlockWithBiometric,
       authUser,
       authLoading,
       isGuest,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BarChart3,
   Bell,
@@ -73,10 +73,17 @@ export function AppShellV106({
     openAuthPrompt,
     exitGuestMode,
     isAdmin,
+    pendingAdminChatThreadUid,
   } = useCalls();
 
   const [activeTab, setActiveTab] = useState<V106Tab>('calls');
   const isDark = theme === 'dark-gray';
+
+  useEffect(() => {
+    if (isAdmin && pendingAdminChatThreadUid) {
+      setActiveTab('admin');
+    }
+  }, [isAdmin, pendingAdminChatThreadUid]);
 
   const tabs = isAdmin
     ? [...BASE_TABS, { key: 'admin' as V106Tab, label: 'Admin', icon: ShieldCheck }]

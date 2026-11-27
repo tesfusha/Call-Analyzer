@@ -301,6 +301,8 @@ export function AdminTab() {
     toggleBroadcastActive,
     deleteBroadcast,
     calendarPrefs,
+    pendingAdminChatThreadUid,
+    setPendingAdminChatThreadUid,
     showNotice,
   } = useCalls();
 
@@ -408,6 +410,14 @@ export function AdminTab() {
     );
     return () => unsub();
   }, [isAdmin]);
+
+  // Open Inbox directly to a user thread when tapped from a pop notification
+  useEffect(() => {
+    if (!isAdmin || !pendingAdminChatThreadUid) return;
+    setActiveCategory('chat');
+    setSelectedThreadUid(pendingAdminChatThreadUid);
+    setPendingAdminChatThreadUid(null);
+  }, [isAdmin, pendingAdminChatThreadUid, setPendingAdminChatThreadUid]);
 
   // Subscribe to messages for the currently open support thread
   useEffect(() => {

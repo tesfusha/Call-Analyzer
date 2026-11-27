@@ -38,6 +38,7 @@ import {
   type HelpSupportInitialTab,
 } from '@/src/components/HelpSupportModal';
 import { LandingHero } from '@/src/components/LandingHero';
+import { NotificationPopToast } from '@/src/components/NotificationPopToast';
 import { RemindersModal } from '@/src/components/RemindersModal';
 import { SettingsTab } from '@/src/components/SettingsTab';
 import { UpdateNoticeModal } from '@/src/components/UpdateNoticeModal';
@@ -77,7 +78,10 @@ import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { firstGraphemes } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
 import { findLongGapReturnCalls, unreturnedMissedCalls } from '@/src/lib/reminders';
-import { subscribeUserSupportThread } from '@/src/lib/supportChat';
+import {
+  subscribeAdminSupportThreads,
+  subscribeUserSupportThread,
+} from '@/src/lib/supportChat';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 import { CallsProvider, useCalls } from '@/src/store/CallsContext';
 import type { AppUpdateNotice, CallRecord, ContactMilestoneRecord, TabKey } from '@/src/types/call';
@@ -120,6 +124,8 @@ function AppShell() {
     unlockWithPin,
     clearAppPin,
     lockApp,
+    biometricUnlockEnabled,
+    unlockWithBiometric,
     authUser,
     authLoading,
     isGuest,
@@ -137,6 +143,13 @@ function AppShell() {
     checkEmailVerification,
     signOutAccount,
     isAdmin,
+    notificationsEnabled,
+    deliverSystemNotification,
+    popNotifications,
+    pushPopNotification,
+    dismissPopNotification,
+    dismissBroadcast,
+    setPendingAdminChatThreadUid,
     syncPhoneCalls,
     toggleFavorite,
     patchCall,
@@ -173,6 +186,7 @@ function AppShell() {
   const [helpSupportOpen, setHelpSupportOpen] = useState(false);
   const [helpSupportTab, setHelpSupportTab] = useState<HelpSupportInitialTab>('bot');
   const [hasUnreadAdminReply, setHasUnreadAdminReply] = useState(false);
+  const [unreadAdminSupportCount, setUnreadAdminSupportCount] = useState(0);
   const [androidSetupOpen, setAndroidSetupOpen] = useState(false);
   const [updateNotice, setUpdateNotice] = useState<AppUpdateNotice | null>(null);
   const [checkingVerify, setCheckingVerify] = useState(false);
@@ -260,16 +274,130 @@ function AppShell() {
   }, [authUid, isGuest]);
 
   const verifiedUserUid = authUser && authUser.emailVerified ? authUser.uid : null;
+  const helpSupportOpenRef = useRef(helpSupportOpen);
+  helpSupportOpenRef.current = helpSupportOpen;
+  const helpSupportTabRef = useRef(helpSupportTab);
+  helpSupportTabRef.current = helpSupportTab;
+  const notificationsEnabledRef = useRef(notificationsEnabled);
+  notificationsEnabledRef.current = notificationsEnabled;
+  const prevUserReplyAtRef = useRef(0);
+  const seenAdminThreadAtRef = useRef<Map<string, number>>(new Map());
+  const adminThreadsSeededRef = useRef(false);
+
   useEffect(() => {
+    prevUserReplyAtRef.current = 0;
     if (!verifiedUserUid) {
       setHasUnreadAdminReply(false);
       return;
     }
     const unsub = subscribeUserSupportThread(verifiedUserUid, (thread) => {
-      setHasUnreadAdminReply(Boolean(thread?.unreadByUser));
+      const hasUnread = Boolean(thread?.unreadByUser);
+      setHasUnreadAdminReply(hasUnread);
+      if (
+        thread &&
+        thread.unreadByUser &&
+        thread.lastMessageSender === 'admin' &&
+        thread.lastMessageAtMs > prevUserReplyAtRef.current
+      ) {
+        prevUserReplyAtRef.current = thread.lastMessageAtMs;
+        if (!(helpSupportOpenRef.current && helpSupportTabRef.current === 'admin')) {
+          const preview = thread.lastMessageText || 'New reply from Admin Support';
+          pushPopNotification({
+            id: `inbox-user-${thread.lastMessageAtMs}`,
+            kind: 'inbox-user',
+            badgeLabel: 'Admin Reply',
+            title: 'Admin Support',
+            body: preview,
+            actionLabel: 'Reply',
+          });
+          if (notificationsEnabledRef.current) {
+            void deliverSystemNotification(
+              `support-reply-${thread.lastMessageAtMs}`,
+              'Admin Support',
+              preview,
+              { category: 'other' },
+            );
+          }
+        }
+      }
     });
     return () => unsub();
-  }, [verifiedUserUid]);
+  }, [verifiedUserUid, pushPopNotification, deliverSystemNotification]);
+
+  useEffect(() => {
+    seenAdminThreadAtRef.current.clear();
+    adminThreadsSeededRef.current = false;
+    if (!isAdmin || !verifiedUserUid) {
+      setUnreadAdminSupportCount(0);
+      return;
+    }
+    const unsub = subscribeAdminSupportThreads(
+      (threads) => {
+        setUnreadAdminSupportCount(threads.filter((t) => t.unreadByAdmin).length);
+        if (!adminThreadsSeededRef.current) {
+          adminThreadsSeededRef.current = true;
+          for (const t of threads) {
+            seenAdminThreadAtRef.current.set(t.uid, t.lastMessageAtMs);
+          }
+          const newestUnread = threads
+            .filter((t) => t.unreadByAdmin && t.lastMessageSender === 'user')
+            .sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs)[0];
+          if (newestUnread && activeTabRef.current !== 'admin') {
+            const sender = newestUnread.userName || 'User Message';
+            const preview = newestUnread.lastMessageText || 'New message in Support Inbox';
+            pushPopNotification({
+              id: `inbox-admin-${newestUnread.uid}-${newestUnread.lastMessageAtMs}`,
+              kind: 'inbox-admin',
+              badgeLabel: 'Support Inbox',
+              title: sender,
+              body: preview,
+              senderPhotoUrl: newestUnread.userPhotoUrl,
+              actionLabel: 'Reply',
+              threadUid: newestUnread.uid,
+            });
+          }
+          return;
+        }
+
+        for (const t of threads) {
+          const prevAt = seenAdminThreadAtRef.current.get(t.uid) ?? 0;
+          if (
+            t.unreadByAdmin &&
+            t.lastMessageSender === 'user' &&
+            t.lastMessageAtMs > prevAt
+          ) {
+            seenAdminThreadAtRef.current.set(t.uid, t.lastMessageAtMs);
+            const sender = t.userName || 'User Message';
+            const preview = t.lastMessageText || 'New message in Support Inbox';
+            pushPopNotification({
+              id: `inbox-admin-${t.uid}-${t.lastMessageAtMs}`,
+              kind: 'inbox-admin',
+              badgeLabel: 'Support Inbox',
+              title: sender,
+              body: preview,
+              senderPhotoUrl: t.userPhotoUrl,
+              actionLabel: 'Reply',
+              threadUid: t.uid,
+            });
+            if (notificationsEnabledRef.current) {
+              void deliverSystemNotification(
+                `support-admin-${t.uid}-${t.lastMessageAtMs}`,
+                `${sender} · Support Inbox`,
+                preview,
+                { category: 'other' },
+              );
+            }
+          } else if (t.lastMessageAtMs > prevAt) {
+            seenAdminThreadAtRef.current.set(t.uid, t.lastMessageAtMs);
+          }
+        }
+      },
+      () => {
+        // Ignore transient offline errors
+      },
+    );
+    return () => unsub();
+  }, [isAdmin, verifiedUserUid, pushPopNotification, deliverSystemNotification]);
 
   const handleOpenHelpSupport = useCallback((initialTab: HelpSupportInitialTab = 'bot') => {
     triggerHaptic('tap');
@@ -954,6 +1082,8 @@ function AppShell() {
         onVerifyPin={unlockWithPin}
         onResetPin={clearAppPin}
         lockUntil={pinLockoutUntil}
+        biometricEnabled={biometricUnlockEnabled}
+        onVerifyBiometric={unlockWithBiometric}
       />
     );
   }
@@ -1028,6 +1158,8 @@ function AppShell() {
               const active = activeTab === tab.key;
               const showNewBadge =
                 tab.key === 'calls' && unseenNewCallIds.length > 0 && activeTab !== 'calls';
+              const showAdminUnreadBadge =
+                tab.key === 'admin' && unreadAdminSupportCount > 0 && activeTab !== 'admin';
               return (
                 <button
                   key={tab.key}
@@ -1045,6 +1177,11 @@ function AppShell() {
                   {showNewBadge && (
                     <span className="ml-auto px-1.5 py-0.5 rounded bg-[#FF6A00] text-white text-[9px] font-bold uppercase tracking-wider leading-none shrink-0">
                       NEW
+                    </span>
+                  )}
+                  {showAdminUnreadBadge && (
+                    <span className="ml-auto px-1.5 py-0.5 rounded bg-[#FF6A00] text-white text-[10px] font-mono font-bold tabular-nums leading-none shrink-0">
+                      {unreadAdminSupportCount}
                     </span>
                   )}
                 </button>
@@ -1415,6 +1552,8 @@ function AppShell() {
             const active = activeTab === tab.key;
             const showNewBadge =
               tab.key === 'calls' && unseenNewCallIds.length > 0 && activeTab !== 'calls';
+            const showAdminUnreadBadge =
+              tab.key === 'admin' && unreadAdminSupportCount > 0 && activeTab !== 'admin';
             return (
               <button
                 key={tab.key}
@@ -1433,6 +1572,11 @@ function AppShell() {
                 {showNewBadge && (
                   <span className="pointer-events-none absolute top-1.5 right-1.5 px-1 py-[1px] rounded bg-[#FF6A00] text-white text-[8px] font-bold uppercase tracking-wider leading-none">
                     NEW
+                  </span>
+                )}
+                {showAdminUnreadBadge && (
+                  <span className="pointer-events-none absolute top-1.5 right-1.5 min-w-[16px] px-1 py-[1px] rounded bg-[#FF6A00] text-white text-[9px] font-mono font-bold tabular-nums leading-none text-center">
+                    {unreadAdminSupportCount}
                   </span>
                 )}
                 <Icon size={18} className="shrink-0" />
@@ -1534,6 +1678,24 @@ function AppShell() {
       <UpdateNoticeModal update={updateNotice} onDismiss={handleDismissUpdate} />
 
       <BroadcastPopupModal />
+
+      <NotificationPopToast
+        item={popNotifications[0] ?? null}
+        onDismiss={dismissPopNotification}
+        onAction={(item) => {
+          dismissPopNotification(item.id);
+          if (item.kind === 'inbox-user') {
+            handleOpenHelpSupport('admin');
+          } else if (item.kind === 'inbox-admin') {
+            setPendingAdminChatThreadUid(item.threadUid ?? null);
+            handleSwitchTab('admin');
+          } else if (item.kind === 'broadcast') {
+            if (item.broadcastId) {
+              dismissBroadcast(item.broadcastId);
+            }
+          }
+        }}
+      />
 
       <HelpSupportModal
         open={helpSupportOpen}

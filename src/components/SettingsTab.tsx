@@ -14,6 +14,7 @@ import {
   ExternalLink,
   FileDown,
   FileText,
+  Fingerprint,
   Flame,
   HelpCircle,
   Info,
@@ -246,6 +247,12 @@ export function SettingsTab({
     setAppPin,
     clearAppPin,
     lockApp,
+    biometricAvailable,
+    biometricUnlockEnabled,
+    biometricSavedLogin,
+    toggleBiometricUnlock,
+    enableBiometricLogin,
+    disableBiometricLogin,
     authUser,
     authLoading,
     isGuest,
@@ -304,6 +311,10 @@ export function SettingsTab({
   const [achievementsTab, setAchievementsTab] = useState<'general' | 'contacts'>('general');
   const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
   const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() => isHapticsEnabled());
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [showBiometricPwdPrompt, setShowBiometricPwdPrompt] = useState(false);
+  const [biometricPwd, setBiometricPwd] = useState('');
+  const [biometricPwdError, setBiometricPwdError] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contactsFileInputRef = useRef<HTMLInputElement>(null);
@@ -549,7 +560,13 @@ export function SettingsTab({
               ? 'In header'
               : 'Date hidden'
       }`,
-      security: pinEnabled ? '4-digit lock active' : 'No screen lock set',
+      security: pinEnabled
+        ? biometricUnlockEnabled
+          ? 'PIN + Fingerprint active'
+          : '4-digit lock active'
+        : biometricSavedLogin?.uid && authUser?.uid && biometricSavedLogin.uid === authUser.uid
+          ? 'Fingerprint sign-in active'
+          : 'No screen lock set',
       sim_tariffs: `${simLabels.sim1Label} / ${simLabels.sim2Label} · ${tariffs.billingMode}`,
       reminders: `${notificationsEnabled ? 'Alerts on' : 'Alerts off'} · ${
         reminderPrefs.missedCallReminderDelayMinutes
@@ -571,6 +588,9 @@ export function SettingsTab({
       fontSizeScale,
       dateHeaderStyle,
       pinEnabled,
+      biometricUnlockEnabled,
+      biometricSavedLogin?.uid,
+      authUser?.uid,
       simLabels.sim1Label,
       simLabels.sim2Label,
       tariffs.billingMode,
@@ -873,16 +893,61 @@ export function SettingsTab({
           </div>
         );
 
-      case 'security':
+      case 'security': {
+        const isBiometricLoginForThisAccount = Boolean(
+          authUser?.uid && biometricSavedLogin?.uid === authUser.uid,
+        );
+        const handleEnableBiometricLoginClick = async () => {
+          setBiometricPwdError('');
+          setBiometricBusy(true);
+          try {
+            const res = await enableBiometricLogin();
+            if (!res.ok && res.error) {
+              if (res.error.toLowerCase().includes('password')) {
+                setShowBiometricPwdPrompt(true);
+                setBiometricPwdError('');
+              } else {
+                setBiometricPwdError(res.error);
+              }
+            } else if (res.ok) {
+              setShowBiometricPwdPrompt(false);
+              setBiometricPwd('');
+            }
+          } finally {
+            setBiometricBusy(false);
+          }
+        };
+
+        const handleConfirmBiometricPassword = async (e: React.FormEvent) => {
+          e.preventDefault();
+          if (!biometricPwd.trim()) {
+            setBiometricPwdError('Enter your current password to confirm.');
+            return;
+          }
+          setBiometricPwdError('');
+          setBiometricBusy(true);
+          try {
+            const res = await enableBiometricLogin(biometricPwd);
+            if (res.ok) {
+              setShowBiometricPwdPrompt(false);
+              setBiometricPwd('');
+            } else if (res.error) {
+              setBiometricPwdError(res.error);
+            }
+          } finally {
+            setBiometricBusy(false);
+          }
+        };
+
         return (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold text-[#08246B] dark:text-white">
                   4-Digit Screen Lock PIN · {pinEnabled ? 'Active on this device' : 'Not set'}
                 </p>
                 <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Quick screen lock for casual privacy on this device (does not encrypt local files)
+                  Quick screen lock for casual privacy on this device (acts as backup for fingerprint unlock)
                 </p>
               </div>
               {pinEnabled && (
@@ -935,8 +1000,151 @@ export function SettingsTab({
                 {pinEnabled ? 'Update PIN' : 'Enable screen lock'}
               </button>
             </div>
+
+            <div className="rounded-xl bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Fingerprint size={19} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-[#08246B] dark:text-white">
+                    Fingerprint Unlock &amp; Sign-In
+                  </h3>
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Protected by Android Keystore hardware encryption
+                  </p>
+                </div>
+              </div>
+
+              {!isNativeCapacitor() ? (
+                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Fingerprint unlock &amp; sign-in are available when running the Android APK.
+                </p>
+              ) : !biometricAvailable ? (
+                <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  No fingerprint is enrolled on this phone yet. Add a fingerprint in Android Settings → Security, then return here.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {/* Option 1: Biometric Screen Unlock */}
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                        Fingerprint Screen Unlock
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        {pinEnabled
+                          ? 'Use your fingerprint to open the lock screen (4-digit PIN stays as backup)'
+                          : 'Set a 4-digit backup PIN above first to turn on fingerprint unlock'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={biometricUnlockEnabled}
+                      disabled={biometricBusy}
+                      onClick={() => void toggleBiometricUnlock(!biometricUnlockEnabled)}
+                      className={`min-h-[38px] px-3 py-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                        biometricUnlockEnabled
+                          ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
+                          : 'border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white bg-white dark:bg-[var(--dark-surface)]'
+                      }`}
+                    >
+                      {biometricUnlockEnabled ? 'On' : 'Off'}
+                    </button>
+                  </div>
+
+                  {/* Option 2: Sign in with Fingerprint */}
+                  {authUser && !isGuest && (
+                    <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                            Sign in with Fingerprint
+                          </p>
+                          <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] break-words">
+                            {isBiometricLoginForThisAccount
+                              ? `Enabled for ${authUser.email}`
+                              : biometricSavedLogin
+                                ? `Currently linked to ${biometricSavedLogin.email} on this device`
+                                : 'Sign back in after logging out with a single fingerprint touch'}
+                          </p>
+                        </div>
+                        {isBiometricLoginForThisAccount ? (
+                          <button
+                            type="button"
+                            disabled={biometricBusy}
+                            onClick={() => void disableBiometricLogin()}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 whitespace-nowrap shrink-0 transition-colors"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={biometricBusy}
+                            onClick={() => void handleEnableBiometricLoginClick()}
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#08246B] hover:bg-[#0B308E] dark:bg-[#FF6A00] dark:hover:bg-[#E65F00] text-xs font-semibold text-white whitespace-nowrap shrink-0 transition-colors disabled:opacity-50"
+                          >
+                            {biometricBusy ? 'Verifying...' : 'Enable Fingerprint Sign-In'}
+                          </button>
+                        )}
+                      </div>
+
+                      {showBiometricPwdPrompt && !isBiometricLoginForThisAccount && (
+                        <form
+                          onSubmit={(e) => void handleConfirmBiometricPassword(e)}
+                          className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-2.5"
+                        >
+                          <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                            Confirm your account password once to seal it with Android Keystore fingerprint protection:
+                          </p>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="password"
+                              autoComplete="current-password"
+                              value={biometricPwd}
+                              onChange={(e) => setBiometricPwd(e.target.value)}
+                              placeholder="Current account password"
+                              className="flex-1 min-h-[40px] rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#FF6A00]"
+                            />
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="submit"
+                                disabled={biometricBusy}
+                                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                {biometricBusy ? 'Saving...' : 'Confirm'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowBiometricPwdPrompt(false);
+                                  setBiometricPwd('');
+                                  setBiometricPwdError('');
+                                }}
+                                className="min-h-[40px] px-3 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </form>
+                      )}
+
+                      {biometricPwdError && (
+                        <p className="text-[11px] font-medium text-[#DC2626] dark:text-[#F28B82]">
+                          {biometricPwdError}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         );
+      }
 
       case 'sim_tariffs':
         return (
