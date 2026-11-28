@@ -32,53 +32,53 @@ type GuideStep = {
 const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'calls',
-    eyebrow: 'Step 1 of 4 · Auto-Synced Calls',
-    title: 'Organize every call across both SIMs',
+    eyebrow: 'Step 1 of 4 · Calls',
+    title: 'Dual-SIM call timeline',
     description:
-      'Review incoming, outgoing, and unreturned missed calls in one clean timeline with Ethiopian & Gregorian dates, ETB call cost, and automatic Android call-log sync.',
+      'Auto-sync calls with EC/GC dates, ETB cost, and missed-callback filters.',
     highlights: [
-      'Instant search by name, number, tag, or note',
-      'One-tap callback reminders & VIP priority contacts',
-      'CSV / JSON / TXT import with preview & deduplication',
+      'Instant search by name, number, or tag',
+      '1-tap callback alerts & VIPs',
+      'CSV / JSON / vCard import preview',
     ],
     icon: Phone,
   },
   {
     id: 'sim-ussd',
-    eyebrow: 'Step 2 of 4 · Dual-SIM, Bundles & USSD',
-    title: 'Track voice packages & carrier USSD',
+    eyebrow: 'Step 2 of 4 · SIM & USSD',
+    title: 'Voice bundles & carrier USSD',
     description:
-      'Compare ETC and SFC talk-time side by side, watch active voice bundle minutes before they expire, and dial official USSD shortcodes effortlessly.',
+      'Compare ETC vs SFC talk-time, bundle balance, and dial shortcodes in 1 tap.',
     highlights: [
-      'SIM 1 vs SIM 2 minute and ETB spend comparison',
-      'Remaining bundle minute bar & expiry alerts',
-      'Quick USSD modal for balance, packages & call-me-back',
+      'SIM 1 vs SIM 2 duration & ETB spend',
+      'Bundle countdown & expiry alerts',
+      'Quick USSD balance & bundle dialer',
     ],
     icon: Smartphone,
   },
   {
     id: 'analytics',
-    eyebrow: 'Step 3 of 4 · Interactive Analytics',
-    title: 'Inspect trends & export formatted reports',
+    eyebrow: 'Step 3 of 4 · Analytics',
+    title: 'Charts & PDF reports',
     description:
-      'Hover or tap any chart point to inspect daily duration, direction splits, carrier shares, and top callers — then download printable PDF or HTML statements.',
+      'Tap charts for daily duration & ETB totals, or export PDF statements.',
     highlights: [
-      'Hover tooltips on volume, duration & carrier charts',
-      'Weekly and monthly talk-time & airtime summaries',
-      'One-click PDF reports with embedded visual charts',
+      'Interactive volume & carrier charts',
+      'Weekly & monthly airtime summaries',
+      'Printable PDF & HTML statements',
     ],
     icon: BarChart3,
   },
   {
     id: 'calendar-privacy',
-    eyebrow: 'Step 4 of 4 · Ethiopian Calendar & Privacy',
-    title: 'Celebrate milestones with private sync',
+    eyebrow: 'Step 4 of 4 · Calendar & Lock',
+    title: 'Ethiopian holidays & local privacy',
     description:
-      'Stay ahead of Ethiopian holidays, contact birthdays, and quiet friends with ready-to-send wishes — all locked privately to your personal account.',
+      'Send holiday & birthday wishes while keeping data private on your phone.',
     highlights: [
-      'Dual Ethiopian (Geez / English) & Gregorian calendar',
-      'Smart quiet-contact nudges & birthday greeting drafts',
-      'Optional 4-digit screen lock & zero 3rd-party data sharing',
+      'Ethiopian & Gregorian dual calendar',
+      'Quiet-contact & birthday reminders',
+      'Fingerprint / 4-digit PIN app lock',
     ],
     icon: Calendar,
   },
@@ -89,7 +89,7 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
 
   if (stepIndex === 0) {
     return (
-      <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2">
+      <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 space-y-1.5">
         {[
           { name: 'Abebe Bikila', sim: 'SIM 1 · ETC', meta: 'Outgoing · 4m 12s · 2.15 ETB', accent: '#FF6A00' },
           { name: 'Sara Tadesse', sim: 'SIM 2 · SFC', meta: 'Missed · Follow-up 15m', accent: '#EF4444' },
@@ -99,30 +99,30 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
             initial={prefersReducedMotion ? false : { opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.14, delay: idx * 0.04 }}
-            className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5 flex items-center justify-between gap-2"
+            className="rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 flex items-center justify-between gap-2"
           >
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+              <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
                 {row.name}
               </p>
-              <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
+              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
                 {row.meta}
               </p>
             </div>
             <span
-              className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] whitespace-nowrap shrink-0"
+              className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] whitespace-nowrap shrink-0"
               style={{ color: row.accent }}
             >
               {row.sim}
             </span>
           </motion.div>
         ))}
-        <div className="flex items-center justify-between px-1 pt-0.5 text-[11px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-          <span className="flex items-center gap-1.5 text-[#FF6A00] font-semibold">
-            <Clock size={12} />
+        <div className="flex items-center justify-between px-1 pt-0.5 text-[10px] font-mono tabular-nums text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+          <span className="flex items-center gap-1 text-[#FF6A00] font-semibold">
+            <Clock size={11} />
             Auto call log sync
           </span>
-          <span>EC &amp; GC timestamps</span>
+          <span>EC &amp; GC</span>
         </div>
       </div>
     );
@@ -130,13 +130,13 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
 
   if (stepIndex === 1) {
     return (
-      <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
-        <div className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <span className="text-[#08246B] dark:text-white">SIM 1 Monthly Voice Bundle</span>
+      <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 space-y-2">
+        <div className="rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 space-y-1.5">
+          <div className="flex items-center justify-between text-[11px] font-semibold">
+            <span className="text-[#08246B] dark:text-white">SIM 1 Monthly Bundle</span>
             <span className="font-mono tabular-nums text-[#FF6A00]">136 / 200 min</span>
           </div>
-          <div className="h-2 rounded-full bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] overflow-hidden">
+          <div className="h-1.5 rounded-full bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] overflow-hidden">
             <motion.div
               initial={prefersReducedMotion ? { width: '68%' } : { width: '12%' }}
               animate={{ width: '68%' }}
@@ -146,7 +146,7 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-1.5">
           {[
             { code: '*804#', label: 'ETC Balance' },
             { code: '*999#', label: 'ETC Bundles' },
@@ -157,13 +157,13 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
               initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.14, delay: idx * 0.03 }}
-              className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 py-2 text-center"
+              className="rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2 py-1.5 text-center"
             >
-              <p className="text-xs font-mono font-bold text-[#08246B] dark:text-white flex items-center justify-center gap-1">
-                <Hash size={11} className="text-[#FF6A00]" />
+              <p className="text-[11px] font-mono font-bold text-[#08246B] dark:text-white flex items-center justify-center gap-0.5">
+                <Hash size={10} className="text-[#FF6A00]" />
                 {item.code.replace('#', '')}#
               </p>
-              <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+              <p className="text-[9.5px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                 {item.label}
               </p>
             </motion.div>
@@ -184,26 +184,26 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
       { day: 'Sun', h: 46 },
     ];
     return (
-      <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
-        <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold text-[#08246B] dark:text-white">Weekly Call Volume</span>
-          <span className="font-mono text-[11px] font-semibold text-[#FF6A00] tabular-nums">
-            Hover bars for exact ETB &amp; mins
+      <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 space-y-2">
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="font-semibold text-[#08246B] dark:text-white">Weekly Volume</span>
+          <span className="font-mono text-[10px] font-semibold text-[#FF6A00] tabular-nums">
+            Tap bars for ETB &amp; mins
           </span>
         </div>
-        <div className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 pt-4 pb-2.5">
-          <div className="h-20 flex items-end justify-between gap-2">
+        <div className="rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-2.5 pt-3 pb-2">
+          <div className="h-14 flex items-end justify-between gap-2">
             {bars.map((bar, idx) => (
               <div key={bar.day} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
                 <motion.div
                   initial={prefersReducedMotion ? { height: `${bar.h}%` } : { height: '8%' }}
                   animate={{ height: `${bar.h}%` }}
                   transition={{ duration: 0.45, delay: idx * 0.04, ease: [0.22, 1, 0.36, 1] }}
-                  className={`w-full max-w-[22px] rounded-t-md ${
+                  className={`w-full max-w-[20px] rounded-t ${
                     idx === 3 ? 'bg-[#FF6A00]' : 'bg-[#08246B] dark:bg-[#4FA3F7]'
                   }`}
                 />
-                <span className="text-[10px] font-mono text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                <span className="text-[9.5px] font-mono text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                   {bar.day}
                 </span>
               </div>
@@ -215,23 +215,23 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
   }
 
   return (
-    <div className="rounded-2xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2">
+    <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 space-y-1.5">
       <motion.div
         initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.24 }}
-        className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 flex items-center justify-between gap-2"
+        className="rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 flex items-center justify-between gap-2"
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-            <FlaticonIcon name="fi-rr-book-open-cover" className="text-[16px]" />
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+            <FlaticonIcon name="fi-rr-book-open-cover" className="text-[14px]" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-              Ethiopian Calendar &amp; Holiday Wishes
+            <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
+              Ethiopian Calendar &amp; Wishes
             </p>
-            <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-              Birthdays, quiet contacts &amp; Amharic/English greetings
+            <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+              Birthdays &amp; Amharic/English greetings
             </p>
           </div>
         </div>
@@ -241,12 +241,12 @@ function StepPreview({ stepIndex }: { stepIndex: number }) {
         initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.24, delay: 0.08 }}
-        className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 flex items-center gap-2.5"
+        className="rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 flex items-center gap-2"
       >
-        <div className="w-8 h-8 rounded-lg bg-[#10B981]/12 text-[#059669] dark:text-[#34D399] flex items-center justify-center shrink-0">
-          <Lock size={15} />
+        <div className="w-7 h-7 rounded-lg bg-[#10B981]/12 text-[#059669] dark:text-[#34D399] flex items-center justify-center shrink-0">
+          <Lock size={13} />
         </div>
-        <p className="text-[11px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+        <p className="text-[10px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
           {APP_PRIVACY_NOTE}
         </p>
       </motion.div>
@@ -319,20 +319,20 @@ export function AppGuideModal({
             className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-col max-h-[90dvh] overflow-hidden shadow-xl"
           >
             {/* Header */}
-            <div className="px-5 pt-5 pb-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <BrandLogo size={34} />
+            <div className="px-4 pt-3.5 pb-3 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-2.5 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <BrandLogo size={30} />
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm sm:text-base font-bold text-[#08246B] dark:text-white truncate">
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-sm font-bold text-[#08246B] dark:text-white truncate">
                       {APP_NAME}
                     </h2>
-                    <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] shrink-0">
+                    <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] shrink-0">
                       v{APP_VERSION}
                     </span>
                   </div>
-                  <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                    Quick interactive walkthrough
+                  <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                    Quick walkthrough
                   </p>
                 </div>
               </div>
@@ -341,48 +341,48 @@ export function AppGuideModal({
                 type="button"
                 onClick={onClose}
                 aria-label="Close app guide"
-                className="min-h-[40px] min-w-[40px] rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
+                className="min-h-[36px] min-w-[36px] rounded-xl text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] flex items-center justify-center shrink-0"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
             {/* Scrollable Body */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-4">
               <motion.div
                 key={step.id}
                 initial={prefersReducedMotion ? { opacity: 0.7 } : { opacity: 0.65, x: 8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: prefersReducedMotion ? 0.06 : 0.12, ease: [0.22, 1, 0.36, 1] }}
-                className="space-y-4"
+                className="space-y-2.5"
               >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                      <StepIcon size={20} />
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <StepIcon size={16} />
                     </div>
-                    <div className="min-w-0 space-y-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#FF6A00]">
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#FF6A00]">
                         {step.eyebrow}
                       </p>
-                      <h3 className="text-base sm:text-lg font-bold text-[#08246B] dark:text-white leading-snug">
+                      <h3 className="text-sm font-bold text-[#08246B] dark:text-white leading-snug">
                         {step.title}
                       </h3>
                     </div>
                   </div>
 
-                  <p className="text-xs sm:text-sm leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  <p className="text-[10.5px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     {step.description}
                   </p>
 
                   <StepPreview stepIndex={stepIndex} />
 
-                  <ul className="space-y-2 pt-0.5">
+                  <ul className="space-y-1 pt-0.5">
                     {step.highlights.map((item) => (
                       <li
                         key={item}
-                        className="flex items-start gap-2 text-xs text-[#08246B] dark:text-white"
+                        className="flex items-start gap-1.5 text-[10.5px] leading-snug text-[#08246B] dark:text-white"
                       >
-                        <ShieldCheck size={14} className="text-[#FF6A00] mt-0.5 shrink-0" />
+                        <ShieldCheck size={12} className="text-[#FF6A00] mt-0.5 shrink-0" />
                         <span>{item}</span>
                       </li>
                     ))}

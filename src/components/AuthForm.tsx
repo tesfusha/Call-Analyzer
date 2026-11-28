@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { hasNativeGoogleAuth, isNativeCapacitor } from '@/src/lib/capacitor';
 import { useCalls } from '@/src/store/CallsContext';
+import { PrivacyPolicyModal } from '@/src/components/PrivacyPolicyModal';
 
 type AuthFormMode = 'signin' | 'signup';
 
@@ -59,6 +60,7 @@ export function AuthForm({
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formInfo, setFormInfo] = useState<string | null>(null);
 
@@ -436,8 +438,19 @@ export function AuthForm({
               <span className="text-xs leading-relaxed text-[#08246B] dark:text-white">
                 <strong className="font-semibold">Agreed to terms:</strong>{' '}
                 <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Your call logs, contacts, and personal records remain strictly private to your account — no data is seen or shared with 3rd parties.
+                  Your call logs, contacts, and personal records remain strictly private to your account — no data is seen or shared with 3rd parties.{' '}
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPrivacyOpen(true);
+                  }}
+                  className="font-semibold text-[#FF6A00] hover:underline"
+                >
+                  Read Privacy Policy
+                </button>
               </span>
             </label>
           </>
@@ -500,10 +513,19 @@ export function AuthForm({
         </button>
       )}
 
-      <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+      <p className="flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
         <ShieldCheck size={13} className="text-[#10B981] shrink-0" />
         <span>Your call logs and contacts stay strictly private on your device.</span>
+        <button
+          type="button"
+          onClick={() => setPrivacyOpen(true)}
+          className="font-semibold text-[#FF6A00] hover:underline"
+        >
+          Privacy Policy
+        </button>
       </p>
+
+      <PrivacyPolicyModal open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
     </div>
   );
 }

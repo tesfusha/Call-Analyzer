@@ -346,6 +346,7 @@ export type BackupSettingsSnapshot = {
   notificationsEnabled?: boolean;
   themePreference?: 'system' | 'light' | 'dark-gray';
   fontSizeScale?: 'default' | 'large' | 'xlarge';
+  fontFamily?: 'jakarta' | 'outfit' | 'manrope' | 'space' | 'dm';
   profileName?: string;
   expandedSettingsSections?: SettingsSectionId[];
 };

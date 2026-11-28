@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://apis.google.com" />
     <link rel="preconnect" href="https://youthful-limiter-kjk7s.firebaseapp.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script>
       (function () {
         try {
@@ -37,16 +37,22 @@
               metas[i].setAttribute('content', activeColor);
             }
           }
-          var fontScale = JSON.parse(localStorage.getItem('callanalyzer.fontSize.v1') || '"default"');
-          if (fontScale === 'large') {
+          var rawFontScale = (localStorage.getItem('callanalyzer.fontSize.v1') || 'default').replace(/^"|"$/g, '');
+          if (rawFontScale === 'large') {
             root.dataset.fontScale = 'large';
             root.style.fontSize = '17.5px';
-          } else if (fontScale === 'xlarge') {
+          } else if (rawFontScale === 'xlarge') {
             root.dataset.fontScale = 'xlarge';
             root.style.fontSize = '19px';
           } else {
             root.dataset.fontScale = 'default';
             root.style.fontSize = '16px';
+          }
+          var rawFontFamily = (localStorage.getItem('callanalyzer.fontFamily.v1') || 'jakarta').replace(/^"|"$/g, '');
+          if (rawFontFamily === 'outfit' || rawFontFamily === 'manrope' || rawFontFamily === 'space' || rawFontFamily === 'dm') {
+            root.dataset.fontFamily = rawFontFamily;
+          } else {
+            root.dataset.fontFamily = 'jakarta';
           }
         } catch (e) {}
       })();

@@ -78,28 +78,70 @@ class PhoneContactsPlugin : Plugin() {
         }
 
         val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
             ContactsContract.CommonDataKinds.Phone.NUMBER
         )
 
         val contactsArray = JSArray()
+        val seenKeys = HashSet<String>()
+        var pickedContactId = ""
+        var pickedName = ""
+        var pickedNumber = ""
         try {
             context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
+                    val cidIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
                     val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                     val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                    val number = if (numIdx >= 0) cursor.getString(numIdx)?.trim().orEmpty() else ""
-                    val name = if (nameIdx >= 0) cursor.getString(nameIdx)?.trim().orEmpty() else ""
-
-                    if (number.isNotEmpty()) {
-                        val item = JSObject().apply {
-                            put("name", if (name.isNotEmpty()) name else number)
-                            put("number", number)
-                        }
-                        contactsArray.put(item)
-                    }
+                    pickedContactId = if (cidIdx >= 0) cursor.getString(cidIdx)?.trim().orEmpty() else ""
+                    pickedNumber = if (numIdx >= 0) cursor.getString(numIdx)?.trim().orEmpty() else ""
+                    pickedName = if (nameIdx >= 0) cursor.getString(nameIdx)?.trim().orEmpty() else ""
                 }
             }
+
+            // When READ_CONTACTS is already granted, include all numbers stored under the same contact (e.g. SIM 1 & SIM 2).
+            if (pickedContactId.isNotEmpty() && (hasReadContactsPermission() || getPermissionState("contacts") == PermissionState.GRANTED)) {
+                try {
+                    val allProj = arrayOf(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER
+                    )
+                    context.contentResolver.query(
+                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                        allProj,
+                        "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+                        arrayOf(pickedContactId),
+                        null
+                    )?.use { allCursor ->
+                        val allNameIdx = allCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                        val allNumIdx = allCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                        while (allCursor.moveToNext()) {
+                            val num = if (allNumIdx >= 0) allCursor.getString(allNumIdx)?.trim().orEmpty() else ""
+                            if (num.isEmpty()) continue
+                            val digits = num.filter { it.isDigit() }
+                            val dedupeKey = if (digits.length >= 9) digits.takeLast(9) else (digits.ifEmpty { num })
+                            if (!seenKeys.add(dedupeKey)) continue
+                            val rowName = if (allNameIdx >= 0) allCursor.getString(allNameIdx)?.trim().orEmpty() else ""
+                            val resolvedName = rowName.ifEmpty { pickedName }
+                            contactsArray.put(JSObject().apply {
+                                put("name", resolvedName.ifEmpty { num })
+                                put("number", num)
+                            })
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Fall back to the single picked row below
+                }
+            }
+
+            if (contactsArray.length() == 0 && pickedNumber.isNotEmpty()) {
+                contactsArray.put(JSObject().apply {
+                    put("name", pickedName.ifEmpty { pickedNumber })
+                    put("number", pickedNumber)
+                })
+            }
+
             val res = JSObject().apply {
                 put("cancelled", false)
                 put("contacts", contactsArray)
@@ -108,6 +150,26 @@ class PhoneContactsPlugin : Plugin() {
         } catch (e: Exception) {
             call.reject("Could not read selected contact: ${e.message ?: "Unknown error"}")
         }
+    }
+
+    @PluginMethod
+    fun hasContactsPermission(call: PluginCall) {
+        val granted = hasReadContactsPermission() || getPermissionState("contacts") == PermissionState.GRANTED
+        call.resolve(JSObject().apply { put("granted", granted) })
+    }
+
+    @PluginMethod
+    fun getAllContactsIfGranted(call: PluginCall) {
+        if (hasReadContactsPermission() || getPermissionState("contacts") == PermissionState.GRANTED) {
+            loadAllContactsAsync(call)
+            return
+        }
+        val res = JSObject().apply {
+            put("granted", false)
+            put("contacts", JSArray())
+            put("total", 0)
+        }
+        call.resolve(res)
     }
 
     @PluginMethod

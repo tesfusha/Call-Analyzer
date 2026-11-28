@@ -785,6 +785,16 @@ function sanitiseImportedSettings(raw: unknown): BackupSettingsSnapshot | null {
     snapshot.fontSizeScale = obj.fontSizeScale;
     hasAny = true;
   }
+  if (
+    obj.fontFamily === 'jakarta' ||
+    obj.fontFamily === 'outfit' ||
+    obj.fontFamily === 'manrope' ||
+    obj.fontFamily === 'space' ||
+    obj.fontFamily === 'dm'
+  ) {
+    snapshot.fontFamily = obj.fontFamily;
+    hasAny = true;
+  }
   if (typeof obj.profileName === 'string' && obj.profileName.trim()) {
     snapshot.profileName = obj.profileName.trim().slice(0, 120);
     hasAny = true;

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { MessageSquare, Phone } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { getContactKey } from '@/src/lib/contacts';
 import { normaliseEthPhone } from '@/src/lib/ethiopia';
-import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { quietContacts, quietMessage } from '@/src/lib/reminders';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { filterCallsForInsightsRange } from '@/src/preview/v106/TrendChartV106';
@@ -121,10 +122,10 @@ export function BusinessLeadsV107({
                     <button
                       type="button"
                       onClick={() => onSelectContact(lead.call.number)}
-                      className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: avatarColor(lead.call.number) }}
+                      className="rounded-full shrink-0"
+                      aria-label={`Open contact ${lead.displayName}`}
                     >
-                      {initials(lead.call.name, lead.call.number)}
+                      <ContactAvatar name={lead.call.name} number={lead.call.number} size="md" />
                     </button>
                     <div className="min-w-0">
                       <button
@@ -205,10 +206,10 @@ export function BusinessLeadsV107({
                     <button
                       type="button"
                       onClick={() => onSelectContact(inq.number)}
-                      className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: avatarColor(inq.number) }}
+                      className="rounded-full shrink-0"
+                      aria-label={`Open contact ${inq.displayName}`}
                     >
-                      {initials(inq.displayName, inq.number)}
+                      <ContactAvatar name={inq.displayName} number={inq.number} size="md" />
                     </button>
                     <div className="min-w-0">
                       <button
@@ -280,10 +281,10 @@ export function BusinessLeadsV107({
                     <button
                       type="button"
                       onClick={() => onSelectContact(client.number)}
-                      className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: avatarColor(client.number) }}
+                      className="rounded-full shrink-0"
+                      aria-label={`Open contact ${displayName}`}
                     >
-                      {initials(client.name, client.number)}
+                      <ContactAvatar name={client.name} number={client.number} size="md" />
                     </button>
                     <button
                       type="button"

@@ -2,12 +2,27 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  ArrowUpRight,
+  Bell,
+  BookOpen,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Compass,
+  Fingerprint,
+  HelpCircle,
   LogIn,
+  MapPin,
   MessageSquare,
+  Palette,
+  Phone,
+  RotateCcw,
+  Search,
   Send,
   ShieldCheck,
+  Smartphone,
+  ThumbsDown,
+  ThumbsUp,
   X,
 } from 'lucide-react';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
@@ -20,6 +35,8 @@ import {
   getFaqById,
   getFaqsByCategory,
   matchHelpFaq,
+  searchHelpFaqs,
+  type HelpFaqAction,
   type HelpFaqCategory,
   type HelpFaqEntry,
 } from '@/src/lib/helpBotFaq';
@@ -40,13 +57,56 @@ type BotChatItem =
   | {
       id: string;
       role: 'bot';
+      isWelcome?: boolean;
       title?: string;
       text: string;
       whereToFind?: string;
       steps?: string[];
       followUpIds?: string[];
+      action?: HelpFaqAction;
       showAdminCta?: boolean;
     };
+
+const QUICK_START_CARDS: Array<{
+  faqId: string;
+  title: string;
+  subtitle: string;
+  icon: typeof Compass;
+}> = [
+  {
+    faqId: 'tour-overview',
+    title: 'App Tour',
+    subtitle: 'See every feature',
+    icon: Compass,
+  },
+  {
+    faqId: 'sync-calls',
+    title: 'Sync Calls',
+    subtitle: 'Android logs & CSV',
+    icon: Phone,
+  },
+  {
+    faqId: 'pin-lock',
+    title: 'Biometric & PIN',
+    subtitle: 'Auto-lock & reset',
+    icon: Fingerprint,
+  },
+  {
+    faqId: 'theme-font',
+    title: 'Themes & Fonts',
+    subtitle: '5 modern styles',
+    icon: Palette,
+  },
+];
+
+const QUICK_POPULAR_TOPICS = [
+  'schedule-reminder',
+  'sim-tariffs',
+  'ethiopian-calendar',
+  'backup-export',
+  'streaks-badges',
+  'troubleshoot-notifications',
+] as const;
 
 const ADMIN_STARTER_PROMPTS = [
   'I found a bug to report',
@@ -55,21 +115,54 @@ const ADMIN_STARTER_PROMPTS = [
   'Question about my account',
 ] as const;
 
+function createInitialBotMessages(): BotChatItem[] {
+  return [
+    {
+      id: 'welcome-bot',
+      role: 'bot',
+      isWelcome: true,
+      title: 'How can I help you today?',
+      text: 'Pick a quick guide below, type any question, or jump straight to the setting you need — works 100% offline.',
+      followUpIds: ['schedule-reminder', 'sim-tariffs', 'ethiopian-calendar', 'backup-export'],
+    },
+  ];
+}
+
+function getCategoryIcon(category: HelpFaqCategory) {
+  switch (category) {
+    case 'getting-started':
+      return Compass;
+    case 'reminders':
+      return Bell;
+    case 'tariffs':
+      return Smartphone;
+    case 'calendar':
+      return BookOpen;
+    case 'analytics':
+      return HelpCircle;
+    case 'privacy':
+      return ShieldCheck;
+    case 'appearance':
+      return Palette;
+  }
+}
+
 export function HelpSupportModal({
   open,
   initialTab = 'bot',
   onClose,
+  onNavigate,
 }: {
   open: boolean;
   initialTab?: HelpSupportInitialTab;
   onClose: () => void;
+  onNavigate?: (action: HelpFaqAction) => void;
 }) {
   const {
     authUser,
     profileName,
     userPhotoUrl,
     openAuthPrompt,
-    showNotice,
   } = useCalls();
 
   const prefersReducedMotion = useReducedMotion();
@@ -78,18 +171,12 @@ export function HelpSupportModal({
   const [tab, setTab] = useState<HelpSupportInitialTab>(initialTab);
   const [selectedCategory, setSelectedCategory] = useState<HelpFaqCategory | 'all'>('all');
   const [showTopicsDrawer, setShowTopicsDrawer] = useState(false);
+  const [topicSearch, setTopicSearch] = useState('');
 
   // Offline FAQ Bot state
   const [botInput, setBotInput] = useState('');
-  const [botMessages, setBotMessages] = useState<BotChatItem[]>(() => [
-    {
-      id: 'welcome-bot',
-      role: 'bot',
-      title: 'Welcome to Call Analyzer - ETH Assistant',
-      text: 'Ask me anything about how the app works, or tap any topic below for a guided walkthrough—no internet or AI key needed.',
-      followUpIds: ['tour-overview', 'sync-calls', 'schedule-reminder', 'ethiopian-calendar'],
-    },
-  ]);
+  const [botMessages, setBotMessages] = useState<BotChatItem[]>(createInitialBotMessages);
+  const [feedbackByMsgId, setFeedbackByMsgId] = useState<Record<string, 'up' | 'down'>>({});
 
   // Live Admin Chat state
   const [thread, setThread] = useState<SupportThread | null>(null);
@@ -100,6 +187,35 @@ export function HelpSupportModal({
 
   const botScrollRef = useRef<HTMLDivElement>(null);
   const adminScrollRef = useRef<HTMLDivElement>(null);
+  const categoryRailRef = useRef<HTMLDivElement>(null);
+  const [canScrollCatLeft, setCanScrollCatLeft] = useState(false);
+  const [canScrollCatRight, setCanScrollCatRight] = useState(false);
+
+  const syncCategoryScrollHints = () => {
+    const el = categoryRailRef.current;
+    if (!el) return;
+    setCanScrollCatLeft(el.scrollLeft > 4);
+    setCanScrollCatRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+
+  useEffect(() => {
+    if (!open || tab !== 'bot') return;
+    const raf = window.requestAnimationFrame(syncCategoryScrollHints);
+    window.addEventListener('resize', syncCategoryScrollHints);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', syncCategoryScrollHints);
+    };
+  }, [open, tab, showTopicsDrawer, selectedCategory]);
+
+  const scrollCategoryRail = (direction: -1 | 1) => {
+    const el = categoryRailRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: direction * 170,
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+    });
+  };
 
   useEffect(() => {
     if (open) {
@@ -157,26 +273,32 @@ export function HelpSupportModal({
 
   // Auto-scroll chat panes
   useEffect(() => {
-    if (tab === 'bot') {
+    if (tab === 'bot' && !showTopicsDrawer) {
       botScrollRef.current?.scrollTo({
         top: botScrollRef.current.scrollHeight,
-        behavior: 'smooth',
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
       });
     }
-  }, [botMessages, tab, open]);
+  }, [botMessages, tab, open, showTopicsDrawer, prefersReducedMotion]);
 
   useEffect(() => {
     if (tab === 'admin') {
       adminScrollRef.current?.scrollTo({
         top: adminScrollRef.current.scrollHeight,
-        behavior: 'smooth',
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
       });
     }
-  }, [chatMessages, tab, open]);
+  }, [chatMessages, tab, open, prefersReducedMotion]);
+
+  const liveSuggestions = useMemo(() => {
+    if (botInput.trim().length < 2) return [];
+    return searchHelpFaqs(botInput, 3);
+  }, [botInput]);
 
   const pushFaqReply = (entry: HelpFaqEntry, userPromptLabel?: string) => {
     triggerHaptic('tap');
     setShowTopicsDrawer(false);
+    setBotInput('');
     const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     setBotMessages((prev) => [
       ...prev,
@@ -191,8 +313,30 @@ export function HelpSupportModal({
         whereToFind: entry.whereToFind,
         steps: entry.steps,
         followUpIds: entry.followUps,
+        action: entry.action,
       },
     ]);
+  };
+
+  const handleResetBotChat = () => {
+    triggerHaptic('tap');
+    setShowTopicsDrawer(false);
+    setTopicSearch('');
+    setBotInput('');
+    setFeedbackByMsgId({});
+    setBotMessages(createInitialBotMessages());
+  };
+
+  const handleActionClick = (action: HelpFaqAction) => {
+    triggerHaptic('tap');
+    if (action.kind === 'admin-chat') {
+      setTab('admin');
+      return;
+    }
+    if (onNavigate) {
+      onNavigate(action);
+      onClose();
+    }
   };
 
   const handleBotSubmit = (e: React.FormEvent) => {
@@ -200,6 +344,7 @@ export function HelpSupportModal({
     const raw = botInput.trim();
     if (!raw) return;
     setBotInput('');
+    setShowTopicsDrawer(false);
     triggerHaptic('tap');
 
     const result = matchHelpFaq(raw);
@@ -209,7 +354,9 @@ export function HelpSupportModal({
       const followIds = [
         ...result.matched.followUps,
         ...result.related.map((r) => r.id),
-      ].filter((v, idx, arr) => arr.indexOf(v) === idx).slice(0, 4);
+      ]
+        .filter((v, idx, arr) => arr.indexOf(v) === idx)
+        .slice(0, 4);
 
       setBotMessages((prev) => [
         ...prev,
@@ -222,6 +369,7 @@ export function HelpSupportModal({
           whereToFind: result.matched!.whereToFind,
           steps: result.matched!.steps,
           followUpIds: followIds,
+          action: result.matched!.action,
         },
       ]);
       return;
@@ -249,7 +397,7 @@ export function HelpSupportModal({
         id: `b_${stamp}`,
         role: 'bot',
         title: "I didn't find an exact match for that",
-        text: 'Try asking with keywords like "sync", "reminder", "SIM tariff", "Ethiopian calendar", "backup", or "PIN lock" — or send your question straight to the Admin!',
+        text: 'Try keywords like "sync", "biometric", "fonts", "SIM tariff", "Ethiopian calendar", or "backup" — or message the Admin directly.',
         followUpIds: result.related.map((r) => r.id),
         showAdminCta: true,
       },
@@ -277,9 +425,15 @@ export function HelpSupportModal({
   };
 
   const browseEntries = useMemo(() => {
-    if (selectedCategory === 'all') return HELP_FAQ_ENTRIES;
-    return getFaqsByCategory(selectedCategory);
-  }, [selectedCategory]);
+    const trimmed = topicSearch.trim();
+    const base =
+      selectedCategory === 'all' ? HELP_FAQ_ENTRIES : getFaqsByCategory(selectedCategory);
+    if (!trimmed) return base;
+    const matchedIds = new Set(searchHelpFaqs(trimmed, HELP_FAQ_ENTRIES.length).map((e) => e.id));
+    return base.filter((e) => matchedIds.has(e.id));
+  }, [selectedCategory, topicSearch]);
+
+  const hasConversationStarted = botMessages.length > 1;
 
   const modalContent = (
     <AnimatePresence>
@@ -291,18 +445,18 @@ export function HelpSupportModal({
           exit={{ opacity: 0 }}
           transition={{ duration: prefersReducedMotion ? 0.1 : 0.16 }}
           onClick={onClose}
-          className="fixed inset-0 z-50 bg-black/55 flex items-end sm:items-center justify-center p-0 sm:p-4 overscroll-contain"
+          className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-0 sm:p-4 overscroll-contain"
         >
           <motion.div
             initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 18, scale: 0.98 }}
             animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.98 }}
-            transition={{ duration: prefersReducedMotion ? 0.1 : 0.18 }}
+            transition={{ duration: prefersReducedMotion ? 0.1 : 0.18, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="help-support-title"
-            className="w-full sm:max-w-lg h-[88dvh] sm:h-[640px] max-h-[90dvh] rounded-t-2xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-2xl overflow-hidden flex flex-col pb-[env(safe-area-inset-bottom)]"
+            className="w-full sm:max-w-lg h-[90dvh] sm:h-[660px] max-h-[92dvh] rounded-t-3xl sm:rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-2xl overflow-hidden flex flex-col pb-[env(safe-area-inset-bottom)]"
           >
             {/* Header */}
             <div className="px-4 py-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] shrink-0 space-y-3">
@@ -324,19 +478,32 @@ export function HelpSupportModal({
                     </h2>
                     <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
                       {tab === 'bot'
-                        ? 'Instant offline guide for every feature'
+                        ? 'Instant offline answers & one-tap shortcuts'
                         : 'Direct support from the Call Analyzer - ETH team'}
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label="Close help and support"
-                  className="min-h-[38px] min-w-[38px] rounded-xl flex items-center justify-center text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] shrink-0 transition-colors"
-                >
-                  <X size={18} />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {tab === 'bot' && hasConversationStarted && (
+                    <button
+                      type="button"
+                      onClick={handleResetBotChat}
+                      aria-label="Start new chat"
+                      title="New chat"
+                      className="min-h-[38px] min-w-[38px] rounded-xl flex items-center justify-center text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
+                    >
+                      <RotateCcw size={16} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close help and support"
+                    className="min-h-[38px] min-w-[38px] rounded-xl flex items-center justify-center text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
               {/* 2-Tab Switcher */}
@@ -353,14 +520,14 @@ export function HelpSupportModal({
                     triggerHaptic('tap');
                     setTab('bot');
                   }}
-                  className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                     tab === 'bot'
                       ? 'bg-[#FF6A00] text-white shadow-xs'
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
                   }`}
                 >
                   <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[14px]" />
-                  <span>App Guide Bot</span>
+                  <span>App Helper Bot</span>
                 </button>
                 <button
                   type="button"
@@ -370,7 +537,7 @@ export function HelpSupportModal({
                     triggerHaptic('tap');
                     setTab('admin');
                   }}
-                  className={`relative min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  className={`relative min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                     tab === 'admin'
                       ? 'bg-[#FF6A00] text-white shadow-xs'
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white'
@@ -388,140 +555,375 @@ export function HelpSupportModal({
             {/* TAB 1: Offline Interactive FAQ Bot */}
             {tab === 'bot' && (
               <>
-                {/* Quick Topic Explorer Strip */}
-                <div className="px-4 py-2 border-b border-[#EEF2F6] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)]/70 flex items-center justify-between gap-2 shrink-0">
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                {/* Organized Mode Switcher & Single-Row Scrollable Category Rail */}
+                <div className="px-4 py-2 border-b border-[#EEF2F6] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)]/70 space-y-2 shrink-0">
+                  <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
                       onClick={() => {
                         triggerHaptic('tap');
-                        setShowTopicsDrawer((v) => !v);
+                        setShowTopicsDrawer(false);
                       }}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 border transition-colors ${
-                        showTopicsDrawer
-                          ? 'bg-[#08246B] dark:bg-[#FF6A00] text-white border-transparent'
+                      className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap ${
+                        !showTopicsDrawer
+                          ? 'bg-[#08246B] dark:bg-[#FF6A00] text-white border-transparent shadow-xs'
+                          : 'bg-white dark:bg-[var(--dark-surface)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] hover:text-[#08246B] dark:hover:text-white'
+                      }`}
+                    >
+                      <MessageSquare size={12} />
+                      <span>Assistant</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        setSelectedCategory('all');
+                        setShowTopicsDrawer(true);
+                      }}
+                      className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap ${
+                        showTopicsDrawer && selectedCategory === 'all'
+                          ? 'bg-[#08246B] dark:bg-[#FF6A00] text-white border-transparent shadow-xs'
                           : 'bg-white dark:bg-[var(--dark-surface)] text-[#08246B] dark:text-white border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00]'
                       }`}
                     >
                       <Compass size={12} />
-                      <span>All Topics ({HELP_FAQ_ENTRIES.length})</span>
+                      <span>All Guides ({HELP_FAQ_ENTRIES.length})</span>
                     </button>
-                    {HELP_FAQ_CATEGORIES.slice(0, 4).map((cat) => (
+                  </div>
+
+                  <div className="relative flex items-center gap-1">
+                    {canScrollCatLeft && (
                       <button
-                        key={cat.key}
                         type="button"
-                        onClick={() => {
-                          triggerHaptic('tap');
-                          setSelectedCategory(cat.key);
-                          setShowTopicsDrawer(true);
-                        }}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap shrink-0 bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:border-[#FF6A00] hover:text-[#08246B] dark:hover:text-white transition-colors"
+                        onClick={() => scrollCategoryRail(-1)}
+                        aria-label="Scroll categories left"
+                        className="w-7 h-7 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center justify-center shrink-0 shadow-xs transition-colors"
                       >
-                        {cat.label}
+                        <ChevronLeft size={14} />
                       </button>
-                    ))}
+                    )}
+
+                    <div
+                      ref={categoryRailRef}
+                      onScroll={syncCategoryScrollHints}
+                      onWheel={(e) => {
+                        const el = categoryRailRef.current;
+                        if (!el) return;
+                        if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) {
+                          el.scrollLeft += e.deltaY;
+                        }
+                      }}
+                      className="flex-1 min-w-0 flex flex-nowrap items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x scroll-smooth"
+                    >
+                      {HELP_FAQ_CATEGORIES.map((cat) => {
+                        const active = showTopicsDrawer && selectedCategory === cat.key;
+                        const CatIcon = getCategoryIcon(cat.key);
+                        return (
+                          <button
+                            key={cat.key}
+                            type="button"
+                            onClick={(e) => {
+                              triggerHaptic('tap');
+                              setSelectedCategory(cat.key);
+                              setShowTopicsDrawer(true);
+                              e.currentTarget.scrollIntoView({
+                                behavior: prefersReducedMotion ? 'auto' : 'smooth',
+                                inline: 'center',
+                                block: 'nearest',
+                              });
+                            }}
+                            className={`h-7 px-2.5 rounded-lg text-[10.5px] inline-flex items-center gap-1.5 border whitespace-nowrap shrink-0 transition-colors ${
+                              active
+                                ? 'bg-[#08246B] dark:bg-[#FF6A00] text-white border-transparent font-semibold'
+                                : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-medium hover:border-[#FF6A00] hover:text-[#08246B] dark:hover:text-white'
+                            }`}
+                          >
+                            <CatIcon size={11} className={active ? 'text-white' : 'text-[#FF6A00]'} />
+                            <span>{cat.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {canScrollCatRight && (
+                      <button
+                        type="button"
+                        onClick={() => scrollCategoryRail(1)}
+                        aria-label="Scroll categories right"
+                        className="w-7 h-7 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center justify-center shrink-0 shadow-xs transition-colors"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Browse All Topics Drawer OR Chat Transcript */}
+                {/* Browse All Topics Directory OR Assistant Chat */}
                 {showTopicsDrawer ? (
-                  <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-bold text-[#08246B] dark:text-white">
-                        Explore Everything in Call Analyzer - ETH
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setShowTopicsDrawer(false)}
-                        className="text-[11px] font-semibold text-[#FF6A00] hover:underline"
-                      >
-                        Back to chat
-                      </button>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCategory('all')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-                          selectedCategory === 'all'
-                            ? 'bg-[#FF6A00] text-white'
-                            : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                        }`}
-                      >
-                        All ({HELP_FAQ_ENTRIES.length})
-                      </button>
-                      {HELP_FAQ_CATEGORIES.map((cat) => (
+                  <div className="flex-1 min-h-0 flex flex-col bg-[#F5F7FA]/60 dark:bg-[var(--dark-canvas)]/40">
+                    {/* Directory Search Input */}
+                    <div className="px-4 pt-3 pb-2 shrink-0 space-y-2">
+                      <div className="relative">
+                        <Search
+                          size={14}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A93A0] pointer-events-none"
+                        />
+                        <input
+                          type="text"
+                          value={topicSearch}
+                          onChange={(e) => setTopicSearch(e.target.value)}
+                          placeholder="Search guides (e.g. PIN, biometric, fonts, SIM, sync)..."
+                          className="w-full min-h-[38px] pl-8 pr-8 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                        />
+                        {topicSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setTopicSearch('')}
+                            aria-label="Clear topic search"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[#8A93A0] hover:text-[#08246B] dark:hover:text-white"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        <span>
+                          {browseEntries.length} {browseEntries.length === 1 ? 'guide' : 'guides'}
+                        </span>
                         <button
-                          key={cat.key}
                           type="button"
-                          onClick={() => setSelectedCategory(cat.key)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-                            selectedCategory === cat.key
-                              ? 'bg-[#FF6A00] text-white'
-                              : 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
-                          }`}
+                          onClick={() => setShowTopicsDrawer(false)}
+                          className="font-semibold text-[#FF6A00] hover:underline"
                         >
-                          {cat.label}
+                          Back to Assistant
                         </button>
-                      ))}
+                      </div>
                     </div>
 
-                    <div className="space-y-2">
-                      {browseEntries.map((entry) => (
-                        <button
-                          key={entry.id}
-                          type="button"
-                          onClick={() => pushFaqReply(entry, entry.shortLabel)}
-                          className="w-full rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] hover:border-[#FF6A00] p-3 text-left transition-colors"
-                        >
+                    {/* Topic Cards List */}
+                    <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-2">
+                      {browseEntries.length === 0 ? (
+                        <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 text-center space-y-2.5">
                           <p className="text-xs font-semibold text-[#08246B] dark:text-white">
-                            {entry.title}
+                            No guides match "{topicSearch}"
                           </p>
-                          <p className="mt-0.5 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] line-clamp-2">
-                            {entry.answer}
+                          <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                            Try another keyword or ask the Admin directly.
                           </p>
-                        </button>
-                      ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTab('admin');
+                              setAdminInput(topicSearch.trim());
+                            }}
+                            className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#FF6A00] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                          >
+                            <MessageSquare size={13} />
+                            <span>Ask Admin</span>
+                          </button>
+                        </div>
+                      ) : (
+                        browseEntries.map((entry) => {
+                          const CatIcon = getCategoryIcon(entry.category);
+                          return (
+                            <div
+                              key={entry.id}
+                              className="rounded-2xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] p-3.5 space-y-2 hover:border-[#FF6A00]/70 transition-colors"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => pushFaqReply(entry, entry.shortLabel)}
+                                className="w-full text-left flex items-start gap-2.5"
+                              >
+                                <div className="w-8 h-8 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0 mt-0.5">
+                                  <CatIcon size={15} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-bold text-[#08246B] dark:text-white leading-snug">
+                                    {entry.title}
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] line-clamp-2 leading-relaxed">
+                                    {entry.answer}
+                                  </p>
+                                </div>
+                              </button>
+                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#EEF2F6] dark:border-[var(--dark-border)]">
+                                <span className="text-[10px] text-[#8A93A0] truncate flex items-center gap-1 min-w-0">
+                                  <MapPin size={10} className="text-[#FF6A00] shrink-0" />
+                                  <span className="truncate">{entry.whereToFind}</span>
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {entry.action && onNavigate && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleActionClick(entry.action!)}
+                                      className="px-2.5 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#FF6A00] hover:text-white text-[11px] font-semibold text-[#08246B] dark:text-white inline-flex items-center gap-1 transition-colors"
+                                    >
+                                      <span>Open</span>
+                                      <ArrowUpRight size={11} />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => pushFaqReply(entry, entry.shortLabel)}
+                                    className="px-2.5 py-1 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[11px] font-semibold text-[#FF6A00] hover:bg-[#FF6A00] hover:text-white transition-colors"
+                                  >
+                                    Read Steps
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 ) : (
                   <div
                     ref={botScrollRef}
-                    className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-[#F5F7FA]/60 dark:bg-[var(--dark-canvas)]/50"
+                    className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3.5 bg-[#F5F7FA]/60 dark:bg-[var(--dark-canvas)]/50"
                   >
-                    {botMessages.map((msg) =>
-                      msg.role === 'user' ? (
-                        <div key={msg.id} className="flex justify-end">
-                          <div className="max-w-[82%] rounded-2xl rounded-br-sm bg-[#FF6A00] text-white px-3.5 py-2 text-xs leading-relaxed shadow-xs">
-                            {msg.text}
+                    {botMessages.map((msg) => {
+                      if (msg.role === 'user') {
+                        return (
+                          <motion.div
+                            key={msg.id}
+                            initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.14 }}
+                            className="flex justify-end"
+                          >
+                            <div className="max-w-[82%] rounded-2xl rounded-br-sm bg-[#FF6A00] text-white px-3.5 py-2 text-xs font-medium leading-relaxed shadow-xs">
+                              {msg.text}
+                            </div>
+                          </motion.div>
+                        );
+                      }
+
+                      if (msg.isWelcome) {
+                        return (
+                          <div key={msg.id} className="space-y-3">
+                            <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3 shadow-xs">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                                  <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[18px]" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-[#08246B] dark:text-white">
+                                    {msg.title}
+                                  </p>
+                                  <p className="mt-0.5 text-xs leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                    {msg.text}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* 2x2 Quick Start Grid */}
+                              <div className="grid grid-cols-2 gap-2">
+                                {QUICK_START_CARDS.map((card) => {
+                                  const entry = getFaqById(card.faqId);
+                                  if (!entry) return null;
+                                  const Icon = card.icon;
+                                  return (
+                                    <button
+                                      key={card.faqId}
+                                      type="button"
+                                      onClick={() => pushFaqReply(entry, entry.shortLabel)}
+                                      className="min-h-[56px] rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] hover:border-[#FF6A00] p-2.5 text-left flex items-center gap-2.5 transition-colors"
+                                    >
+                                      <div className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                                        <Icon size={15} />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                                          {card.title}
+                                        </p>
+                                        <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                                          {card.subtitle}
+                                        </p>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Popular Questions Strip */}
+                              <div className="pt-1 border-t border-[#EEF2F6] dark:border-[var(--dark-border)] space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                                    Popular questions
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      triggerHaptic('tap');
+                                      setSelectedCategory('all');
+                                      setShowTopicsDrawer(true);
+                                    }}
+                                    className="text-[11px] font-semibold text-[#FF6A00] hover:underline"
+                                  >
+                                    Browse all {HELP_FAQ_ENTRIES.length} →
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {QUICK_POPULAR_TOPICS.map((fid) => {
+                                    const target = getFaqById(fid);
+                                    if (!target) return null;
+                                    return (
+                                      <button
+                                        key={fid}
+                                        type="button"
+                                        onClick={() => pushFaqReply(target, target.shortLabel)}
+                                        className="min-h-[34px] px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-[11px] font-semibold text-[#08246B] dark:text-white text-left truncate transition-colors"
+                                      >
+                                        {target.shortLabel}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div key={msg.id} className="flex items-start gap-2">
+                        );
+                      }
+
+                      const feedback = feedbackByMsgId[msg.id];
+                      const showEscalation = msg.showAdminCta || feedback === 'down';
+
+                      return (
+                        <motion.div
+                          key={msg.id}
+                          initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                          className="flex items-start gap-2"
+                        >
                           <div className="w-7 h-7 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0 mt-0.5">
                             <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[14px]" />
                           </div>
-                          <div className="max-w-[88%] rounded-2xl rounded-tl-sm bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-2.5 space-y-2 shadow-xs">
+                          <div className="max-w-[90%] rounded-2xl rounded-tl-sm bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3.5 py-3 space-y-2.5 shadow-xs">
                             {msg.title && (
-                              <p className="text-xs font-bold text-[#08246B] dark:text-white">
+                              <p className="text-xs font-bold text-[#08246B] dark:text-white leading-snug">
                                 {msg.title}
                               </p>
                             )}
                             <p className="text-xs leading-relaxed text-[#374151] dark:text-[var(--dark-text-secondary)]">
                               {msg.text}
                             </p>
+
                             {msg.whereToFind && (
-                              <p className="text-[11px] font-medium text-[#FF6A00] bg-[#FFF0E6]/70 dark:bg-[#FF6A00]/10 rounded-lg px-2.5 py-1">
-                                Where: {msg.whereToFind}
-                              </p>
+                              <div className="flex items-start gap-1.5 text-[11px] font-medium text-[#FF6A00] bg-[#FFF0E6]/70 dark:bg-[#FF6A00]/10 rounded-lg px-2.5 py-1.5">
+                                <MapPin size={12} className="shrink-0 mt-0.5" />
+                                <span>{msg.whereToFind}</span>
+                              </div>
                             )}
+
                             {msg.steps && msg.steps.length > 0 && (
-                              <ul className="space-y-1 text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              <ul className="space-y-1.5 text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                                 {msg.steps.map((step, i) => (
-                                  <li key={i} className="flex items-start gap-1.5">
-                                    <span className="font-mono font-bold text-[#FF6A00] shrink-0">
-                                      {i + 1}.
+                                  <li key={i} className="flex items-start gap-2">
+                                    <span className="w-4 h-4 rounded-full bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[10px] font-mono font-bold text-[#FF6A00] flex items-center justify-center shrink-0 mt-0.5">
+                                      {i + 1}
                                     </span>
                                     <span>{step}</span>
                                   </li>
@@ -529,8 +931,87 @@ export function HelpSupportModal({
                               </ul>
                             )}
 
+                            {/* Direct Action + Helpful Feedback */}
+                            {(msg.action || msg.steps || showEscalation) && (
+                              <div className="pt-1.5 border-t border-[#EEF2F6] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {msg.action && onNavigate && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleActionClick(msg.action!)}
+                                      className="min-h-[34px] px-3 py-1 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-white text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
+                                    >
+                                      <span>{msg.action.label}</span>
+                                      <ArrowUpRight size={13} />
+                                    </button>
+                                  )}
+                                  {showEscalation && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerHaptic('tap');
+                                        setTab('admin');
+                                      }}
+                                      className="min-h-[34px] px-3 py-1 rounded-xl bg-[#08246B] dark:bg-[var(--dark-elevated)] hover:opacity-90 text-white text-[11px] font-semibold inline-flex items-center gap-1.5 transition-opacity"
+                                    >
+                                      <MessageSquare size={12} />
+                                      <span>Ask Admin directly</span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                {!msg.showAdminCta && (
+                                  <div className="flex items-center gap-1 ml-auto">
+                                    <span className="text-[10px] text-[#8A93A0] mr-0.5">
+                                      {feedback === 'up'
+                                        ? 'Helpful!'
+                                        : feedback === 'down'
+                                          ? 'Ask Admin?'
+                                          : 'Helpful?'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      aria-label="Mark answer helpful"
+                                      onClick={() => {
+                                        triggerHaptic('tap');
+                                        setFeedbackByMsgId((prev) => ({
+                                          ...prev,
+                                          [msg.id]: 'up',
+                                        }));
+                                      }}
+                                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                                        feedback === 'up'
+                                          ? 'bg-[#10B981]/15 text-[#059669] dark:text-[#34D399]'
+                                          : 'text-[#8A93A0] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-canvas)] hover:text-[#08246B] dark:hover:text-white'
+                                      }`}
+                                    >
+                                      <ThumbsUp size={12} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-label="Mark answer not helpful"
+                                      onClick={() => {
+                                        triggerHaptic('tap');
+                                        setFeedbackByMsgId((prev) => ({
+                                          ...prev,
+                                          [msg.id]: 'down',
+                                        }));
+                                      }}
+                                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                                        feedback === 'down'
+                                          ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/20 text-[#FF6A00]'
+                                          : 'text-[#8A93A0] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-canvas)] hover:text-[#08246B] dark:hover:text-white'
+                                      }`}
+                                    >
+                                      <ThumbsDown size={12} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             {msg.followUpIds && msg.followUpIds.length > 0 && (
-                              <div className="pt-1 flex flex-wrap gap-1.5">
+                              <div className="pt-0.5 flex flex-wrap gap-1.5">
                                 {msg.followUpIds.map((fid) => {
                                   const target = getFaqById(fid);
                                   if (!target) return null;
@@ -539,7 +1020,7 @@ export function HelpSupportModal({
                                       key={fid}
                                       type="button"
                                       onClick={() => pushFaqReply(target, target.shortLabel)}
-                                      className="px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] hover:border-[#FF6A00] text-[11px] font-semibold text-[#08246B] dark:text-white transition-colors"
+                                      className="min-h-[30px] px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] hover:border-[#FF6A00] text-[11px] font-semibold text-[#08246B] dark:text-white transition-colors"
                                     >
                                       {target.shortLabel}
                                     </button>
@@ -547,50 +1028,54 @@ export function HelpSupportModal({
                                 })}
                               </div>
                             )}
-
-                            {msg.showAdminCta && (
-                              <div className="pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    triggerHaptic('tap');
-                                    setTab('admin');
-                                  }}
-                                  className="min-h-[34px] px-3 py-1 rounded-lg bg-[#08246B] dark:bg-[#FF6A00] text-white text-[11px] font-semibold inline-flex items-center gap-1.5"
-                                >
-                                  <MessageSquare size={12} />
-                                  <span>Ask Admin directly</span>
-                                </button>
-                              </div>
-                            )}
                           </div>
-                        </div>
-                      ),
-                    )}
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* Bot Input Bar */}
-                <form
-                  onSubmit={handleBotSubmit}
-                  className="px-3 py-2.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] flex items-center gap-2 shrink-0"
-                >
-                  <input
-                    type="text"
-                    value={botInput}
-                    onChange={(e) => setBotInput(e.target.value)}
-                    placeholder="Ask anything (e.g. sync, reminder, SIM, calendar)..."
-                    className="flex-1 min-h-[40px] px-3 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!botInput.trim()}
-                    aria-label="Ask App Guide Bot"
-                    className="min-h-[40px] min-w-[40px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-40 text-white flex items-center justify-center transition-colors shrink-0"
+                {/* Live Typeahead Suggestions + Bot Input Bar */}
+                <div className="border-t border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] shrink-0">
+                  {liveSuggestions.length > 0 && !showTopicsDrawer && (
+                    <div className="px-3 pt-2 pb-1 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-[#8A93A0] shrink-0">
+                        Quick match:
+                      </span>
+                      {liveSuggestions.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => pushFaqReply(item, item.shortLabel)}
+                          className="px-2.5 py-1 rounded-lg bg-[#FFF0E6]/80 dark:bg-[#FF6A00]/15 border border-[#FF6A00]/30 text-[11px] font-semibold text-[#FF6A00] hover:bg-[#FF6A00] hover:text-white transition-colors"
+                        >
+                          {item.shortLabel}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={handleBotSubmit}
+                    className="px-3 py-2.5 flex items-center gap-2"
                   >
-                    <Send size={15} />
-                  </button>
-                </form>
+                    <input
+                      type="text"
+                      value={botInput}
+                      onChange={(e) => setBotInput(e.target.value)}
+                      placeholder="Ask anything (e.g. biometric, fonts, SIM, sync)..."
+                      className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!botInput.trim()}
+                      aria-label="Ask App Helper Bot"
+                      className="min-h-[42px] min-w-[42px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-40 text-white flex items-center justify-center transition-colors shrink-0"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </form>
+                </div>
               </>
             )}
 
@@ -616,7 +1101,7 @@ export function HelpSupportModal({
                         onClose();
                         openAuthPrompt('signin', 'Sign in to chat with Admin Support.');
                       }}
-                      className="min-h-[40px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition-colors"
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition-colors"
                     >
                       <LogIn size={14} />
                       <span>Login / Create Account</span>
@@ -655,7 +1140,7 @@ export function HelpSupportModal({
                                 type="button"
                                 disabled={sendingAdmin}
                                 onClick={() => setAdminInput(prompt)}
-                                className="px-2.5 py-1.5 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-[11px] font-medium text-[#08246B] dark:text-white transition-colors"
+                                className="min-h-[34px] px-3 py-1.5 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-[11px] font-medium text-[#08246B] dark:text-white transition-colors"
                               >
                                 {prompt}
                               </button>
@@ -713,13 +1198,13 @@ export function HelpSupportModal({
                         value={adminInput}
                         onChange={(e) => setAdminInput(e.target.value)}
                         placeholder="Write a message to Admin..."
-                        className="flex-1 min-h-[40px] px-3 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
+                        className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
                       />
                       <button
                         type="submit"
                         disabled={sendingAdmin || !adminInput.trim()}
                         aria-label="Send message to Admin"
-                        className="min-h-[40px] min-w-[40px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-40 text-white flex items-center justify-center transition-colors shrink-0"
+                        className="min-h-[42px] min-w-[42px] px-3 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-40 text-white flex items-center justify-center transition-colors shrink-0"
                       >
                         <Send size={15} />
                       </button>

@@ -17,10 +17,10 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
-import { avatarColor, initials } from '@/src/lib/format';
 import {
   BADGE_DEFINITIONS,
   CONTACT_BADGE_DEFINITIONS,
@@ -639,12 +639,7 @@ const LIST_PAGE_STEP = 12;
                                 className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors"
                               >
                                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                                  <div
-                                    className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                                    style={{ backgroundColor: avatarColor(status.number) }}
-                                  >
-                                    {initials(shownName, status.number)}
-                                  </div>
+                                  <ContactAvatar name={shownName} number={status.number} size="md" />
                                   <div className="min-w-0 flex-1 space-y-0.5">
                                     <div className="flex items-center gap-1.5 min-w-0">
                                       <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">

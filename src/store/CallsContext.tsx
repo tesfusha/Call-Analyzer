@@ -13,9 +13,11 @@ import {
   EmailAuthProvider,
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  deleteUser,
   getRedirectResult,
   onAuthStateChanged,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithCredential,
@@ -79,13 +81,16 @@ import {
 import {
   DEFAULT_RELATIONSHIP_TAGS,
   LEGACY_SAMPLE_FAVORITE_KEYS,
+  canSyncAllPhoneContacts,
   getContactKey,
   getUpcomingContactEvents,
   isLegacySampleCall,
   isLegacySampleContactProfile,
   isLegacySampleScheduledCall,
+  loadAllPhoneContactsIfGranted,
   mergeTagOptions,
 } from '@/src/lib/contacts';
+import { isPhoneLikeName } from '@/src/lib/format';
 import {
   buildBirthdayWish,
   buildHolidayWish,
@@ -100,6 +105,7 @@ import {
   auth,
   clampStr,
   db,
+  googleProvider,
   handleFirestoreError,
   signInWithGooglePopupSync,
 } from '@/src/lib/firebase';
@@ -225,6 +231,7 @@ const THEME_KEY = 'callanalyzer.theme.v3';
 const LEGACY_THEME_KEY = 'callanalyzer.theme.v2';
 const LEGACY_PREFERRED_DARK_THEME_KEY = 'callanalyzer.preferredDarkTheme.v1';
 const FONT_SCALE_KEY = 'callanalyzer.fontSize.v1';
+const FONT_FAMILY_KEY = 'callanalyzer.fontFamily.v1';
 const DATE_HEADER_STYLE_KEY = 'callanalyzer.dateHeaderStyle.v1';
 const DISMISSED_BROADCASTS_PREFIX = 'callanalyzer.dismissedBroadcasts.v1.';
 const SEEN_BROADCAST_POPS_PREFIX = 'callanalyzer.seenBroadcastPops.v1.';
@@ -287,6 +294,7 @@ function userStorageKey(uid: string, suffix: (typeof SCOPED_SUFFIXES)[number]): 
 export type ThemePreference = 'system' | 'light' | 'dark-gray';
 export type ThemeMode = 'light' | 'dark-gray';
 export type FontSizeScale = 'default' | 'large' | 'xlarge';
+export type FontFamilyOption = 'jakarta' | 'outfit' | 'manrope' | 'space' | 'dm';
 export type NotificationPermissionStatus = 'granted' | 'denied' | 'prompt' | 'unsupported';
 export type SyncStatus = 'signed-out' | 'guest' | 'unverified' | 'syncing' | 'synced' | 'error';
 export type AuthPromptMode = 'closed' | 'signin' | 'signup';
@@ -425,6 +433,8 @@ type CallsContextValue = {
   systemIsDark: boolean;
   fontSizeScale: FontSizeScale;
   setFontSizeScale: (scale: FontSizeScale) => void;
+  fontFamily: FontFamilyOption;
+  setFontFamily: (family: FontFamilyOption) => void;
   dateHeaderStyle: DateHeaderStyle;
   setDateHeaderStyle: (style: DateHeaderStyle) => void;
   activeBroadcasts: BroadcastMessage[];
@@ -451,6 +461,9 @@ type CallsContextValue = {
   pinEnabled: boolean;
   isLocked: boolean;
   pinLockoutUntil: number;
+  autoLockMinutes: AutoLockMinutes;
+  setAutoLockMinutes: (minutes: AutoLockMinutes) => void;
+  verifyIdentityForPinReset: (password?: string) => Promise<AuthActionResult>;
   biometricAvailable: boolean;
   biometricUnlockEnabled: boolean;
   biometricSavedLogin: {
@@ -492,6 +505,7 @@ type CallsContextValue = {
   sendPasswordReset: (email: string) => Promise<AuthActionResult>;
   signOutAccount: () => Promise<void>;
   deleteAllLocalData: () => Promise<void>;
+  deleteUserAccount: (password?: string) => Promise<AuthActionResult>;
   syncNow: () => Promise<void>;
   canSyncPhoneCalls: boolean;
   syncPhoneCalls: (options?: { fullResync?: boolean }) => Promise<void>;
@@ -499,6 +513,7 @@ type CallsContextValue = {
   fetchDailyActiveRecords: () => Promise<DailyActiveRecord[]>;
   fetchAllBroadcasts: () => Promise<BroadcastMessage[]>;
   createBroadcast: (input: BroadcastInput) => Promise<BroadcastMessage>;
+  updateBroadcast: (id: string, input: BroadcastInput) => Promise<void>;
   toggleBroadcastActive: (id: string, active: boolean) => Promise<void>;
   deleteBroadcast: (id: string) => Promise<void>;
   setAppPin: (pin: string) => Promise<void>;
@@ -619,6 +634,15 @@ async function clearUserScopedStorage(uid: string): Promise<void> {
   SCOPED_SUFFIXES.forEach((suffix) => removeStorageKey(userStorageKey(uid, suffix)));
 }
 
+export type AutoLockMinutes = 0 | 1 | 5 | 15;
+
+const DEFAULT_AUTO_LOCK_MINUTES: AutoLockMinutes = 5;
+
+function sanitizeAutoLockMinutes(raw: unknown): AutoLockMinutes {
+  if (raw === 0 || raw === 1 || raw === 5 || raw === 15) return raw;
+  return DEFAULT_AUTO_LOCK_MINUTES;
+}
+
 type ScopedUserSnapshot = {
   calls: CallRecord[];
   contacts: Record<string, ContactProfile>;
@@ -638,6 +662,7 @@ type ScopedUserSnapshot = {
   userPhotoUrl: string | null;
   notificationsEnabled: boolean;
   pinHash: string;
+  autoLockMinutes: AutoLockMinutes;
   streaks: StreakRecord;
   badges: BadgeRecord[];
   pointsHistory: PointsHistoryEntry[];
@@ -675,6 +700,7 @@ function createEmptySnapshot(): ScopedUserSnapshot {
     userPhotoUrl: null,
     notificationsEnabled: true,
     pinHash: '',
+    autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
     streaks: { ...DEFAULT_STREAKS },
     badges: [],
     pointsHistory: [],
@@ -719,6 +745,7 @@ async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUser
   const rawProfile = pick<string>('profile', '');
   const rawPhoto = pick<string | null>('photoUrl', null);
   const rawPinHash = pick<string>('pinHash', '');
+  const rawAutoLockMinutes = pick<unknown>('autoLockMinutes', DEFAULT_AUTO_LOCK_MINUTES);
   const rawStreaks = pick<StreakRecord>('streaks', DEFAULT_STREAKS);
   const rawBadges = pick<BadgeRecord[]>('badges', []);
   const rawPointsHistory = pick<PointsHistoryEntry[]>('pointsHistory', []);
@@ -830,6 +857,7 @@ async function readScopedUserStateAsync(uid: string): Promise<HydratedScopedUser
       userPhotoUrl: typeof rawPhoto === 'string' ? rawPhoto : null,
       notificationsEnabled: Boolean(pick<boolean>('notifications', true)),
       pinHash: typeof rawPinHash === 'string' ? rawPinHash : '',
+      autoLockMinutes: sanitizeAutoLockMinutes(rawAutoLockMinutes),
       streaks: sanitizeStreaks(rawStreaks),
       badges: sanitizeBadges(rawBadges),
       pointsHistory: sanitizePointsHistory(rawPointsHistory),
@@ -969,6 +997,39 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setFontSizeScaleState(scale);
   }, []);
 
+  const [fontFamily, setFontFamilyState] = useState<FontFamilyOption>(() => {
+    try {
+      const saved = (localStorage.getItem(FONT_FAMILY_KEY) || '').replace(/^"|"$/g, '');
+      if (
+        saved === 'jakarta' ||
+        saved === 'outfit' ||
+        saved === 'manrope' ||
+        saved === 'space' ||
+        saved === 'dm'
+      ) {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'jakarta';
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.fontFamily = fontFamily;
+    try {
+      localStorage.setItem(FONT_FAMILY_KEY, fontFamily);
+    } catch {
+      // ignore
+    }
+  }, [fontFamily]);
+
+  const setFontFamily = useCallback((family: FontFamilyOption) => {
+    triggerHaptic('tap');
+    setFontFamilyState(family);
+  }, []);
+
   const [dateHeaderStyle, setDateHeaderStyleState] = useState<DateHeaderStyle>(() => {
     try {
       const saved = localStorage.getItem(DATE_HEADER_STYLE_KEY);
@@ -1043,10 +1104,18 @@ export function CallsProvider({ children }: { children: ReactNode }) {
   const [pinHash, setPinHash] = useState<string>('');
   const pinHashRef = useRef<string>('');
   pinHashRef.current = pinHash;
+  const [autoLockMinutes, setAutoLockMinutesState] = useState<AutoLockMinutes>(
+    DEFAULT_AUTO_LOCK_MINUTES,
+  );
+  const autoLockMinutesRef = useRef<AutoLockMinutes>(DEFAULT_AUTO_LOCK_MINUTES);
+  autoLockMinutesRef.current = autoLockMinutes;
   const [isLocked, setIsLocked] = useState<boolean>(false);
+  const isLockedRef = useRef<boolean>(false);
+  isLockedRef.current = isLocked;
   const internalNativeDialogDepthRef = useRef<number>(0);
   const lastInternalDialogClosedAtRef = useRef<number>(0);
   const backgroundedAtRef = useRef<number | null>(null);
+  const lastActivityAtRef = useRef<number>(Date.now());
   const skipInitialLockOnFreshSignInRef = useRef<boolean>(false);
   const [pinLockoutUntil, setPinLockoutUntil] = useState<number>(0);
   const [biometricStatus, setBiometricStatus] = useState<NativeBiometricStatus | null>(null);
@@ -1259,6 +1328,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     setUserPhotoUrlState(snap.userPhotoUrl);
     setNotificationsEnabledState(snap.notificationsEnabled);
     setPinHash(snap.pinHash);
+    setAutoLockMinutesState(snap.autoLockMinutes);
     setIsLocked(Boolean(snap.pinHash));
     setStreaksState(snap.streaks);
     setBadgesState(snap.badges);
@@ -1732,6 +1802,16 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             if (code === 'not-found') {
               writeMode = 'setDoc';
               await setDoc(userDocRef, payload);
+            } else if (code === 'permission-denied') {
+              // Refresh ID token (e.g., stale email_verified claim) and fall back to canonical setDoc
+              // so any drifted/legacy fields on the server doc are cleanly replaced.
+              try {
+                await user.getIdToken(true);
+              } catch {
+                // ignore token refresh errors and still attempt canonical write
+              }
+              writeMode = 'setDoc';
+              await setDoc(userDocRef, payload);
             } else {
               throw updateErr;
             }
@@ -1781,7 +1861,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
             simLabelsLens: [cleanSimLabels.sim1Label.length, cleanSimLabels.sim2Label.length],
             calendarPrefs: cleanCalendarPrefs,
             reminderPrefs: cleanReminderPrefs,
-            voiceBundleEnabled: [cleanVoiceBundles.sim1.enabled, cleanVoiceBundles.sim2.enabled],
+            voiceBundles: cleanVoiceBundles,
           }),
         );
         setSyncStatus('error');
@@ -1997,6 +2077,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
       const skipLockOnce = skipInitialLockOnFreshSignInRef.current;
       skipInitialLockOnFreshSignInRef.current = false;
+      lastActivityAtRef.current = Date.now();
+      backgroundedAtRef.current = null;
       setIsLocked(
         !skipLockOnce &&
           (Boolean(scoped.pinHash) || Boolean(bioStatus?.available && bioStatus?.unlockEnabled)),
@@ -2259,6 +2341,35 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           (snap) => {
             if (!snap.exists()) return;
             const data = snap.data() as Record<string, unknown>;
+            const snapKeys = Object.keys(data);
+            const allowedSnapKeys = new Set([
+              'uid',
+              'displayName',
+              'email',
+              'phone',
+              'photoURL',
+              'termsAccepted',
+              'termsAcceptedAt',
+              'theme',
+              'notificationsEnabled',
+              'tariffs',
+              'simLabels',
+              'calendarPrefs',
+              'reminderPrefs',
+              'voiceBundles',
+              'syncedAt',
+            ]);
+            userDocDiagRef.current = {
+              exists: true,
+              hasUid: Object.prototype.hasOwnProperty.call(data, 'uid'),
+              uidMatches: data.uid === uid,
+              emailMatches:
+                typeof data.email === 'string' &&
+                typeof user.email === 'string' &&
+                data.email.toLowerCase() === user.email.toLowerCase(),
+              existingKeys: snapKeys,
+              hasLegacyKeys: snapKeys.some((k) => !allowedSnapKeys.has(k)),
+            };
             const recentlyChangedThemeLocally = Date.now() - lastLocalThemeChangeAtRef.current < 5000;
             if (
               !snap.metadata.hasPendingWrites &&
@@ -3094,7 +3205,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       setHydratedUid(null);
       workspaceReadyRef.current = null;
       setIsAdmin(false);
+      setIsLocked(false);
       setPinLockoutUntil(0);
+      backgroundedAtRef.current = null;
       accountMetaRef.current = {
         phone: null,
         photoURL: null,
@@ -3109,6 +3222,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       await signOut(auth);
       if (!keepSilentGoogle) {
         await runNativeSignOut();
+      }
+      if (hasNativeBiometricPlugin()) {
+        const nextBio = await getNativeBiometricStatus(null);
+        biometricStatusRef.current = nextBio;
+        setBiometricStatus(nextBio);
       }
       dailyAlertCacheRef.current = null;
       clearLegacyUnscopedKeys();
@@ -3535,6 +3653,46 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     [refreshActiveBroadcasts],
   );
 
+  const updateBroadcast = useCallback(
+    async (id: string, input: BroadcastInput): Promise<void> => {
+      const user = auth.currentUser;
+      if (!user || !user.emailVerified || !isAdminRef.current) {
+        throw new Error('Admin access required.');
+      }
+      const cleanId = id.trim();
+      if (!cleanId) throw new Error('Broadcast ID is required.');
+      const title = clampStr(input.title, 100);
+      const message = clampStr(input.message, 500);
+      if (title.length < 2) throw new Error('Title must be at least 2 characters.');
+      if (message.length < 4) throw new Error('Message must be at least 4 characters.');
+
+      const rawLabel = input.actionLabel ? clampStr(input.actionLabel, 40) : '';
+      const rawUrl = input.actionUrl ? input.actionUrl.trim().slice(0, 300) : '';
+      if (rawUrl && !/^https:\/\/\S+$/i.test(rawUrl)) {
+        throw new Error('Action link must start with https://');
+      }
+
+      const path = `broadcasts/${cleanId}`;
+      try {
+        await updateDoc(doc(db, 'broadcasts', cleanId), {
+          title,
+          message,
+          kind: input.kind,
+          displayMode: input.displayMode,
+          audience: input.audience,
+          actionLabel: rawLabel || null,
+          actionUrl: rawUrl || null,
+          active: input.active !== false,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      }
+      void refreshActiveBroadcasts();
+    },
+    [refreshActiveBroadcasts],
+  );
+
   const toggleBroadcastActive = useCallback(
     async (id: string, active: boolean): Promise<void> => {
       const user = auth.currentUser;
@@ -3588,6 +3746,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         removeStorageKey(userStorageKey(user.uid, 'pinHash'));
         clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
         setPinLockoutUntil(0);
+        lastActivityAtRef.current = Date.now();
+        backgroundedAtRef.current = null;
         setIsLocked(false);
         showNotice('4-digit screen lock PIN saved.', 'success');
       } catch (err) {
@@ -3599,6 +3759,25 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
     },
     [requireSignedInUser, showNotice],
+  );
+
+  const setAutoLockMinutes = useCallback(
+    (minutes: AutoLockMinutes) => {
+      const clean = sanitizeAutoLockMinutes(minutes);
+      setAutoLockMinutesState(clean);
+      autoLockMinutesRef.current = clean;
+      lastActivityAtRef.current = Date.now();
+      const user = auth.currentUser;
+      if (user) {
+        void idbSetScoped(user.uid, 'autoLockMinutes', clean);
+      }
+      const label =
+        clean === 0
+          ? 'immediately when leaving'
+          : `after ${clean} minute${clean === 1 ? '' : 's'} of inactivity`;
+      showNotice(`Auto-lock set to ${label}.`, 'tap');
+    },
+    [showNotice],
   );
 
   const clearAppPin = useCallback(() => {
@@ -3636,6 +3815,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       if (ok) {
         clearPinLockoutState(lockoutKey);
         setPinLockoutUntil(0);
+        lastActivityAtRef.current = Date.now();
+        backgroundedAtRef.current = null;
         triggerHaptic('success');
         setIsLocked(false);
         return true;
@@ -3688,6 +3869,41 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     }
     let unsub: (() => void) | null = null;
     let cancelled = false;
+    lastActivityAtRef.current = Date.now();
+
+    const hasLockProtection = () =>
+      Boolean(pinHashRef.current) ||
+      Boolean(biometricStatusRef.current?.available && biometricStatusRef.current?.unlockEnabled);
+
+    const getTimeoutMs = () => {
+      const mins = autoLockMinutesRef.current;
+      return mins === 0 ? 1500 : mins * 60_000;
+    };
+
+    const markActivity = () => {
+      if (isLockedRef.current) return;
+      const now = Date.now();
+      if (now - lastActivityAtRef.current >= 2000) {
+        lastActivityAtRef.current = now;
+      }
+    };
+
+    window.addEventListener('pointerdown', markActivity, { passive: true });
+    window.addEventListener('keydown', markActivity, { passive: true });
+    window.addEventListener('touchstart', markActivity, { passive: true });
+    window.addEventListener('scroll', markActivity, { passive: true });
+
+    const idleIntervalId = window.setInterval(() => {
+      if (isLockedRef.current) return;
+      if (internalNativeDialogDepthRef.current > 0) return;
+      if (Date.now() - lastInternalDialogClosedAtRef.current < 1500) return;
+      if (!hasLockProtection()) return;
+      const mins = autoLockMinutesRef.current;
+      if (mins <= 0) return;
+      if (Date.now() - lastActivityAtRef.current >= mins * 60_000) {
+        setIsLocked(true);
+      }
+    }, 15_000);
 
     void subscribeNativeAppLifecycle({
       onPause: () => {
@@ -3699,16 +3915,19 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       onResume: () => {
         const bgAt = backgroundedAtRef.current;
         backgroundedAtRef.current = null;
-        if (bgAt === null) return;
         if (internalNativeDialogDepthRef.current > 0) return;
         if (Date.now() - lastInternalDialogClosedAtRef.current < 1500) return;
-        if (Date.now() - bgAt < 5000) return;
-        const hasPin = Boolean(pinHashRef.current);
-        const hasBio = Boolean(
-          biometricStatusRef.current?.available && biometricStatusRef.current?.unlockEnabled,
-        );
-        if (hasPin || hasBio) {
+        const now = Date.now();
+        const awayMs = bgAt !== null ? now - bgAt : 0;
+        const idleMs = now - lastActivityAtRef.current;
+        const thresholdMs = getTimeoutMs();
+        const shouldLock =
+          awayMs >= thresholdMs ||
+          (autoLockMinutesRef.current > 0 && idleMs >= thresholdMs);
+        if (shouldLock && hasLockProtection()) {
           setIsLocked(true);
+        } else if (!isLockedRef.current) {
+          lastActivityAtRef.current = now;
         }
       },
     }).then((fn) => {
@@ -3721,6 +3940,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      window.clearInterval(idleIntervalId);
+      window.removeEventListener('pointerdown', markActivity);
+      window.removeEventListener('keydown', markActivity);
+      window.removeEventListener('touchstart', markActivity);
+      window.removeEventListener('scroll', markActivity);
       unsub?.();
     };
   }, [authUser?.emailVerified, authUser?.uid, hydratedUid, isGuest]);
@@ -3773,6 +3997,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
           : 'callanalyzer.guest.pinLockout';
         clearPinLockoutState(lockoutKey);
         setPinLockoutUntil(0);
+        lastActivityAtRef.current = Date.now();
+        backgroundedAtRef.current = null;
         triggerHaptic('success');
         setIsLocked(false);
         return true;
@@ -3886,10 +4112,27 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       }
 
       if (unlocked.provider === 'google') {
-        const nativeCred = await runWithResumeLockSuppressed(() => runNativeSilentGoogleSignIn());
+        let nativeCred: { idToken: string | null; accessToken: string | null } = {
+          idToken: null,
+          accessToken: null,
+        };
+        try {
+          nativeCred = await runWithResumeLockSuppressed(() => runNativeSilentGoogleSignIn());
+        } catch {
+          nativeCred = { idToken: null, accessToken: null };
+        }
+        // If silent Google sign-in token expired, automatically complete with native Google Sign-In
+        // right after fingerprint verification so biometric sign-in succeeds in one flow every time.
+        if (!nativeCred.idToken && !nativeCred.accessToken && hasNativeGoogleAuth()) {
+          try {
+            nativeCred = await runWithResumeLockSuppressed(() => runNativeGoogleSignIn());
+          } catch {
+            nativeCred = { idToken: null, accessToken: null };
+          }
+        }
         if (!nativeCred.idToken && !nativeCred.accessToken) {
           const msg =
-            'Google session expired. Tap Continue with Google once to sign back in.';
+            'Google session expired. Tap Continue with Google once to refresh your sign-in.';
           showNotice(msg, 'warning');
           return { ok: false, error: msg };
         }
@@ -3899,9 +4142,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         );
         skipInitialLockOnFreshSignInRef.current = true;
         const res = await signInWithCredential(auth, credential);
+        lastActivityAtRef.current = Date.now();
         setIsGuest(false);
         setAuthPromptMode('closed');
         setAuthPromptReason(null);
+        triggerHaptic('success');
         showNotice(`Signed in as ${res.user.displayName || res.user.email || 'Google user'}.`);
         return { ok: true };
       }
@@ -3921,6 +4166,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         email: unlocked.email,
         password: unlocked.password,
       };
+      lastActivityAtRef.current = Date.now();
       setIsGuest(false);
       setAuthPromptMode('closed');
       setAuthPromptReason(null);
@@ -3937,6 +4183,138 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: msg };
     }
   }, [refreshBiometricStatus, runWithResumeLockSuppressed, showNotice]);
+
+  const verifyIdentityForPinReset = useCallback(
+    async (password?: string): Promise<AuthActionResult> => {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        return { ok: false, error: 'Sign in required to verify your account.' };
+      }
+      const provider = detectAuthProvider(user);
+      try {
+        if (provider === 'google') {
+          if (isNativeCapacitor() && hasNativeGoogleAuth()) {
+            const nativeCred = await runWithResumeLockSuppressed(() => runNativeGoogleSignIn());
+            if (!nativeCred.idToken && !nativeCred.accessToken) {
+              return { ok: false, error: 'Google verification was cancelled.' };
+            }
+            const cred = GoogleAuthProvider.credential(
+              nativeCred.idToken,
+              nativeCred.accessToken,
+            );
+            await reauthenticateWithCredential(user, cred);
+          } else {
+            await reauthenticateWithPopup(user, googleProvider);
+          }
+          clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
+          setPinLockoutUntil(0);
+          return { ok: true };
+        }
+
+        const cleanPwd = (password || '').trim();
+        if (!cleanPwd) {
+          return { ok: false, error: 'Enter your account password to verify your identity.' };
+        }
+        const cred = EmailAuthProvider.credential(user.email, cleanPwd);
+        await reauthenticateWithCredential(user, cred);
+        lastPasswordCredRef.current = { uid: user.uid, email: user.email, password: cleanPwd };
+        clearPinLockoutState(userStorageKey(user.uid, 'pinLockout'));
+        setPinLockoutUntil(0);
+        return { ok: true };
+      } catch (error) {
+        const code = (error as { code?: string })?.code ?? '';
+        if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+          return { ok: false, error: 'Incorrect account password. Try again or send a reset email.' };
+        }
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+          return { ok: false, error: 'Google verification was cancelled.' };
+        }
+        return {
+          ok: false,
+          error: mapFirebaseAuthError(error, 'Could not verify your account right now.'),
+        };
+      }
+    },
+    [runWithResumeLockSuppressed],
+  );
+
+  const deleteUserAccount = useCallback(
+    async (password?: string): Promise<AuthActionResult> => {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        return { ok: false, error: 'Sign in with a verified account first.' };
+      }
+      const verified = await verifyIdentityForPinReset(password);
+      if (!verified.ok) {
+        return verified;
+      }
+
+      const uid = user.uid;
+      try {
+        // Delete user's minimal cloud profile & registry docs (permitted for owner in firestore.rules)
+        await Promise.allSettled([
+          deleteDoc(doc(db, 'users', uid)),
+          deleteDoc(doc(db, 'userRegistry', uid)),
+        ]);
+
+        // Clear native biometric settings & saved login for this UID
+        if (hasNativeBiometricPlugin()) {
+          try {
+            await setNativeBiometricUnlockEnabled(uid, false);
+          } catch {
+            // ignore native biometric cleanup failure
+          }
+          if (biometricStatusRef.current?.savedUid === uid) {
+            await clearNativeBiometricLogin();
+          }
+        }
+
+        // Clear all local IndexedDB & localStorage data for this user
+        await clearUserScopedStorage(uid);
+        clearLegacyUnscopedKeys();
+
+        // Delete Firebase Auth account
+        await deleteUser(user);
+        await runNativeSignOut();
+
+        lastPasswordCredRef.current = null;
+        hydratedUidRef.current = null;
+        setHydratedUid(null);
+        workspaceReadyRef.current = null;
+        isAdminRef.current = false;
+        setIsAdmin(false);
+        setIsLocked(false);
+        setPinLockoutUntil(0);
+        backgroundedAtRef.current = null;
+        dailyAlertCacheRef.current = null;
+        accountMetaRef.current = {
+          phone: null,
+          photoURL: null,
+          termsAccepted: null,
+          termsAcceptedAt: null,
+        };
+        setUserPhone(null);
+        setUserPhotoUrlState(null);
+        setIsGuest(false);
+        setAuthPromptMode('closed');
+        setAuthPromptReason(null);
+        applySnapshotToState(createEmptySnapshot());
+        setLastSyncedAt(null);
+        setSyncStatus('signed-out');
+        await refreshBiometricStatus();
+        showNotice('Your account and all device data have been permanently deleted.', 'warning');
+        return { ok: true };
+      } catch (error) {
+        const msg = mapFirebaseAuthError(
+          error,
+          'Could not delete your account right now. Please try again.',
+        );
+        showNotice(msg, 'warning');
+        return { ok: false, error: msg };
+      }
+    },
+    [applySnapshotToState, refreshBiometricStatus, showNotice, verifyIdentityForPinReset],
+  );
 
   // Internal addCall workhorse used by both native Android sync and file/backup imports.
   // Deduplicates by normalized number + timestamp + duration (and ID) and merges
@@ -4342,36 +4720,136 @@ export function CallsProvider({ children }: { children: ReactNode }) {
     contacts,
   ]);
 
-  // Auto-sync real-time Android call logs when running inside Capacitor with CallLogSync / CallLog installed
+  const lastSilentContactSyncRef = useRef<number>(0);
+
+  const syncIncomingPhoneContactsDiff = useCallback(
+    (incoming: ContactProfile[]): { added: number; updated: number } => {
+      if (incoming.length === 0) return { added: 0, updated: 0 };
+      let added = 0;
+      let updated = 0;
+      const nextMap = { ...stateRef.current.contacts };
+      const changedByKey = new Map<string, ContactProfile>();
+
+      incoming.forEach((rawItem) => {
+        const item = healContactProfile(rawItem);
+        const key = item.key || getContactKey(item.number);
+        const existing = nextMap[key];
+        const incomingHasRealName = !isPhoneLikeName(item.name, item.number);
+        if (!existing) {
+          added += 1;
+          const created: ContactProfile = { ...item, key };
+          nextMap[key] = created;
+          changedByKey.set(key, created);
+          return;
+        }
+
+        const existingHasRealName = !isPhoneLikeName(existing.name, existing.number);
+        const nameChanged =
+          incomingHasRealName &&
+          (!existingHasRealName || existing.name.trim() !== item.name.trim());
+        const bdayAdded = Boolean(item.birthday && !existing.birthday);
+        if (!nameChanged && !bdayAdded) return;
+
+        updated += 1;
+        const merged: ContactProfile = healContactProfile({
+          ...existing,
+          name: nameChanged ? item.name : existing.name,
+          birthday: existing.birthday ?? item.birthday,
+          updatedAt: Date.now(),
+        });
+        nextMap[key] = merged;
+        changedByKey.set(key, merged);
+      });
+
+      if (added === 0 && updated === 0) {
+        return { added: 0, updated: 0 };
+      }
+
+      setContacts(nextMap);
+      setCalls((prev) => {
+        let callsChanged = false;
+        const mapped = prev.map((call) => {
+          const match = changedByKey.get(getContactKey(call.number));
+          if (!match || isPhoneLikeName(match.name, match.number)) return call;
+          if (!isPhoneLikeName(call.name, call.number) && call.name?.trim() === match.name.trim()) {
+            return call;
+          }
+          callsChanged = true;
+          return healCallRecord({
+            ...call,
+            name: match.name,
+          });
+        });
+        return callsChanged ? mapped : prev;
+      });
+      return { added, updated };
+    },
+    [],
+  );
+
+  const runSilentPhoneContactSync = useCallback(
+    async (force = false) => {
+      if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
+      if (!isNativeCapacitor() || !canSyncAllPhoneContacts()) return;
+      const now = Date.now();
+      if (!force && now - lastSilentContactSyncRef.current < 120_000) return;
+      lastSilentContactSyncRef.current = now;
+      const res = await loadAllPhoneContactsIfGranted();
+      if (!res.granted || res.contacts.length === 0) return;
+      syncIncomingPhoneContactsDiff(res.contacts);
+    },
+    [authUser, hydratedUid, syncIncomingPhoneContactsDiff],
+  );
+
+  // Auto-sync real-time Android call logs & granted phone contacts on launch and resume
   useEffect(() => {
     if (!authUser?.emailVerified || !hydratedUid || hydratedUid !== authUser.uid) return;
-    if (!isNativeCapacitor() || !hasNativeCallLogPlugin()) return;
+    if (!isNativeCapacitor()) return;
 
     let cancelled = false;
     let unsubNative: (() => void) | null = null;
+    let unsubContactsResume: (() => void) | null = null;
 
-    const startSyncAndWatch = async () => {
-      await runPhoneCallSync({ fullResync: false, manual: false });
-      if (cancelled) return;
-      const cleanup = await subscribeNativeCallLog(() => {
+    if (canSyncAllPhoneContacts()) {
+      void runSilentPhoneContactSync(true);
+      void subscribeNativeAppResume(() => {
         if (!cancelled) {
-          void runPhoneCallSync({ fullResync: false, manual: false });
+          void runSilentPhoneContactSync(false);
+        }
+      }).then((cleanup) => {
+        if (cancelled) {
+          cleanup();
+        } else {
+          unsubContactsResume = cleanup;
         }
       });
-      if (cancelled) {
-        cleanup();
-      } else {
-        unsubNative = cleanup;
-      }
-    };
+    }
 
-    void startSyncAndWatch();
+    if (hasNativeCallLogPlugin()) {
+      const startSyncAndWatch = async () => {
+        await runPhoneCallSync({ fullResync: false, manual: false });
+        if (cancelled) return;
+        const cleanup = await subscribeNativeCallLog(() => {
+          if (!cancelled) {
+            void runPhoneCallSync({ fullResync: false, manual: false });
+          }
+        });
+        if (cancelled) {
+          cleanup();
+        } else {
+          unsubNative = cleanup;
+        }
+      };
+
+      void startSyncAndWatch();
+    }
 
     return () => {
       cancelled = true;
       unsubNative?.();
+      unsubContactsResume?.();
     };
-  }, [authUser, hydratedUid, runPhoneCallSync]);
+  }, [authUser, hydratedUid, runPhoneCallSync, runSilentPhoneContactSync]);
 
   const importContactProfiles = useCallback(
     (incoming: ContactProfile[]): { added: number; updated: number } => {
@@ -4652,6 +5130,15 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         }
         if (pkg.settings.fontSizeScale) {
           setFontSizeScaleState(pkg.settings.fontSizeScale);
+        }
+        if (
+          pkg.settings.fontFamily === 'jakarta' ||
+          pkg.settings.fontFamily === 'outfit' ||
+          pkg.settings.fontFamily === 'manrope' ||
+          pkg.settings.fontFamily === 'space' ||
+          pkg.settings.fontFamily === 'dm'
+        ) {
+          setFontFamilyState(pkg.settings.fontFamily);
         }
         if (pkg.settings.profileName && !stateRef.current.profileName.trim()) {
           setProfileNameState(pkg.settings.profileName);
@@ -5331,6 +5818,44 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         const cred = EmailAuthProvider.credential(user.email, input.currentPassword);
         await reauthenticateWithCredential(user, cred);
         await updatePassword(user, input.newPassword);
+        lastPasswordCredRef.current = {
+          uid: user.uid,
+          email: user.email,
+          password: input.newPassword,
+        };
+        if (
+          hasNativeBiometricPlugin() &&
+          biometricStatusRef.current?.hasSavedLogin &&
+          biometricStatusRef.current?.savedUid === user.uid &&
+          biometricStatusRef.current?.savedProvider === 'password'
+        ) {
+          try {
+            const displayName =
+              stateRef.current.profileName || user.displayName || user.email.split('@')[0];
+            const res = await runWithResumeLockSuppressed(() =>
+              saveNativeBiometricLogin({
+                uid: user.uid,
+                email: user.email!,
+                provider: 'password',
+                password: input.newPassword,
+                displayName,
+              }),
+            );
+            if (!res.saved) {
+              await clearNativeBiometricLogin();
+              showNotice(
+                'Password updated. Re-enable Fingerprint Sign-In in Settings → Security to save your new password.',
+                'warning',
+              );
+              await refreshBiometricStatus();
+              return { ok: true };
+            }
+            await refreshBiometricStatus();
+          } catch {
+            await clearNativeBiometricLogin();
+            await refreshBiometricStatus();
+          }
+        }
         showNotice('Password updated successfully.', 'success');
         return { ok: true };
       } catch (error) {
@@ -5350,7 +5875,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [requireSignedInUser, showNotice],
+    [refreshBiometricStatus, requireSignedInUser, runWithResumeLockSuppressed, showNotice],
   );
 
   // Listen to native notification action button taps (Call, +15m, Snooze, Wish, Remind later, View, Clear, Mute)
@@ -5363,6 +5888,23 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const action = event.actionId;
       const targetId = event.eventId || event.idKey || '';
       const number = event.number?.trim() || '';
+
+      if (action === 'shortcut_reminders') {
+        setNotificationActionTarget({ openReminders: 'action' });
+        return;
+      }
+      if (action === 'shortcut_analytics') {
+        setNotificationActionTarget({ tab: 'analytics' });
+        return;
+      }
+      if (action === 'shortcut_usage') {
+        setNotificationActionTarget({ tab: 'usage' });
+        return;
+      }
+      if (action === 'shortcut_calendar') {
+        setNotificationActionTarget({ tab: 'calendar' });
+        return;
+      }
 
       if (action === 'call') {
         if (targetId && stateRef.current.scheduledCalls.some((s) => s.id === targetId)) {
@@ -5511,11 +6053,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const user = requireSignedInUser();
       if (!user) return;
       const clean = sanitizeTariffs(next);
+      stateRef.current = { ...stateRef.current, tariffs: clean };
       setTariffsState(clean);
-      void persistWorkspaceToCloud(user, { tariffs: clean });
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { tariffs: clean }),
+      );
       showNotice('Tariff settings saved.', 'success');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
 
   const setSimLabels = useCallback(
@@ -5523,11 +6068,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const user = requireSignedInUser();
       if (!user) return;
       const clean = sanitizeSimLabels(next);
+      stateRef.current = { ...stateRef.current, simLabels: clean };
       setSimLabelsState(clean);
-      void persistWorkspaceToCloud(user, { simLabels: clean });
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { simLabels: clean }),
+      );
       showNotice('SIM labels saved.', 'success');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
 
   const setCalendarPrefs = useCallback(
@@ -5535,11 +6083,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const user = requireSignedInUser();
       if (!user) return;
       const clean = sanitizeCalendarPrefs(next);
+      stateRef.current = { ...stateRef.current, calendarPrefs: clean };
       setCalendarPrefsState(clean);
-      void persistWorkspaceToCloud(user, { calendarPrefs: clean });
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { calendarPrefs: clean }),
+      );
       showNotice('Calendar defaults saved.', 'success');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
 
   const setReminderPrefs = useCallback(
@@ -5547,11 +6098,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const user = requireSignedInUser();
       if (!user) return;
       const clean = sanitizeReminderPrefs(next);
+      stateRef.current = { ...stateRef.current, reminderPrefs: clean };
       setReminderPrefsState(clean);
-      void persistWorkspaceToCloud(user, { reminderPrefs: clean });
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { reminderPrefs: clean }),
+      );
       showNotice('Reminder timing saved.', 'success');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
 
   const setAlertTypePrefs = useCallback(
@@ -5620,11 +6174,14 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const user = requireSignedInUser();
       if (!user) return;
       const clean = sanitizeVoiceBundles(next);
+      stateRef.current = { ...stateRef.current, voiceBundles: clean };
       setVoiceBundlesState(clean);
-      void persistWorkspaceToCloud(user, { voiceBundles: clean });
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { voiceBundles: clean }),
+      );
       showNotice('Voice bundle tracker updated.', 'success');
     },
-    [persistWorkspaceToCloud, requireSignedInUser, showNotice],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser, showNotice],
   );
 
   const setNotificationsEnabled = useCallback(
@@ -5632,10 +6189,13 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       const user = requireSignedInUser();
       if (!user) return;
       triggerHaptic('tap');
+      stateRef.current = { ...stateRef.current, notificationsEnabled: enabled };
       setNotificationsEnabledState(enabled);
-      void persistWorkspaceToCloud(user, { notificationsEnabled: enabled });
+      void ensureWorkspaceReady(user.uid).then(() =>
+        persistWorkspaceToCloud(user, { notificationsEnabled: enabled }),
+      );
     },
-    [persistWorkspaceToCloud, requireSignedInUser],
+    [ensureWorkspaceReady, persistWorkspaceToCloud, requireSignedInUser],
   );
 
   const toggleFavorite = useCallback(
@@ -6188,6 +6748,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       systemIsDark,
       fontSizeScale,
       setFontSizeScale,
+      fontFamily,
+      setFontFamily,
       dateHeaderStyle,
       setDateHeaderStyle,
       activeBroadcasts,
@@ -6209,6 +6771,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       pinEnabled,
       isLocked,
       pinLockoutUntil,
+      autoLockMinutes,
+      setAutoLockMinutes,
+      verifyIdentityForPinReset,
       biometricAvailable: Boolean(biometricStatus?.available),
       biometricUnlockEnabled: Boolean(biometricStatus?.unlockEnabled),
       biometricSavedLogin:
@@ -6253,6 +6818,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       sendPasswordReset,
       signOutAccount,
       deleteAllLocalData,
+      deleteUserAccount,
       syncNow,
       canSyncPhoneCalls,
       syncPhoneCalls,
@@ -6260,6 +6826,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       fetchDailyActiveRecords,
       fetchAllBroadcasts,
       createBroadcast,
+      updateBroadcast,
       toggleBroadcastActive,
       deleteBroadcast,
       setAppPin,
@@ -6361,6 +6928,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       systemIsDark,
       fontSizeScale,
       setFontSizeScale,
+      fontFamily,
+      setFontFamily,
       dateHeaderStyle,
       setDateHeaderStyle,
       activeBroadcasts,
@@ -6382,6 +6951,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       pinEnabled,
       isLocked,
       pinLockoutUntil,
+      autoLockMinutes,
+      setAutoLockMinutes,
+      verifyIdentityForPinReset,
       biometricStatus,
       refreshBiometricStatus,
       toggleBiometricUnlock,
@@ -6416,6 +6988,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       sendPasswordReset,
       signOutAccount,
       deleteAllLocalData,
+      deleteUserAccount,
       syncNow,
       canSyncPhoneCalls,
       syncPhoneCalls,
@@ -6423,6 +6996,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       fetchDailyActiveRecords,
       fetchAllBroadcasts,
       createBroadcast,
+      updateBroadcast,
       toggleBroadcastActive,
       deleteBroadcast,
       setAppPin,

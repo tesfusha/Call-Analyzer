@@ -95,19 +95,83 @@ export function firstGraphemes(input: string, count: number): string {
   return splitGraphemes(input).slice(0, count).join('');
 }
 
-export function initials(name: string | null, number: string): string {
+const NON_NAME_LABELS = new Set([
+  'unknown',
+  'unknown caller',
+  'private',
+  'private number',
+  'withheld',
+  'hidden',
+  'hidden number',
+  'no caller id',
+  'no name',
+  'anonymous',
+  'voicemail',
+]);
+
+/**
+ * Returns true when `name` is blank, a generic unknown-caller placeholder,
+ * or just a phone number / short code (e.g. "+251941505775", "0911 22 33 44", "*804#").
+ */
+export function isPhoneLikeName(
+  name: string | null | undefined,
+  number?: string | null,
+): boolean {
   const trimmed = name?.trim() ?? '';
-  if (trimmed) {
-    const parts = trimmed.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      const first = firstGraphemes(parts[0], 1);
-      const second = firstGraphemes(parts[1], 1);
-      return `${first}${second}`.toLocaleUpperCase();
+  if (!trimmed) return true;
+  if (NON_NAME_LABELS.has(trimmed.toLowerCase())) return true;
+
+  const cleanNumber = number?.trim() ?? '';
+  if (cleanNumber) {
+    if (trimmed === cleanNumber) return true;
+    const nameDigits = trimmed.replace(/\D/g, '');
+    const numDigits = cleanNumber.replace(/\D/g, '');
+    if (nameDigits.length >= 4 && numDigits.length >= 4) {
+      if (nameDigits === numDigits) return true;
+      if (nameDigits.length >= 9 && numDigits.length >= 9 && nameDigits.slice(-9) === numDigits.slice(-9)) {
+        return true;
+      }
     }
-    return firstGraphemes(trimmed, 2).toLocaleUpperCase();
   }
-  const digits = number.replace(/\D/g, '');
-  return digits.slice(-2) || '#';
+
+  // Matches strings made purely of digits and phone formatting symbols (+, -, (), spaces, *, #, .)
+  const strippedPhoneChars = trimmed.replace(/[\d\s+\-().*/#]+/g, '');
+  if (strippedPhoneChars.length === 0 && /\d/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+function stripLeadingDecorations(word: string): string {
+  // Remove leading punctuation/brackets/symbols so names like "(Abel)" or "A." start on a letter
+  return word.replace(/^[^\p{L}\p{N}]+/u, '');
+}
+
+/**
+ * Computes 2-letter uppercase initials for named contacts (e.g. "Abel" -> "AB",
+ * "Abel Tesfaye" -> "AT"). Returns "" when the contact is phone-only so avatars
+ * render a clean User icon instead of "+2" or trailing digits.
+ */
+export function initials(name: string | null | undefined, number: string): string {
+  if (isPhoneLikeName(name, number)) {
+    return '';
+  }
+  const trimmed = name!.trim();
+  const parts = trimmed
+    .split(/\s+/)
+    .map(stripLeadingDecorations)
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    const first = firstGraphemes(parts[0], 1);
+    const second = firstGraphemes(parts[1], 1);
+    const pair = `${first}${second}`.toLocaleUpperCase();
+    if (pair) return pair;
+  }
+
+  const single = parts[0] || trimmed;
+  return firstGraphemes(single, 2).toLocaleUpperCase();
 }
 
 export function avatarColor(key: string): string {

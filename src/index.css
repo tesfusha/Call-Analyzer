@@ -4,6 +4,7 @@
 :root {
   color-scheme: light;
   font-size: 16px;
+  --app-font-sans: 'Plus Jakarta Sans', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
   --dark-canvas: #111214;
   --dark-surface: #1B1C20;
   --dark-surface-95: rgba(17, 18, 20, 0.96);
@@ -15,6 +16,26 @@
   --dark-border-strong: rgba(255, 255, 255, 0.2);
   --dark-text-secondary: #9CA3AF;
   --dark-text-muted: #717680;
+}
+
+html[data-font-family='jakarta'] {
+  --app-font-sans: 'Plus Jakarta Sans', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+html[data-font-family='outfit'] {
+  --app-font-sans: 'Outfit', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+html[data-font-family='manrope'] {
+  --app-font-sans: 'Manrope', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+html[data-font-family='space'] {
+  --app-font-sans: 'Space Grotesk', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+html[data-font-family='dm'] {
+  --app-font-sans: 'DM Sans', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 html[data-font-scale='default'] {
@@ -54,7 +75,7 @@ html[data-font-scale='xlarge'] {
   }
 
   body {
-    font-family: 'Plus Jakarta Sans', 'Noto Sans Ethiopic', -apple-system, BlinkMacSystemFont, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+    font-family: var(--app-font-sans);
   }
 
   svg {
@@ -447,3 +468,173 @@ html[data-design-version="v1.0.5"]:not(.dark) .shadow-sm {
     display: none;
   }
 }
+
+/* ============================================================================
+   V1.1.0 CRAFT PREVIEW (Emil Kowalski Design Engineering)
+   Strictly scoped to data-design-version="v1.1.0"
+   ============================================================================ */
+html[data-design-version="v1.1.0"] {
+  --v110-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --v110-press-ms: 120ms;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.dark[data-design-version="v1.1.0"],
+html.dark-gray[data-design-version="v1.1.0"] {
+  --dark-canvas: #0A0A0B;
+  --dark-surface: #121316;
+  --dark-surface-95: rgba(10, 10, 11, 0.92);
+  --dark-elevated: #1A1C21;
+  --dark-elevated-60: rgba(26, 28, 33, 0.72);
+  --dark-elevated-70: rgba(26, 28, 33, 0.84);
+  --dark-border: rgba(255, 255, 255, 0.08);
+  --dark-border-70: rgba(255, 255, 255, 0.055);
+  --dark-border-strong: rgba(255, 255, 255, 0.16);
+  --dark-text-secondary: #969CA6;
+  --dark-text-muted: #6B7280;
+}
+
+html[data-design-version="v1.1.0"] button,
+html[data-design-version="v1.1.0"] [role="button"],
+html[data-design-version="v1.1.0"] [role="tab"] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+html[data-design-version="v1.1.0"] .v110-press {
+  transition: transform var(--v110-press-ms) var(--v110-ease-out),
+    background-color 140ms var(--v110-ease-out),
+    border-color 140ms var(--v110-ease-out),
+    color 140ms var(--v110-ease-out);
+}
+
+html[data-design-version="v1.1.0"] .v110-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-design-version="v1.1.0"] .v110-hover-subtle:hover {
+    background-color: rgba(17, 18, 20, 0.035);
+  }
+  html.dark[data-design-version="v1.1.0"] .v110-hover-subtle:hover {
+    background-color: rgba(255, 255, 255, 0.045);
+  }
+  html[data-design-version="v1.1.0"] .v110-hover-ink:hover {
+    color: #111214;
+  }
+  html.dark[data-design-version="v1.1.0"] .v110-hover-ink:hover {
+    color: #F5F6F8;
+  }
+}
+
+html[data-design-version="v1.1.0"] button:focus-visible,
+html[data-design-version="v1.1.0"] a:focus-visible,
+html[data-design-version="v1.1.0"] input:focus-visible,
+html[data-design-version="v1.1.0"] select:focus-visible,
+html[data-design-version="v1.1.0"] textarea:focus-visible {
+  outline: 2px solid #E45A0D;
+  outline-offset: 2px;
+}
+
+html.dark[data-design-version="v1.1.0"] button:focus-visible,
+html.dark[data-design-version="v1.1.0"] a:focus-visible,
+html.dark[data-design-version="v1.1.0"] input:focus-visible,
+html.dark[data-design-version="v1.1.0"] select:focus-visible,
+html.dark[data-design-version="v1.1.0"] textarea:focus-visible {
+  outline-color: #F4762C;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-design-version="v1.1.0"] .v110-press:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* --- App Opening / Session Verification Loading Animation --- */
+@keyframes ca-boot-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ca-boot-ripple {
+  0% {
+    opacity: 0.45;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.62);
+  }
+}
+
+@keyframes ca-boot-orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ca-boot-sweep {
+  0% {
+    transform: translate3d(-100%, 0, 0) scaleX(0.45);
+  }
+  50% {
+    transform: translate3d(35%, 0, 0) scaleX(0.75);
+  }
+  100% {
+    transform: translate3d(200%, 0, 0) scaleX(0.45);
+  }
+}
+
+.ca-boot-enter {
+  animation: ca-boot-enter 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ca-boot-ripple {
+  animation: ca-boot-ripple 1.9s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.ca-boot-ripple-delay {
+  animation: ca-boot-ripple 1.9s cubic-bezier(0.22, 1, 0.36, 1) 0.95s infinite;
+  will-change: transform, opacity;
+}
+
+.ca-boot-orbit {
+  animation: ca-boot-orbit 1.15s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: transform;
+}
+
+.ca-boot-sweep {
+  animation: ca-boot-sweep 1.35s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-boot-enter,
+  .ca-boot-ripple,
+  .ca-boot-ripple-delay,
+  .ca-boot-orbit,
+  .ca-boot-sweep {
+    animation: none;
+  }
+  .ca-boot-ripple,
+  .ca-boot-ripple-delay {
+    opacity: 0;
+  }
+  .ca-boot-sweep {
+    transform: translate3d(25%, 0, 0) scaleX(0.6);
+  }
+}
+
+

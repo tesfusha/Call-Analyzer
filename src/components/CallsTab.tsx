@@ -39,10 +39,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { AchievementsModal } from '@/src/components/AchievementsModal';
-import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { CarrierUssdModal, type UssdCategory } from '@/src/components/CarrierUssdModal';
 import { CategoryPanel } from '@/src/components/CategoryTabs';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { CustomSelect } from '@/src/components/CustomSelect';
+import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { WelcomeHero } from '@/src/components/WelcomeHero';
@@ -65,7 +66,7 @@ import {
   formatEthiopianShort,
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
-import { avatarColor, formatDuration, formatTime, initials } from '@/src/lib/format';
+import { formatDuration, formatTime, isPhoneLikeName } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
 import { buildImportPreview, parseBackupImport } from '@/src/lib/import';
 import { unreturnedMissedCalls } from '@/src/lib/reminders';
@@ -855,58 +856,43 @@ export const CallsTab = memo(function CallsTab({
           ? formatDisplayNameOrPhone(topContact.displayName, topContact.number)
           : '';
         return (
-          <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3 sm:gap-5 min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                    <Flame size={17} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-[#08246B] dark:text-white tabular-nums">
-                      {effectiveStreaks.currentStreak}d daily streak
-                    </p>
-                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums">
-                      Best {effectiveStreaks.longestStreak}d · EAT (UTC+3)
-                    </p>
-                  </div>
+          <div className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-4 py-3 space-y-3">
+            {/* Top row: Day streaks | Trophy + General Points */}
+            <div className="grid grid-cols-2 gap-3 sm:gap-5 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Flame size={17} />
                 </div>
-
-                <div className="h-7 w-px bg-[#DDE4EA] dark:bg-[var(--dark-border)] hidden sm:block" />
-
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-[#FF6A00] flex items-center justify-center shrink-0">
-                    <Trophy size={16} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-[#08246B] dark:text-white font-mono tabular-nums">
-                      General: {score} pts
-                    </p>
-                    <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums flex items-center gap-1">
-                      <Award size={11} className="text-[#FF6A00] shrink-0" />
-                      <span>
-                        {badges.length}/{BADGE_DEFINITIONS.length} general badges
-                      </span>
-                    </p>
-                  </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-[#08246B] dark:text-white tabular-nums truncate">
+                    {effectiveStreaks.currentStreak}d daily streak
+                  </p>
+                  <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
+                    Best {effectiveStreaks.longestStreak}d · EAT (UTC+3)
+                  </p>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('tap');
-                  setAchievementsTab('general');
-                  setAchievementsOpen(true);
-                }}
-                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#EEF2F6]/70 dark:bg-[var(--dark-canvas)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
-              >
-                <span>Score &amp; Badges</span>
-                <ChevronRight size={14} className="text-[#FF6A00]" />
-              </button>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Trophy size={16} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-[#08246B] dark:text-white font-mono tabular-nums truncate">
+                    General: {score} pts
+                  </p>
+                  <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums flex items-center gap-1 truncate">
+                    <Award size={11} className="text-[#FF6A00] shrink-0" />
+                    <span className="truncate">
+                      {badges.length}/{BADGE_DEFINITIONS.length} general badges
+                    </span>
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <div className="pt-2.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-between gap-2">
+            {/* Middle row: Status with Contact | Trend icon + Contact Stat */}
+            <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)]">
               {topContact ? (
                 <button
                   type="button"
@@ -914,26 +900,86 @@ export const CallsTab = memo(function CallsTab({
                     triggerHaptic('tap');
                     onSelectContact(topContact.number);
                   }}
-                  className="flex items-center gap-2 min-w-0 text-left hover:opacity-85 transition-opacity"
+                  className="w-full grid grid-cols-2 gap-3 sm:gap-5 min-w-0 text-left hover:opacity-90 transition-opacity"
                 >
-                  <Users size={14} className="text-[#FF6A00] shrink-0" />
-                  <p className="text-xs text-[#08246B] dark:text-white truncate">
-                    <span className="font-semibold">Status with {topContactName}:</span>{' '}
-                    <span className="font-bold text-[#FF6A00]">{topContact.statusHeadline}</span>
-                    <span className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] font-mono tabular-nums">
-                      {' '}
-                      · {topContact.contactScore} pts · {activeContactStreaksCount} active
-                    </span>
-                  </p>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <Users size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                        Status with {topContactName}
+                      </p>
+                      <p className="text-[11px] font-semibold text-[#FF6A00] truncate">
+                        {topContact.statusHeadline}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <TrendingUp size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white font-mono tabular-nums truncate">
+                        {topContact.contactScore} pts
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums truncate">
+                        {activeContactStreaksCount} active ·{' '}
+                        {topContact.currentStreak > 0
+                          ? `${topContact.currentStreak}d streak`
+                          : `Best ${topContact.longestStreak}d`}
+                      </p>
+                    </div>
+                  </div>
                 </button>
               ) : (
-                <div className="flex items-center gap-2 min-w-0">
-                  <Users size={14} className="text-[#8A93A0] shrink-0" />
-                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Contact streaks: connect across consecutive days to unlock 3d–365d badges.
-                  </p>
+                <div className="grid grid-cols-2 gap-3 sm:gap-5 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#8A93A0] flex items-center justify-center shrink-0">
+                      <Users size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white truncate">
+                        Status with Contacts
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        Connect across days
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] text-[#8A93A0] flex items-center justify-center shrink-0">
+                      <TrendingUp size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#08246B] dark:text-white font-mono tabular-nums truncate">
+                        0 pts
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        3d–365d milestones
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
+            </div>
+
+            {/* Bottom row: Score & Badges + Contact Streaks centered together */}
+            <div className="pt-2.5 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setAchievementsTab('general');
+                  setAchievementsOpen(true);
+                }}
+                className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#EEF2F6]/70 dark:bg-[var(--dark-canvas)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center justify-center gap-1 whitespace-nowrap transition-colors"
+              >
+                <span>Score &amp; Badges</span>
+                <ChevronRight size={14} className="text-[#FF6A00]" />
+              </button>
 
               <button
                 type="button"
@@ -942,12 +988,12 @@ export const CallsTab = memo(function CallsTab({
                   setAchievementsTab('contacts');
                   setAchievementsOpen(true);
                 }}
-                className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-semibold text-[#FF6A00] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors tabular-nums"
+                className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#EEF2F6]/70 dark:bg-[var(--dark-canvas)] text-xs font-semibold text-[#FF6A00] hover:border-[#FF6A00] flex items-center justify-center gap-1 whitespace-nowrap transition-colors tabular-nums"
               >
                 <span>
                   Contact Streaks{topContactStatuses.length > 0 ? ` (${topContactStatuses.length})` : ''}
                 </span>
-                <ChevronRight size={13} />
+                <ChevronRight size={14} />
               </button>
             </div>
           </div>
@@ -1435,10 +1481,13 @@ export const CallsTab = memo(function CallsTab({
                                 type="button"
                                 onClick={() => onSelectContact(call.number)}
                                 aria-label={`Open ${displayName} contact card`}
-                                className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 hover:ring-2 hover:ring-[#FF6A00] transition-all"
-                                style={{ backgroundColor: avatarColor(call.number) }}
+                                className="rounded-full shrink-0 hover:ring-2 hover:ring-[#FF6A00] transition-all"
                               >
-                                {initials(call.name || contactProfile?.name, call.number)}
+                                <ContactAvatar
+                                  name={!isPhoneLikeName(call.name, call.number) ? call.name : contactProfile?.name}
+                                  number={call.number}
+                                  size="md"
+                                />
                               </button>
 
                               <button
@@ -2085,12 +2134,7 @@ export const CallsTab = memo(function CallsTab({
                         onClick={() => onSelectContact(vip.number)}
                         className="flex items-center gap-3 min-w-0 text-left flex-1"
                       >
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                          style={{ backgroundColor: avatarColor(vip.number) }}
-                        >
-                          {initials(vip.name || null, vip.number)}
-                        </div>
+                        <ContactAvatar name={vip.name || null} number={vip.number} size="md" />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-[#08246B] dark:text-white truncate">

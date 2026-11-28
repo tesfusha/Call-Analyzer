@@ -172,7 +172,13 @@ export function formatDisplayNameOrPhone(
 }
 
 export function sanitizeSocialUsername(raw: string): string {
-  const withoutAt = raw.trim().replace(/^@+/, '');
-  return withoutAt.replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 64);
+  const trimmed = raw
+    .trim()
+    .replace(/^https?:\/\/(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog|instagram\.com|instagr\.am)\//i, '')
+    .replace(/^(?:t\.me|telegram\.me|instagram\.com)\//i, '')
+    .split(/[?#]/)[0]
+    .replace(/\/+$/, '')
+    .replace(/^@+/, '');
+  return trimmed.replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 64);
 }
 

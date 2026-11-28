@@ -11,11 +11,12 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { hasNativeCallLogSyncPlugin } from '@/src/lib/capacitor';
 import { getContactKey, readUploadedTextFile } from '@/src/lib/contacts';
 import { normaliseEthPhone } from '@/src/lib/ethiopia';
-import { avatarColor, dayKey, dayLabel, formatDuration, formatTime, initials } from '@/src/lib/format';
+import { dayKey, dayLabel, formatDuration, formatTime } from '@/src/lib/format';
 import { buildImportPreview, parseBackupImport } from '@/src/lib/import';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import {
@@ -313,10 +314,10 @@ export function BusinessCallsV107({
                       <button
                         type="button"
                         onClick={() => onSelectContact(call.number)}
-                        className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: avatarColor(call.number) }}
+                        className="rounded-full shrink-0"
+                        aria-label={`Open contact ${displayName}`}
                       >
-                        {initials(call.name, call.number)}
+                        <ContactAvatar name={call.name} number={call.number} size="md" />
                       </button>
 
                       <button

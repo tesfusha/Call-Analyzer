@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Cake, Phone, Search, Star, X } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { getContactKey, getUpcomingContactEvents } from '@/src/lib/contacts';
-import { avatarColor, formatDuration, initials } from '@/src/lib/format';
+import { formatDuration } from '@/src/lib/format';
 import { quietContacts, quietMessage } from '@/src/lib/reminders';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { contactStats } from '@/src/lib/stats';
@@ -209,10 +210,10 @@ export function PeopleViewV106({
                   <button
                     type="button"
                     onClick={() => onSelectContact(person.number)}
-                    className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: avatarColor(person.number) }}
+                    className="rounded-full shrink-0"
+                    aria-label={`Open contact ${displayName}`}
                   >
-                    {initials(person.name, person.number)}
+                    <ContactAvatar name={person.name} number={person.number} size="md" />
                   </button>
                   <button
                     type="button"
@@ -304,10 +305,10 @@ export function PeopleViewV106({
               <button
                 type="button"
                 onClick={() => onSelectContact(person.number)}
-                className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                style={{ backgroundColor: avatarColor(person.number) }}
+                className="rounded-full shrink-0"
+                aria-label={`Open contact ${person.name}`}
               >
-                {initials(person.name, person.number)}
+                <ContactAvatar name={person.name} number={person.number} size="md" />
               </button>
 
               <button

@@ -13,6 +13,7 @@ import {
   Phone,
   ShieldCheck,
   Smartphone,
+  Type,
   UserCog,
   X,
 } from 'lucide-react';
@@ -28,6 +29,11 @@ import { useBackHandler } from '@/src/lib/backNavigation';
 import { useLockBodyScroll } from '@/src/lib/useLockBodyScroll';
 
 const NOTE_ICONS = {
+  'biometric-autolock': Fingerprint,
+  'modern-fonts': Type,
+  'interactive-faq-bot': MessageSquare,
+  'broadcast-samples-edit': Megaphone,
+  'startup-sync-reliability': ShieldCheck,
   'fingerprint-app-lock': Fingerprint,
   'broadcast-ticker': Megaphone,
   'fingerprint-auth': Fingerprint,
@@ -97,23 +103,23 @@ export function WhatsNewModal({
             className="w-full max-w-lg rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] shadow-xl overflow-hidden flex flex-col max-h-[88dvh]"
           >
             {/* Pinned Header */}
-            <div className="px-5 py-4 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <BrandLogo size={38} />
+            <div className="px-4 py-3 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] flex items-center justify-between gap-2.5 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <BrandLogo size={34} />
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <h2
                       id="whats-new-title"
-                      className="text-base font-bold text-[#08246B] dark:text-white truncate"
+                      className="text-sm font-bold text-[#08246B] dark:text-white truncate"
                     >
                       What&apos;s New
                     </h2>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] text-[11px] font-mono font-bold">
-                      <FlaticonIcon name="fi-rr-badge-check" className="text-[11px]" />
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] text-[10px] font-mono font-bold">
+                      <FlaticonIcon name="fi-rr-badge-check" className="text-[10px]" />
                       v{APP_VERSION}
                     </span>
                   </div>
-                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                  <p className="text-[10px] leading-tight text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
                     {APP_NAME} · {APP_RELEASE_LABEL}
                   </p>
                 </div>
@@ -123,41 +129,41 @@ export function WhatsNewModal({
                 type="button"
                 onClick={onClose}
                 aria-label="Close What's New"
-                className="min-h-[40px] min-w-[40px] rounded-xl flex items-center justify-center text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors shrink-0"
+                className="min-h-[36px] min-w-[36px] rounded-xl flex items-center justify-center text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:bg-[#EEF2F6] dark:hover:bg-[var(--dark-elevated)] transition-colors shrink-0"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
             {/* Scrollable Body */}
-            <div className="p-5 overflow-y-auto overscroll-contain space-y-3 flex-1 min-h-0">
-              <div className="rounded-xl bg-[#FFF0E6]/70 dark:bg-[#FF6A00]/10 border border-[#FF6A00]/25 px-3.5 py-2.5 flex items-center gap-2.5">
-                <CheckCircle2 size={16} className="text-[#FF6A00] shrink-0" />
-                <p className="text-xs font-medium text-[#08246B] dark:text-white">
-                  App updated to <span className="font-mono font-bold">v{APP_VERSION}</span>. Here&apos;s what&apos;s new in this release:
+            <div className="p-4 overflow-y-auto overscroll-contain space-y-2 flex-1 min-h-0">
+              <div className="rounded-xl bg-[#FFF0E6]/70 dark:bg-[#FF6A00]/10 border border-[#FF6A00]/25 px-3 py-2 flex items-center gap-2">
+                <CheckCircle2 size={14} className="text-[#FF6A00] shrink-0" />
+                <p className="text-[10.5px] font-medium text-[#08246B] dark:text-white leading-tight">
+                  Updated to <span className="font-mono font-bold">v{APP_VERSION}</span>
                 </p>
               </div>
 
-              <div className="space-y-2.5">
+              <div className="space-y-1.5">
                 {LATEST_RELEASE_NOTES.map((item) => {
                   const Icon = NOTE_ICONS[item.id];
                   return (
                     <div
                       key={item.id}
-                      className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 flex items-start gap-3"
+                      className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 flex items-start gap-2.5"
                     >
-                      <div className="w-9 h-9 rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <div className="w-7 h-7 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#FF6A00] flex items-center justify-center shrink-0">
                         {Icon ? (
-                          <Icon size={17} />
+                          <Icon size={14} />
                         ) : (
-                          <FlaticonIcon name="fi-rr-rocket-lunch" className="text-[17px]" />
+                          <FlaticonIcon name="fi-rr-rocket-lunch" className="text-[14px]" />
                         )}
                       </div>
                       <div className="min-w-0 space-y-0.5">
-                        <h3 className="text-xs font-bold text-[#08246B] dark:text-white">
+                        <h3 className="text-[11px] font-bold text-[#08246B] dark:text-white leading-tight">
                           {item.title}
                         </h3>
-                        <p className="text-xs leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        <p className="text-[10px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                           {item.detail}
                         </p>
                       </div>

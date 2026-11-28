@@ -128,3 +128,41 @@ The Capacitor Android project lives in `/android` with fixed application ID `com
     ├── lib/                   # Ethiopian calendar, gamification, import/export, updateChecker, IndexedDB
     └── types/                 # TypeScript data models
 ```
+
+## AI Coding Skills
+
+### Graphify
+
+The [Graphify](https://github.com/Graphify-Labs/graphify) knowledge-graph skill is bundled directly in this repository:
+
+- `.agents/skills/graphify/SKILL.md` (universal agent skill for Gemini CLI, Codex, Cursor, OpenCode, Antigravity)
+- `.claude/skills/graphify/SKILL.md` (Claude Code skill)
+- `AGENTS.md` & `GEMINI.md` (always-on workspace rules)
+
+To build or query the codebase knowledge graph locally (requires Python 3.11.5–3.14):
+
+```bash
+uv tool install graphifyy   # or: pipx install graphifyy
+```
+
+Then run `/graphify .` in your AI coding assistant (or `graphify update .` / `graphify query "<question>"` from the project root).
+
+### Taste Skill (`design-taste-frontend`)
+
+The [Taste Skill](https://github.com/Leonxlnx/taste-skill) (`tasteskill 2.5.1`) frontend design & browser-gate skill is bundled at:
+
+- `.agents/skills/design-taste-frontend/SKILL.md` (with bundled `references/`, `library/`, `assets/`, and `scripts/`)
+- Registered in `AGENTS.md` & `GEMINI.md`
+
+Verification scripts require **Node 22+** and a local **Chrome, Edge, or Chromium** browser (optional: `ffmpeg` on `PATH` for WebP/crop output).
+
+### Emil Kowalski Design Engineering Skills (`emilkowalski/skills`)
+
+All 20 skills plus `ui-cheatsheet.md` and `performance-cheatsheet.md` from [emilkowalski/skills](https://github.com/emilkowalski/skills) are bundled in `.agents/skills/` (`emil-design-eng`, `animate`, `apple-design`, `mobile-native`, `choreograph`, `gestures`, `review-animations`, etc.) and showcased live in the Admin Preview Lab as **Craft `v1.1.0`** (`src/preview/v110/`).
+
+### Matt Pocock Engineering & Productivity Skills (`mattpocock/skills`)
+
+All engineering, productivity, and workflow skills from [mattpocock/skills](https://github.com/mattpocock/skills) are bundled in `.agents/skills/` (`tdd`, `code-review`, `codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-me`, `implement`, `to-spec`, `to-tickets`, `mp-prototype`, etc.).
+
+
+

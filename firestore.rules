@@ -530,6 +530,22 @@ service cloud.firestore {
             'calendarPrefs',
             'reminderPrefs',
             'voiceBundles',
+            'syncedAt'
+          ])
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName',
+            'email',
+            'phone',
+            'photoURL',
+            'termsAccepted',
+            'termsAcceptedAt',
+            'theme',
+            'notificationsEnabled',
+            'tariffs',
+            'simLabels',
+            'calendarPrefs',
+            'reminderPrefs',
+            'voiceBundles',
             'syncedAt',
             'passwordHint',
             'privacyMode',

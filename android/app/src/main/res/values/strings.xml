@@ -5,4 +5,13 @@
     <string name="package_name">com.callanalyzer.eth</string>
     <string name="custom_url_scheme">com.callanalyzer.eth</string>
     <string name="firebase_web_client_id" translatable="false">144291874445-mchm1assmkgc81f9lvg5onhrajkn31mp.apps.googleusercontent.com</string>
+    <string name="shortcut_reminders_short">Reminders</string>
+    <string name="shortcut_reminders_long">Alerts &amp; Callbacks</string>
+    <string name="shortcut_analytics_short">Analytics</string>
+    <string name="shortcut_analytics_long">Analytics &amp; Spend</string>
+    <string name="shortcut_usage_short">SIM &amp; USSD</string>
+    <string name="shortcut_usage_long">Voice Bundles &amp; USSD</string>
+    <string name="shortcut_calendar_short">Calendar</string>
+    <string name="shortcut_calendar_long">Ethiopian Calendar</string>
+    <string name="shortcut_disabled">Shortcut unavailable</string>
 </resources>

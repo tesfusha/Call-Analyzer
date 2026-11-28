@@ -178,7 +178,11 @@ export type NotificationActionId =
   | 'view'
   | 'clear'
   | 'mute'
-  | 'open';
+  | 'open'
+  | 'shortcut_reminders'
+  | 'shortcut_analytics'
+  | 'shortcut_usage'
+  | 'shortcut_calendar';
 
 export type NotificationMeta = {
   category?: NotificationCategory;
@@ -255,6 +259,12 @@ type NativePhoneContactsPlugin = {
   pickContact?: () => Promise<{
     cancelled?: boolean;
     contacts?: Array<{ name?: string; number?: string }>;
+  }>;
+  hasContactsPermission?: () => Promise<{ granted?: boolean }>;
+  getAllContactsIfGranted?: () => Promise<{
+    granted?: boolean;
+    contacts?: Array<{ name?: string; number?: string; birthday?: string | null }>;
+    total?: number;
   }>;
   getAllContacts?: () => Promise<{
     granted?: boolean;
@@ -1286,15 +1296,13 @@ export function hasNativeBulkContactsSync(): boolean {
   return typeof cap.Plugins?.PhoneContacts?.getAllContacts === 'function';
 }
 
-export async function syncAllNativePhoneContacts(): Promise<{
+function mapNativePhoneContactsResponse(res: {
+  granted?: boolean;
+  contacts?: Array<{ name?: string; number?: string; birthday?: string | null }>;
+}): {
   granted: boolean;
   contacts: Array<{ name: string; number: string; birthday: string | null }>;
-}> {
-  const plugin = getCapacitor()?.Plugins?.PhoneContacts;
-  if (!plugin || typeof plugin.getAllContacts !== 'function') {
-    throw new Error('NATIVE_BULK_CONTACTS_UNAVAILABLE');
-  }
-  const res = await plugin.getAllContacts();
+} {
   const granted = res?.granted !== false;
   const list = Array.isArray(res?.contacts)
     ? res.contacts
@@ -1306,4 +1314,37 @@ export async function syncAllNativePhoneContacts(): Promise<{
         }))
     : [];
   return { granted, contacts: list };
+}
+
+export async function syncAllNativePhoneContacts(): Promise<{
+  granted: boolean;
+  contacts: Array<{ name: string; number: string; birthday: string | null }>;
+}> {
+  const plugin = getCapacitor()?.Plugins?.PhoneContacts;
+  if (!plugin || typeof plugin.getAllContacts !== 'function') {
+    throw new Error('NATIVE_BULK_CONTACTS_UNAVAILABLE');
+  }
+  const res = await plugin.getAllContacts();
+  return mapNativePhoneContactsResponse(res);
+}
+
+export async function syncAllNativePhoneContactsIfGranted(): Promise<{
+  granted: boolean;
+  contacts: Array<{ name: string; number: string; birthday: string | null }>;
+}> {
+  const plugin = getCapacitor()?.Plugins?.PhoneContacts;
+  if (!plugin) {
+    return { granted: false, contacts: [] };
+  }
+  if (typeof plugin.getAllContactsIfGranted === 'function') {
+    const res = await plugin.getAllContactsIfGranted();
+    return mapNativePhoneContactsResponse(res);
+  }
+  if (typeof plugin.hasContactsPermission === 'function' && typeof plugin.getAllContacts === 'function') {
+    const perm = await plugin.hasContactsPermission();
+    if (!perm?.granted) return { granted: false, contacts: [] };
+    const res = await plugin.getAllContacts();
+    return mapNativePhoneContactsResponse(res);
+  }
+  return { granted: false, contacts: [] };
 }

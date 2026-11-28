@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Hash } from 'lucide-react';
 import { CarrierUssdModal } from '@/src/components/CarrierUssdModal';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import {
   computeBundleStatus,
   formatEtb,
   formatSimDisplay,
 } from '@/src/lib/ethiopia';
-import { avatarColor, formatDuration, initials } from '@/src/lib/format';
+import { formatDuration } from '@/src/lib/format';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import {
   computeTotals,
@@ -198,12 +199,7 @@ export function InsightsViewV106({
               onClick={() => onSelectContact(topPerson.number)}
               className="w-full flex items-center gap-3 text-left group"
             >
-              <span
-                className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                style={{ backgroundColor: avatarColor(topPerson.number) }}
-              >
-                {initials(topPerson.name, topPerson.number)}
-              </span>
+              <ContactAvatar name={topPerson.name} number={topPerson.number} size="md" />
               <div className="min-w-0">
                 <p className="text-sm font-bold text-[#14161A] dark:text-[#F4F4F1] group-hover:text-[#E45A0D] truncate transition-colors">
                   {formatDisplayNameOrPhone(topPerson.name, topPerson.number)}

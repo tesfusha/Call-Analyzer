@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   BarChart3,
@@ -17,8 +17,6 @@ import {
   Smartphone,
   UserPlus,
 } from 'lucide-react';
-import { AdminTab } from '@/src/components/AdminTab';
-import { AnalyticsTab } from '@/src/components/AnalyticsTab';
 import { AndroidPermissionsModal } from '@/src/components/AndroidPermissionsModal';
 import { AppGuideModal } from '@/src/components/AppGuideModal';
 import { AppLockOverlay } from '@/src/components/AppLockOverlay';
@@ -31,7 +29,6 @@ import { ContactDetailModal } from '@/src/components/ContactDetailModal';
 import { ContactMilestoneModal } from '@/src/components/ContactMilestoneModal';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { ErrorBoundary } from '@/src/components/ErrorBoundary';
-import { EthiopianCalendarView } from '@/src/components/EthiopianCalendarView';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import {
   HelpSupportModal,
@@ -40,17 +37,42 @@ import {
 import { LandingHero } from '@/src/components/LandingHero';
 import { NotificationPopToast } from '@/src/components/NotificationPopToast';
 import { RemindersModal } from '@/src/components/RemindersModal';
-import { SettingsTab } from '@/src/components/SettingsTab';
 import { UpdateNoticeModal } from '@/src/components/UpdateNoticeModal';
-import { UsageTab } from '@/src/components/UsageTab';
 import { WhatsNewModal } from '@/src/components/WhatsNewModal';
 import { WishComposerModal } from '@/src/components/WishComposerModal';
 import { useDesignVersion } from '@/src/preview/designVersion';
-import { LandingHeroV105 } from '@/src/preview/LandingHeroV105';
 import { VersionSwitcherBar } from '@/src/preview/VersionSwitcherBar';
-import { AppShellV106 } from '@/src/preview/v106/AppShellV106';
-import { AppShellV107 } from '@/src/preview/v107/AppShellV107';
 import { App as CapacitorApp } from '@capacitor/app';
+
+const AdminTab = lazy(() =>
+  import('@/src/components/AdminTab').then((m) => ({ default: m.AdminTab })),
+);
+const AnalyticsTab = lazy(() =>
+  import('@/src/components/AnalyticsTab').then((m) => ({ default: m.AnalyticsTab })),
+);
+const EthiopianCalendarView = lazy(() =>
+  import('@/src/components/EthiopianCalendarView').then((m) => ({
+    default: m.EthiopianCalendarView,
+  })),
+);
+const SettingsTab = lazy(() =>
+  import('@/src/components/SettingsTab').then((m) => ({ default: m.SettingsTab })),
+);
+const UsageTab = lazy(() =>
+  import('@/src/components/UsageTab').then((m) => ({ default: m.UsageTab })),
+);
+const LandingHeroV105 = lazy(() =>
+  import('@/src/preview/LandingHeroV105').then((m) => ({ default: m.LandingHeroV105 })),
+);
+const AppShellV106 = lazy(() =>
+  import('@/src/preview/v106/AppShellV106').then((m) => ({ default: m.AppShellV106 })),
+);
+const AppShellV107 = lazy(() =>
+  import('@/src/preview/v107/AppShellV107').then((m) => ({ default: m.AppShellV107 })),
+);
+const AppShellV110 = lazy(() =>
+  import('@/src/preview/v110/AppShellV110').then((m) => ({ default: m.AppShellV110 })),
+);
 import { DiscardChangesModal } from '@/src/components/DiscardChangesModal';
 import {
   APP_VERSION,
@@ -97,6 +119,17 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof Phone }> = [
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
+function TabLoadingFallback() {
+  return (
+    <div className="py-12 flex flex-col items-center justify-center gap-2 text-center">
+      <div className="w-6 h-6 rounded-full border-2 border-[#FF6A00]/30 border-t-[#FF6A00] animate-spin" />
+      <p className="text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+        Loading view...
+      </p>
+    </div>
+  );
+}
+
 function AppShell() {
   const {
     calls,
@@ -119,15 +152,21 @@ function AppShell() {
     setThemeMode,
     toggleTheme,
     dateHeaderStyle,
+    expandedSettingsSections,
+    setExpandedSettingsSections,
     pinEnabled,
     isLocked,
     pinLockoutUntil,
+    setAppPin,
     unlockWithPin,
     clearAppPin,
     lockApp,
+    verifyIdentityForPinReset,
+    sendPasswordReset,
     biometricUnlockEnabled,
     unlockWithBiometric,
     authUser,
+    authProvider,
     authLoading,
     isGuest,
     profileName,
@@ -412,6 +451,37 @@ function AppShell() {
     setHelpSupportOpen(true);
   }, []);
 
+  const handleHelpNavigate = useCallback(
+    (action: import('@/src/lib/helpBotFaq').HelpFaqAction) => {
+      if (action.kind === 'guide') {
+        setGuideOpen(true);
+        return;
+      }
+      if (!canUseMainTabsRef.current) {
+        openAuthPrompt('signin', 'Sign in or try Guest preview to open app sections.');
+        return;
+      }
+      if (action.kind === 'reminders') {
+        setRemindersInitialCategory('action');
+        setRemindersOpen(true);
+        return;
+      }
+      if (action.kind === 'tab' && action.tab) {
+        setActiveTab(action.tab);
+        setVisitedTabs((prev) => (prev.has(action.tab!) ? prev : new Set(prev).add(action.tab!)));
+        return;
+      }
+      if (action.kind === 'settings-section' && action.settingsSection) {
+        if (!expandedSettingsSections.includes(action.settingsSection)) {
+          setExpandedSettingsSections([...expandedSettingsSections, action.settingsSection]);
+        }
+        setActiveTab('settings');
+        setVisitedTabs((prev) => (prev.has('settings') ? prev : new Set(prev).add('settings')));
+      }
+    },
+    [expandedSettingsSections, openAuthPrompt, setExpandedSettingsSections],
+  );
+
   const handleCloseGuide = useCallback(() => {
     setGuideOpen(false);
     markGuideSeen();
@@ -618,17 +688,30 @@ function AppShell() {
   }, [activeTab, markCallsTabOpened, clearSessionNewCalls]);
 
   useEffect(() => {
-    if (!notificationActionTarget) return;
+    if (!notificationActionTarget || authLoading || (!authUser && !isGuest)) return;
     if (notificationActionTarget.contactNumber) {
+      setRemindersOpen(false);
       setSelectedContactNumber(notificationActionTarget.contactNumber);
     } else if (notificationActionTarget.openReminders) {
+      setDetailId(null);
+      setSelectedContactNumber(null);
       setRemindersInitialCategory(notificationActionTarget.openReminders);
       setRemindersOpen(true);
     } else if (notificationActionTarget.tab) {
+      setDetailId(null);
+      setSelectedContactNumber(null);
+      setRemindersOpen(false);
       handleSwitchTab(notificationActionTarget.tab);
     }
     clearNotificationActionTarget();
-  }, [notificationActionTarget, clearNotificationActionTarget, handleSwitchTab]);
+  }, [
+    notificationActionTarget,
+    authLoading,
+    authUser,
+    isGuest,
+    clearNotificationActionTarget,
+    handleSwitchTab,
+  ]);
 
   useEffect(() => {
     if (prefersReducedMotion || authLoading || needsEmailVerification || isLocked) return;
@@ -907,15 +990,66 @@ function AppShell() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col items-center justify-center px-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <BrandLogo size={46} />
-          <p className="text-sm font-semibold text-[#08246B] dark:text-white">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col items-center justify-center px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="ca-boot-enter flex flex-col items-center text-center">
+          <div className="relative w-24 h-24 flex items-center justify-center mb-5">
+            {/* Dual expanding call-signal ripples */}
+            <span
+              aria-hidden="true"
+              className="ca-boot-ripple absolute inset-2 rounded-[26%] border border-[#FF6A00]/45 dark:border-[#FF6A00]/40 pointer-events-none"
+            />
+            <span
+              aria-hidden="true"
+              className="ca-boot-ripple-delay absolute inset-2 rounded-[26%] border border-[#08246B]/25 dark:border-white/20 pointer-events-none"
+            />
+            {/* Smooth orbital arc ring */}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 88 88"
+              className="ca-boot-orbit absolute inset-0 w-full h-full pointer-events-none"
+            >
+              <circle
+                cx="44"
+                cy="44"
+                r="40"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="text-[#DDE4EA] dark:text-white/10"
+              />
+              <circle
+                cx="44"
+                cy="44"
+                r="40"
+                fill="none"
+                stroke="#FF6A00"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray="68 184"
+              />
+            </svg>
+            <BrandLogo size={54} className="relative z-10 shadow-md" />
+          </div>
+
+          <p className="text-base font-bold tracking-tight text-[#08246B] dark:text-white">
             Call Analyzer - ETH
           </p>
-          <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+          <p className="mt-1 text-xs font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
             Verifying your account session...
           </p>
+
+          {/* Indeterminate progress sweep bar */}
+          <div
+            aria-hidden="true"
+            className="mt-4 w-36 h-[3px] rounded-full bg-[#DDE4EA] dark:bg-white/10 overflow-hidden"
+          >
+            <div className="ca-boot-sweep h-full w-1/2 rounded-full bg-[#FF6A00]" />
+          </div>
         </div>
       </div>
     );
@@ -1049,8 +1183,13 @@ function AppShell() {
         </header>
 
         <main className="flex-1 flex items-center justify-center pb-10">
-          {designVersion === 'v1.0.5' || designVersion === 'v1.0.6' || designVersion === 'v1.0.7' ? (
-            <LandingHeroV105 onOpenGuide={() => setGuideOpen(true)} />
+          {designVersion === 'v1.0.5' ||
+          designVersion === 'v1.0.6' ||
+          designVersion === 'v1.0.7' ||
+          designVersion === 'v1.1.0' ? (
+            <Suspense fallback={<TabLoadingFallback />}>
+              <LandingHeroV105 onOpenGuide={() => setGuideOpen(true)} />
+            </Suspense>
           ) : (
             <LandingHero onOpenGuide={() => setGuideOpen(true)} />
           )}
@@ -1088,6 +1227,12 @@ function AppShell() {
       <AppLockOverlay
         onVerifyPin={unlockWithPin}
         onResetPin={clearAppPin}
+        onSetNewPin={setAppPin}
+        onVerifyAccountPassword={(pwd) => verifyIdentityForPinReset(pwd)}
+        onVerifyGoogleAccount={() => verifyIdentityForPinReset()}
+        onSendPasswordReset={sendPasswordReset}
+        authEmail={authUser?.email ?? null}
+        authProvider={authProvider}
         lockUntil={pinLockoutUntil}
         pinEnabled={pinEnabled}
         biometricEnabled={biometricUnlockEnabled}
@@ -1099,34 +1244,54 @@ function AppShell() {
 
   return (
     <>
-      {designVersion === 'v1.0.7' ? (
-        <AppShellV107
-          headerDates={headerDates}
-          pendingFollowUps={pendingFollowUps}
-          onSelectCall={handleSelectCall}
-          onSelectContact={handleSelectContact}
-          onCallBack={handleCallBack}
-          onOpenReminders={handleOpenReminders}
-          onOpenWishes={handleOpenWishes}
-          onOpenGuide={handleOpenGuide}
-          onOpenWhatsNew={handleOpenWhatsNew}
-          onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
-          onCheckForUpdates={handleManualUpdateCheck}
-        />
+      {designVersion === 'v1.1.0' ? (
+        <Suspense fallback={<TabLoadingFallback />}>
+          <AppShellV110
+            headerDates={headerDates}
+            pendingFollowUps={pendingFollowUps}
+            onSelectCall={handleSelectCall}
+            onSelectContact={handleSelectContact}
+            onCallBack={handleCallBack}
+            onOpenReminders={handleOpenReminders}
+            onOpenWishes={handleOpenWishes}
+            onOpenGuide={handleOpenGuide}
+            onOpenWhatsNew={handleOpenWhatsNew}
+            onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+            onCheckForUpdates={handleManualUpdateCheck}
+          />
+        </Suspense>
+      ) : designVersion === 'v1.0.7' ? (
+        <Suspense fallback={<TabLoadingFallback />}>
+          <AppShellV107
+            headerDates={headerDates}
+            pendingFollowUps={pendingFollowUps}
+            onSelectCall={handleSelectCall}
+            onSelectContact={handleSelectContact}
+            onCallBack={handleCallBack}
+            onOpenReminders={handleOpenReminders}
+            onOpenWishes={handleOpenWishes}
+            onOpenGuide={handleOpenGuide}
+            onOpenWhatsNew={handleOpenWhatsNew}
+            onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+            onCheckForUpdates={handleManualUpdateCheck}
+          />
+        </Suspense>
       ) : designVersion === 'v1.0.6' ? (
-        <AppShellV106
-          headerDates={headerDates}
-          pendingFollowUps={pendingFollowUps}
-          onSelectCall={handleSelectCall}
-          onSelectContact={handleSelectContact}
-          onCallBack={handleCallBack}
-          onOpenReminders={handleOpenReminders}
-          onOpenWishes={handleOpenWishes}
-          onOpenGuide={handleOpenGuide}
-          onOpenWhatsNew={handleOpenWhatsNew}
-          onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
-          onCheckForUpdates={handleManualUpdateCheck}
-        />
+        <Suspense fallback={<TabLoadingFallback />}>
+          <AppShellV106
+            headerDates={headerDates}
+            pendingFollowUps={pendingFollowUps}
+            onSelectCall={handleSelectCall}
+            onSelectContact={handleSelectContact}
+            onCallBack={handleCallBack}
+            onOpenReminders={handleOpenReminders}
+            onOpenWishes={handleOpenWishes}
+            onOpenGuide={handleOpenGuide}
+            onOpenWhatsNew={handleOpenWhatsNew}
+            onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+            onCheckForUpdates={handleManualUpdateCheck}
+          />
+        </Suspense>
       ) : (
         <div className="min-h-screen bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] text-[#08246B] dark:text-white flex flex-col md:flex-row">
       {/* Desktop Sidebar */}
@@ -1503,41 +1668,51 @@ function AppShell() {
           )}
           {visitedTabs.has('analytics') && (
             <div className={activeTab === 'analytics' ? 'block' : 'hidden'}>
-              <AnalyticsTab onSelectContact={handleSelectContact} />
+              <Suspense fallback={<TabLoadingFallback />}>
+                <AnalyticsTab onSelectContact={handleSelectContact} />
+              </Suspense>
             </div>
           )}
           {visitedTabs.has('usage') && (
             <div className={activeTab === 'usage' ? 'block' : 'hidden'}>
-              <UsageTab
-                onSelectCall={handleSelectCall}
-                onSelectContact={handleSelectContact}
-              />
+              <Suspense fallback={<TabLoadingFallback />}>
+                <UsageTab
+                  onSelectCall={handleSelectCall}
+                  onSelectContact={handleSelectContact}
+                />
+              </Suspense>
             </div>
           )}
           {visitedTabs.has('calendar') && (
             <div className={activeTab === 'calendar' ? 'block' : 'hidden'}>
-              <EthiopianCalendarView
-                onSelectContact={handleSelectContact}
-                onOpenWishes={handleOpenWishes}
-              />
+              <Suspense fallback={<TabLoadingFallback />}>
+                <EthiopianCalendarView
+                  onSelectContact={handleSelectContact}
+                  onOpenWishes={handleOpenWishes}
+                />
+              </Suspense>
             </div>
           )}
           {visitedTabs.has('settings') && (
             <div className={activeTab === 'settings' ? 'block' : 'hidden'}>
-              <SettingsTab
-                onOpenReminders={handleOpenReminders}
-                onOpenGuide={handleOpenGuide}
-                onOpenWhatsNew={handleOpenWhatsNew}
-                onOpenHelpSupport={handleOpenHelpSupport}
-                onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
-                onSelectContact={handleSelectContact}
-                onCheckForUpdates={handleManualUpdateCheck}
-              />
+              <Suspense fallback={<TabLoadingFallback />}>
+                <SettingsTab
+                  onOpenReminders={handleOpenReminders}
+                  onOpenGuide={handleOpenGuide}
+                  onOpenWhatsNew={handleOpenWhatsNew}
+                  onOpenHelpSupport={handleOpenHelpSupport}
+                  onOpenAndroidSetup={() => setAndroidSetupOpen(true)}
+                  onSelectContact={handleSelectContact}
+                  onCheckForUpdates={handleManualUpdateCheck}
+                />
+              </Suspense>
             </div>
           )}
           {isAdmin && visitedTabs.has('admin') && (
             <div className={activeTab === 'admin' ? 'block' : 'hidden'}>
-              <AdminTab />
+              <Suspense fallback={<TabLoadingFallback />}>
+                <AdminTab />
+              </Suspense>
             </div>
           )}
         </div>
@@ -1633,6 +1808,7 @@ function AppShell() {
           handleSelectCall(call);
         }}
         onCallBack={handleCallBack}
+        onOpenContact={handleSelectContact}
         onShareMilestone={(m) => {
           setSelectedContactNumber(null);
           setManualMilestone(m);
@@ -1706,6 +1882,7 @@ function AppShell() {
         open={helpSupportOpen}
         initialTab={helpSupportTab}
         onClose={() => setHelpSupportOpen(false)}
+        onNavigate={handleHelpNavigate}
       />
 
       <AnimatePresence>

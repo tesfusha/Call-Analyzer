@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Clock, FileText, Phone, Plus, Star, Tag, Trash2, User, X } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
 import { getContactKey, mergeTagOptions } from '@/src/lib/contacts';
 import { detectCarrier, estimateCallCostEtb, formatEtb, formatSimDisplay } from '@/src/lib/ethiopia';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
-import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { parseDateTimeLocalValue, toDateTimeLocalValue } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useBackHandler } from '@/src/lib/backNavigation';
@@ -166,12 +167,7 @@ export function CallDetailModal({
                   }}
                   className="flex items-center gap-3 min-w-0 text-left group"
                 >
-                  <div
-                    className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
-                    style={{ backgroundColor: avatarColor(call.number) }}
-                  >
-                    {initials(call.name, call.number)}
-                  </div>
+                  <ContactAvatar name={call.name} number={call.number} size="lg" />
                   <div className="min-w-0">
                     <h2 className="text-base font-semibold text-[#08246B] dark:text-white truncate group-hover:text-[#FF6A00] transition-colors">
                       {displayName}

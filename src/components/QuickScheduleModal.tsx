@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Clock, Search, X } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
-import { avatarColor, initials } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
 import { toDateTimeLocalValue } from '@/src/lib/schedule';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
@@ -168,12 +168,11 @@ export function QuickScheduleModal({
                 {activeContact ? (
                   <div className="flex items-center justify-between gap-3 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                        style={{ backgroundColor: avatarColor(activeContact.number) }}
-                      >
-                        {initials(activeContact.name, activeContact.number)}
-                      </div>
+                      <ContactAvatar
+                        name={activeContact.name}
+                        number={activeContact.number}
+                        size="sm"
+                      />
                       <div className="min-w-0">
                         <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
                           {formatDisplayNameOrPhone(activeContact.name, activeContact.number)}
@@ -232,12 +231,7 @@ export function QuickScheduleModal({
                             className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 text-left bg-white dark:bg-[var(--dark-surface)] hover:bg-[#EEF2F6]/70 dark:hover:bg-[var(--dark-elevated)] transition-colors"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
-                              <div
-                                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                                style={{ backgroundColor: avatarColor(c.number) }}
-                              >
-                                {initials(c.name, c.number)}
-                              </div>
+                              <ContactAvatar name={c.name} number={c.number} size="xs" />
                               <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
                                 {c.name}
                               </span>

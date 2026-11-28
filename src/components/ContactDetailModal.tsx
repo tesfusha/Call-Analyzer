@@ -27,11 +27,13 @@ import {
   X,
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
 import { SpecialEventsEditor } from '@/src/components/SpecialEventsEditor';
 import {
   daysUntilAnnualDate,
+  findSiblingContactProfiles,
   getContactKey,
   mergeTagOptions,
 } from '@/src/lib/contacts';
@@ -44,7 +46,7 @@ import {
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile, shareContactVcard } from '@/src/lib/export';
-import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { buildEmptyContactStatus } from '@/src/lib/gamification';
 import { buildContactMilestoneShareRecord } from '@/src/lib/milestoneShare';
 import {
@@ -113,12 +115,14 @@ export function ContactDetailModal({
   onClose,
   onSelectCall,
   onCallBack,
+  onOpenContact,
   onShareMilestone,
 }: {
   contactNumber: string | null;
   onClose: () => void;
   onSelectCall: (call: CallRecord) => void;
   onCallBack: (number: string) => void;
+  onOpenContact?: (number: string) => void;
   onShareMilestone?: (milestone: ContactMilestoneRecord) => void;
 }) {
   const {
@@ -356,6 +360,10 @@ export function ContactDetailModal({
 
   const safeNumber = contactNumber ?? '';
   const displayName = formatDisplayNameOrPhone(name, safeNumber);
+  const siblingProfiles = useMemo(
+    () => findSiblingContactProfiles(contacts, contactKey, profile?.name || displayName),
+    [contacts, contactKey, profile?.name, displayName],
+  );
   const isFav =
     Boolean(contactNumber) &&
     (favorites.has(safeNumber) || favorites.has(contactKey));
@@ -522,12 +530,7 @@ export function ContactDetailModal({
             <div className="shrink-0 p-5 pb-3.5 border-b border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3.5">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3.5 min-w-0">
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-base font-bold text-white shrink-0"
-                    style={{ backgroundColor: avatarColor(contactNumber) }}
-                  >
-                    {initials(displayName, contactNumber)}
-                  </div>
+                  <ContactAvatar name={displayName} number={contactNumber} size="xl" />
                   <div className="min-w-0 space-y-0.5">
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <h2 className="text-lg font-bold text-[#08246B] dark:text-white truncate">
@@ -572,6 +575,37 @@ export function ContactDetailModal({
                   </button>
                 </div>
               </div>
+
+              {siblingProfiles.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2">
+                  <span className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Other saved {siblingProfiles.length === 1 ? 'number' : 'numbers'}:
+                  </span>
+                  {siblingProfiles.map((sib) => (
+                    <div
+                      key={sib.key}
+                      className="inline-flex items-center gap-1 rounded-lg bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] pl-2 pr-1 py-0.5 text-[11px]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onOpenContact?.(sib.number)}
+                        className="font-mono tabular-nums font-semibold text-[#08246B] dark:text-white hover:text-[#FF6A00]"
+                        title={`Switch to ${sib.number}`}
+                      >
+                        {sib.number} · {detectCarrier(sib.number)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onCallBack(sib.number)}
+                        aria-label={`Call ${sib.number}`}
+                        className="w-6 h-6 rounded-md bg-[#FF6A00]/10 text-[#FF6A00] hover:bg-[#FF6A00] hover:text-white flex items-center justify-center transition-colors"
+                      >
+                        <Phone size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <CategoryTabs
                 items={categories}

@@ -47,6 +47,7 @@ import { CustomSelect } from '@/src/components/CustomSelect';
 import { DarkModeToggle } from '@/src/components/DarkModeToggle';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
+import { PrivacyPolicyModal } from '@/src/components/PrivacyPolicyModal';
 import { ProfileEditModal } from '@/src/components/ProfileEditModal';
 import { BADGE_DEFINITIONS, POINTS_CONFIG } from '@/src/lib/gamificationConstants';
 import {
@@ -236,6 +237,8 @@ export function SettingsTab({
     toggleTheme,
     fontSizeScale,
     setFontSizeScale,
+    fontFamily,
+    setFontFamily,
     dateHeaderStyle,
     setDateHeaderStyle,
     notificationsEnabled,
@@ -244,6 +247,8 @@ export function SettingsTab({
     requestAlertPermissions,
     sendTestAlertNotification,
     pinEnabled,
+    autoLockMinutes,
+    setAutoLockMinutes,
     setAppPin,
     clearAppPin,
     lockApp,
@@ -266,6 +271,7 @@ export function SettingsTab({
     lastSyncedAt,
     signOutAccount,
     deleteAllLocalData,
+    deleteUserAccount,
     syncNow,
     canSyncPhoneCalls,
     availableTags,
@@ -318,6 +324,11 @@ export function SettingsTab({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contactsFileInputRef = useRef<HTMLInputElement>(null);
+  const [privacyPolicyOpen, setPrivacyPolicyOpen] = useState(false);
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
 
   useEffect(() => {
     setSim1Label(simLabels.sim1Label);
@@ -546,20 +557,22 @@ export function SettingsTab({
       appearance: `${
         themePreference === 'system' ? 'Auto' : isDark ? 'Dark' : 'Bright'
       } · ${
+        fontFamily === 'outfit'
+          ? 'Outfit'
+          : fontFamily === 'manrope'
+            ? 'Manrope'
+            : fontFamily === 'space'
+              ? 'Space Grotesk'
+              : fontFamily === 'dm'
+                ? 'DM Sans'
+                : 'Plus Jakarta'
+      } · ${
         fontSizeScale === 'default'
           ? 'Standard'
           : fontSizeScale === 'large'
             ? 'Larger'
             : 'Biggest'
-      } text · ${
-        dateHeaderStyle === 'calls-strip'
-          ? 'Calls strip'
-          : dateHeaderStyle === 'sub-bar'
-            ? 'Sub-bar'
-            : dateHeaderStyle === 'header'
-              ? 'In header'
-              : 'Date hidden'
-      }`,
+      } text`,
       security:
         pinEnabled && biometricUnlockEnabled
           ? 'PIN + Fingerprint lock active'
@@ -588,6 +601,7 @@ export function SettingsTab({
       badges.length,
       themePreference,
       isDark,
+      fontFamily,
       fontSizeScale,
       dateHeaderStyle,
       pinEnabled,
@@ -802,7 +816,7 @@ export function SettingsTab({
               <div className="rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
-                    Abebe Kebede · ETC
+                    Abebe Kebede · አበበ ከበደ
                   </span>
                   <span className="text-xs font-mono tabular-nums text-[#FF6A00] shrink-0">
                     12m 40s
@@ -811,6 +825,106 @@ export function SettingsTab({
                 <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                   Preview text &amp; Ethiopian dates scale smoothly while keeping icons crisp.
                 </p>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 rounded-xl bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                  <Type size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-[#08246B] dark:text-white">
+                    Modern Font Style
+                  </h3>
+                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Choose from 5 clean modern typefaces (all paired with crisp Ethiopic &amp; numeric support)
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                {(
+                  [
+                    {
+                      key: 'jakarta',
+                      label: 'Plus Jakarta',
+                      tag: 'Default',
+                      desc: 'Clean geometric',
+                      familyCss: "'Plus Jakarta Sans', 'Noto Sans Ethiopic', sans-serif",
+                    },
+                    {
+                      key: 'outfit',
+                      label: 'Outfit',
+                      tag: 'Rounded',
+                      desc: 'Smooth & friendly',
+                      familyCss: "'Outfit', 'Noto Sans Ethiopic', sans-serif",
+                    },
+                    {
+                      key: 'manrope',
+                      label: 'Manrope',
+                      tag: 'Minimal',
+                      desc: 'Sharp & balanced',
+                      familyCss: "'Manrope', 'Noto Sans Ethiopic', sans-serif",
+                    },
+                    {
+                      key: 'space',
+                      label: 'Space Grotesk',
+                      tag: 'Editorial',
+                      desc: 'Bold modern tech',
+                      familyCss: "'Space Grotesk', 'Noto Sans Ethiopic', sans-serif",
+                    },
+                    {
+                      key: 'dm',
+                      label: 'DM Sans',
+                      tag: 'Sleek',
+                      desc: 'Effortless reading',
+                      familyCss: "'DM Sans', 'Noto Sans Ethiopic', sans-serif",
+                    },
+                  ] as const
+                ).map((opt) => {
+                  const active = fontFamily === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => {
+                        setFontFamily(opt.key);
+                        showNotice(`Font switched to ${opt.label}.`, false);
+                      }}
+                      aria-pressed={active}
+                      style={{ fontFamily: opt.familyCss }}
+                      className={`min-h-[78px] px-3 py-2.5 rounded-xl border text-left transition-colors flex flex-col justify-between gap-1.5 ${
+                        active
+                          ? 'bg-[#FFF0E6] dark:bg-[#FF6A00]/15 border-[#FF6A00] text-[#08246B] dark:text-white'
+                          : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]/60'
+                      }`}
+                    >
+                      <div className="flex items-baseline justify-between gap-1.5">
+                        <span className="text-lg font-bold leading-none text-[#FF6A00]">
+                          Aa
+                        </span>
+                        <span
+                          className={`text-[10px] font-semibold ${
+                            active
+                              ? 'text-[#FF6A00]'
+                              : 'text-[#8A93A0] dark:text-[var(--dark-text-muted)]'
+                          }`}
+                        >
+                          {opt.tag}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <span className="block text-xs font-bold truncate">
+                          {opt.label}
+                        </span>
+                        <span className="block text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                          {opt.desc}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -1004,6 +1118,44 @@ export function SettingsTab({
               >
                 {pinEnabled ? 'Update PIN' : 'Enable screen lock'}
               </button>
+            </div>
+
+            <div className="rounded-xl bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
+              <div className="space-y-0.5">
+                <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                  Auto-Lock After Inactivity
+                </p>
+                <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Automatically locks the app after idle time or leaving so you unlock with Fingerprint or PIN (default: 5 minutes).
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(
+                  [
+                    { value: 0, label: 'Immediately' },
+                    { value: 1, label: '1 minute' },
+                    { value: 5, label: '5 min (Default)' },
+                    { value: 15, label: '15 minutes' },
+                  ] as const
+                ).map((opt) => {
+                  const active = autoLockMinutes === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setAutoLockMinutes(opt.value)}
+                      aria-pressed={active}
+                      className={`min-h-[40px] px-2.5 py-2 rounded-xl border text-xs font-semibold transition-colors ${
+                        active
+                          ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
+                          : 'bg-white dark:bg-[var(--dark-surface)] border-[#DDE4EA] dark:border-[var(--dark-border)] text-[#08246B] dark:text-white hover:border-[#FF6A00]/60'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="rounded-xl bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-4 space-y-3.5">
@@ -1853,7 +2005,7 @@ export function SettingsTab({
               </div>
 
               <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                Load saved names, phone numbers, and birthdays directly from your Android phonebook, pick individual contacts, or import a .vcf / CSV export — stored strictly on your device.
+                Once Contacts permission is granted on Android, your phonebook syncs automatically on launch and resume (including multiple numbers under one contact). You can also refresh immediately, pick individual contacts, or import .vcf / CSV files — stored strictly on your device.
               </p>
 
               <div className="flex flex-wrap items-center gap-2.5">
@@ -1985,6 +2137,7 @@ export function SettingsTab({
                           notificationsEnabled,
                           themePreference,
                           fontSizeScale,
+                          fontFamily,
                           profileName,
                           expandedSettingsSections,
                         },
@@ -2158,26 +2311,120 @@ export function SettingsTab({
                   )}
                 </div>
               )}
+
+              {authUser && (
+                <div className="pt-3 border-t border-[#DDE4EA] dark:border-[var(--dark-border)] space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-0.5 min-w-[200px] flex-1">
+                      <p className="text-xs font-semibold text-[#DC2626] dark:text-[#F28B82]">
+                        Delete my account permanently
+                      </p>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                        Permanently removes your Firebase account, cloud preferences, and all local data on this device. This cannot be undone.
+                      </p>
+                    </div>
+                    {!confirmDeleteAccount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmDeleteAccount(true);
+                          setDeleteAccountPassword('');
+                          setDeleteAccountError('');
+                        }}
+                        className="min-h-[44px] px-3.5 py-2 rounded-xl border border-[#DC2626]/50 text-xs font-semibold text-[#DC2626] dark:text-[#F28B82] hover:bg-[#DC2626]/10 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                      >
+                        <Trash2 size={15} />
+                        Delete account
+                      </button>
+                    )}
+                  </div>
+
+                  {confirmDeleteAccount && (
+                    <div className="rounded-xl bg-[#FEE2E2]/60 dark:bg-[#EF4444]/10 border border-[#FCA5A5] dark:border-[#EF4444]/35 p-3.5 space-y-2.5">
+                      <p className="text-xs font-semibold text-[#991B1B] dark:text-[#FCA5A5]">
+                        {authProvider === 'google'
+                          ? 'You will be asked to confirm your Google account before permanent deletion.'
+                          : 'Enter your account password to confirm permanent account deletion:'}
+                      </p>
+                      {authProvider !== 'google' && (
+                        <input
+                          type="password"
+                          autoComplete="current-password"
+                          value={deleteAccountPassword}
+                          onChange={(e) => setDeleteAccountPassword(e.target.value)}
+                          placeholder="Current account password"
+                          className="w-full min-h-[42px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] px-3 py-2 text-xs text-[#08246B] dark:text-white focus:outline-none focus:border-[#DC2626]"
+                        />
+                      )}
+                      {deleteAccountError && (
+                        <p className="text-xs font-medium text-[#DC2626] dark:text-[#FCA5A5]">
+                          {deleteAccountError}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={deleteAccountBusy}
+                          onClick={() => {
+                            setConfirmDeleteAccount(false);
+                            setDeleteAccountPassword('');
+                            setDeleteAccountError('');
+                          }}
+                          className="min-h-[42px] px-3.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deleteAccountBusy}
+                          onClick={async () => {
+                            setDeleteAccountError('');
+                            setDeleteAccountBusy(true);
+                            try {
+                              const res = await deleteUserAccount(
+                                authProvider === 'google' ? undefined : deleteAccountPassword,
+                              );
+                              if (!res.ok) {
+                                setDeleteAccountError(
+                                  res.error || 'Could not delete account right now.',
+                                );
+                                return;
+                              }
+                              setConfirmDeleteAccount(false);
+                              setDeleteAccountPassword('');
+                            } finally {
+                              setDeleteAccountBusy(false);
+                            }
+                          }}
+                          className="min-h-[42px] px-4 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-50 text-xs font-semibold text-white whitespace-nowrap transition-colors"
+                        >
+                          {deleteAccountBusy ? 'Deleting account...' : 'Permanently delete account'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         );
 
       case 'about':
         return (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-auto">
-                <BrandLogo size={40} />
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 basis-full sm:basis-auto">
+                <BrandLogo size={36} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-bold text-[#08246B] dark:text-white">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="text-xs font-bold text-[#08246B] dark:text-white">
                       {APP_NAME}
                     </h3>
-                    <span className="text-[11px] font-mono tabular-nums font-semibold px-2 py-0.5 rounded-md bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00]">
+                    <span className="text-[10px] font-mono tabular-nums font-semibold px-1.5 py-0.5 rounded bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00]">
                       v{APP_VERSION} · build {APP_VERSION_CODE}
                     </span>
                   </div>
-                  <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  <p className="text-[10px] leading-tight text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     {APP_RELEASE_LABEL}
                   </p>
                 </div>
@@ -2196,7 +2443,7 @@ export function SettingsTab({
                         setCheckingUpdate(false);
                       }
                     }}
-                    className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] disabled:opacity-50 text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] disabled:opacity-50 text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                   >
                     <RefreshCw size={14} className={`text-[#FF6A00] ${checkingUpdate ? 'animate-spin' : ''}`} />
                     {checkingUpdate ? 'Checking...' : 'Check Updates'}
@@ -2206,9 +2453,9 @@ export function SettingsTab({
                   <button
                     type="button"
                     onClick={onOpenWhatsNew}
-                    className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                   >
-                    <FlaticonIcon name="fi-rr-rocket-lunch" className="text-[15px] text-[#FF6A00]" />
+                    <FlaticonIcon name="fi-rr-rocket-lunch" className="text-[14px] text-[#FF6A00]" />
                     What&apos;s New
                   </button>
                 )}
@@ -2216,26 +2463,26 @@ export function SettingsTab({
                   <button
                     type="button"
                     onClick={onOpenGuide}
-                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                   >
-                    <PlayCircle size={15} />
+                    <PlayCircle size={14} />
                     Launch App Guide
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {APP_FEATURES.map((feat) => (
                 <div
                   key={feat.title}
-                  className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-1"
+                  className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 space-y-0.5"
                 >
-                  <p className="text-xs font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5">
-                    <CheckCircle2 size={13} className="text-[#FF6A00] shrink-0" />
+                  <p className="text-[11px] font-semibold text-[#08246B] dark:text-white flex items-center gap-1.5 leading-tight">
+                    <CheckCircle2 size={12} className="text-[#FF6A00] shrink-0" />
                     <span>{feat.title}</span>
                   </p>
-                  <p className="text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  <p className="text-[10px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     {feat.detail}
                   </p>
                 </div>
@@ -2243,31 +2490,31 @@ export function SettingsTab({
             </div>
 
             {onOpenHelpSupport && (
-              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
+              <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                  <p className="text-[11px] font-semibold text-[#08246B] dark:text-white">
                     Help Bot &amp; Admin Support
                   </p>
-                  <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                    Instant offline guide or direct chat
+                  <span className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                    Offline guide or direct chat
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => onOpenHelpSupport('bot')}
-                    className="min-h-[52px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors group"
+                    className="min-h-[46px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2 flex items-center gap-2.5 text-left transition-colors group"
                   >
-                    <span className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                      <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[18px]" />
+                    <span className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <FlaticonIcon name="fi-rr-chatbot-speech-bubble" className="text-[16px]" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-[#08246B] dark:text-white group-hover:text-[#FF6A00] transition-colors">
+                      <p className="text-[11px] font-bold text-[#08246B] dark:text-white group-hover:text-[#FF6A00] transition-colors">
                         App Helper Bot
                       </p>
-                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                        Interactive FAQ &amp; feature tour
+                      <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        Interactive FAQ &amp; quick guide
                       </p>
                     </div>
                   </button>
@@ -2275,17 +2522,17 @@ export function SettingsTab({
                   <button
                     type="button"
                     onClick={() => onOpenHelpSupport('admin')}
-                    className="min-h-[52px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors group"
+                    className="min-h-[46px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2 flex items-center gap-2.5 text-left transition-colors group"
                   >
-                    <span className="w-9 h-9 rounded-xl bg-[#EEF2F6] dark:bg-[#08246B]/35 text-[#08246B] dark:text-[#7FA6FF] flex items-center justify-center shrink-0">
-                      <FlaticonIcon name="fi-rr-user-headset" className="text-[18px]" />
+                    <span className="w-8 h-8 rounded-lg bg-[#EEF2F6] dark:bg-[#08246B]/35 text-[#08246B] dark:text-[#7FA6FF] flex items-center justify-center shrink-0">
+                      <FlaticonIcon name="fi-rr-user-headset" className="text-[16px]" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-[#08246B] dark:text-white group-hover:text-[#FF6A00] transition-colors">
+                      <p className="text-[11px] font-bold text-[#08246B] dark:text-white group-hover:text-[#FF6A00] transition-colors">
                         Chat with Admin
                       </p>
-                      <p className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
-                        Direct support message thread
+                      <p className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)] truncate">
+                        Direct support chat
                       </p>
                     </div>
                   </button>
@@ -2293,36 +2540,36 @@ export function SettingsTab({
               </div>
             )}
 
-            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 space-y-2.5">
+            <div className="rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                <p className="text-[11px] font-semibold text-[#08246B] dark:text-white">
                   Contact &amp; Community
                 </p>
-                <span className="text-[11px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                  Support, feedback &amp; APK updates
+                <span className="text-[10px] text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  Support &amp; APK updates
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <a
                   href={`mailto:${APP_CONTACT_EMAIL}`}
-                  className="min-h-[48px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center justify-between gap-2.5 transition-colors group"
+                  className="min-h-[44px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2 flex items-center justify-between gap-2 transition-colors group"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-8 h-8 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                      <Mail size={15} />
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-7 h-7 rounded-lg bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
+                      <Mail size={14} />
                     </span>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                      <p className="text-[10px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                         Email
                       </p>
-                      <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                      <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
                         {APP_CONTACT_EMAIL}
                       </p>
                     </div>
                   </div>
                   <ExternalLink
-                    size={14}
+                    size={13}
                     className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] group-hover:text-[#FF6A00] shrink-0 transition-colors"
                   />
                 </a>
@@ -2331,52 +2578,62 @@ export function SettingsTab({
                   href={APP_TELEGRAM_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="min-h-[48px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2.5 flex items-center justify-between gap-2.5 transition-colors group"
+                  className="min-h-[44px] rounded-xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] hover:border-[#FF6A00] px-3 py-2 flex items-center justify-between gap-2 transition-colors group"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-8 h-8 rounded-lg bg-[#EEF2F6] dark:bg-[#08246B]/35 text-[#08246B] dark:text-[#7FA6FF] flex items-center justify-center shrink-0">
-                      <Send size={15} />
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-7 h-7 rounded-lg bg-[#EEF2F6] dark:bg-[#08246B]/35 text-[#08246B] dark:text-[#7FA6FF] flex items-center justify-center shrink-0">
+                      <Send size={14} />
                     </span>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                      <p className="text-[10px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                         Telegram Channel
                       </p>
-                      <p className="text-xs font-semibold text-[#08246B] dark:text-white truncate">
+                      <p className="text-[11px] font-semibold text-[#08246B] dark:text-white truncate">
                         {APP_TELEGRAM_HANDLE}
                       </p>
                     </div>
                   </div>
                   <ExternalLink
-                    size={14}
+                    size={13}
                     className="text-[#4B5563] dark:text-[var(--dark-text-secondary)] group-hover:text-[#FF6A00] shrink-0 transition-colors"
                   />
                 </a>
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-3.5 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-start gap-2.5 min-w-[220px] flex-1">
-                <Info size={16} className="text-[#FF6A00] mt-0.5 shrink-0" />
+            <div className="rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-2.5 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-start gap-2 min-w-[200px] flex-1">
+                <Info size={14} className="text-[#FF6A00] mt-0.5 shrink-0" />
                 <div className="space-y-0.5 min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-[#08246B] dark:text-white">
+                  <p className="text-[11px] font-semibold text-[#08246B] dark:text-white leading-tight">
                     Privacy &amp; Device Storage
                   </p>
-                  <p className="text-[11px] leading-relaxed text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                  <p className="text-[10px] leading-snug text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
                     {APP_PRIVACY_NOTE}
                   </p>
                 </div>
               </div>
 
-              {onOpenGuide && (
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={onOpenGuide}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-xs font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  onClick={() => setPrivacyPolicyOpen(true)}
+                  className="min-h-[36px] px-2.5 py-1 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                 >
-                  <HelpCircle size={14} className="text-[#FF6A00]" />
-                  How it works
+                  <ShieldCheck size={13} className="text-[#10B981]" />
+                  Privacy Policy
                 </button>
-              )}
+                {onOpenGuide && (
+                  <button
+                    type="button"
+                    onClick={onOpenGuide}
+                    className="min-h-[36px] px-2.5 py-1 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] text-[11px] font-semibold text-[#08246B] dark:text-white hover:border-[#FF6A00] flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    <HelpCircle size={13} className="text-[#FF6A00]" />
+                    How it works
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -2885,6 +3142,11 @@ export function SettingsTab({
         onClose={() => setAchievementsOpen(false)}
         initialTab={achievementsTab}
         onSelectContact={onSelectContact}
+      />
+
+      <PrivacyPolicyModal
+        open={privacyPolicyOpen}
+        onClose={() => setPrivacyPolicyOpen(false)}
       />
     </div>
   );

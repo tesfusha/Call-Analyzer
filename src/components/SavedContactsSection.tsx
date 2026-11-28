@@ -12,12 +12,14 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { QuickScheduleModal } from '@/src/components/QuickScheduleModal';
 import { SavedContactFormModal } from '@/src/components/SavedContactFormModal';
 import {
   canSyncAllPhoneContacts,
+  countLinkedNumbersByName,
   daysUntilAnnualDate,
   getContactKey,
   isContactPickerSupported,
@@ -30,7 +32,7 @@ import {
 } from '@/src/lib/contacts';
 import { detectCarrier } from '@/src/lib/ethiopia';
 import { getEthiopianMonthName, getHolidaysInGregorianYearOrUpcoming } from '@/src/lib/ethiopianCalendar';
-import { avatarColor, formatDuration, initials } from '@/src/lib/format';
+import { formatDuration, isPhoneLikeName } from '@/src/lib/format';
 import { triggerHaptic } from '@/src/lib/haptics';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { useCalls } from '@/src/store/CallsContext';
@@ -132,6 +134,10 @@ export function SavedContactsSection({
     setVisibleCount(CONTACTS_PAGE_SIZE);
   }, [search, tagFilter, sortBy]);
 
+  const linkedNumbersByName = useMemo(
+    () => countLinkedNumbersByName(allSaved),
+    [allSaved],
+  );
   const visibleContacts = useMemo(
     () => filteredContacts.slice(0, visibleCount),
     [filteredContacts, visibleCount],
@@ -326,7 +332,7 @@ export function SavedContactsSection({
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] overflow-x-auto no-scrollbar sm:flex-1">
+            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] sm:flex-1">
               {(
                 [
                   { value: 'all', label: 'All' },
@@ -341,7 +347,7 @@ export function SavedContactsSection({
                     triggerHaptic('tap');
                     setTagFilter(opt.value);
                   }}
-                  className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                  className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
                     tagFilter === opt.value
                       ? 'bg-[#FF6A00] text-white'
                       : 'text-[#4B5563] dark:text-[var(--dark-text-secondary)]'
@@ -430,6 +436,11 @@ export function SavedContactsSection({
                   contactStatus.longestStreak >= 3 ||
                   contactStatus.contactScore > 0);
 
+              const linkedCount =
+                !isPhoneLikeName(profile.name, profile.number)
+                  ? (linkedNumbersByName.get(profile.name.trim().toLowerCase()) ?? 1)
+                  : 1;
+
               return (
                 <div
                   key={profile.key}
@@ -440,17 +451,22 @@ export function SavedContactsSection({
                     onClick={() => onSelectContact(profile.number)}
                     className="flex items-start gap-3 min-w-0 flex-1 text-left"
                   >
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
-                      style={{ backgroundColor: avatarColor(profile.number) }}
-                    >
-                      {initials(profile.name, profile.number)}
-                    </div>
+                    <ContactAvatar
+                      name={profile.name}
+                      number={profile.number}
+                      size="md"
+                      className="mt-0.5"
+                    />
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
                           {formatDisplayNameOrPhone(profile.name, profile.number)}
                         </span>
+                        {linkedCount > 1 && (
+                          <span className="text-[11px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] tabular-nums shrink-0">
+                            · {linkedCount} numbers
+                          </span>
+                        )}
                         {profile.tag && (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-[#FF6A00] shrink-0">
                             <Tag size={11} className="shrink-0" />

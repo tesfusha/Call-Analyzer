@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Briefcase, Pencil, Phone, Search, X } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { getContactKey } from '@/src/lib/contacts';
 import { formatEtb } from '@/src/lib/ethiopia';
-import { avatarColor, formatDuration, initials } from '@/src/lib/format';
+import { formatDuration } from '@/src/lib/format';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
 import { contactStats } from '@/src/lib/stats';
 import {
@@ -268,10 +269,10 @@ export function BusinessPipelineV107({
                   <button
                     type="button"
                     onClick={() => onSelectContact(p.number)}
-                    className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: avatarColor(p.number) }}
+                    className="rounded-full shrink-0"
+                    aria-label={`Open contact ${p.name}`}
                   >
-                    {initials(p.name, p.number)}
+                    <ContactAvatar name={p.name} number={p.number} size="md" />
                   </button>
                   <button
                     type="button"

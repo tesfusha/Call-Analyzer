@@ -36,6 +36,14 @@ const V107_HIGHLIGHTS = [
   'Executive Reports: 1-tap WhatsApp/Telegram summary copy, sanitized Business CSV & printable HTML report',
 ] as const;
 
+const V110_HIGHLIGHTS = [
+  'Emil Kowalski Design Eng: critically damped spring indicators on tabs & segmented filters',
+  'Tactile press physics: immediate scale(0.97) on pointerdown with touch-safe hover gating',
+  'UI Cheatsheet details: relative-to-absolute timestamps after 7d, tabular-nums & Intl.PluralRules',
+  'Mobile-native craft: 100dvh safe-area shell, Vaul-style filter sheet & concentric nested radii',
+  'Instant keyboard shortcuts: press / to search or 1–6 to jump tabs with zero artificial delay',
+] as const;
+
 export function VersionSwitcherBar() {
   const { isAdmin } = useCalls();
   const version = useDesignVersion();
@@ -80,17 +88,21 @@ export function VersionSwitcherBar() {
   }
 
   const activeNotes =
-    version === 'v1.0.7'
-      ? V107_HIGHLIGHTS
-      : version === 'v1.0.6'
-        ? V106_HIGHLIGHTS
-        : UNSLOP_PASSES;
+    version === 'v1.1.0'
+      ? V110_HIGHLIGHTS
+      : version === 'v1.0.7'
+        ? V107_HIGHLIGHTS
+        : version === 'v1.0.6'
+          ? V106_HIGHLIGHTS
+          : UNSLOP_PASSES;
   const activeTitle =
-    version === 'v1.0.7'
-      ? 'Business Call Analysis V1.0.7'
-      : version === 'v1.0.6'
-        ? 'Simple & Modern V1.0.6 Preview'
-        : 'Unslop V1.0.5 — 9 Passes';
+    version === 'v1.1.0'
+      ? 'Craft V1.1.0 — Emil Design Eng'
+      : version === 'v1.0.7'
+        ? 'Business Call Analysis V1.0.7'
+        : version === 'v1.0.6'
+          ? 'Simple & Modern V1.0.6 Preview'
+          : 'Unslop V1.0.5 — 9 Passes';
 
   return (
     <div
@@ -157,7 +169,7 @@ export function VersionSwitcherBar() {
           aria-label="Admin preview design version"
           className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-[#EFECE6] dark:bg-[#0E1013]"
         >
-          {(['v1.0.5', 'v1.0.6', 'v1.0.7'] as const).map((ver) => {
+          {(['v1.0.5', 'v1.0.6', 'v1.0.7', 'v1.1.0'] as const).map((ver) => {
             const active = version === ver;
             return (
               <button
@@ -167,11 +179,13 @@ export function VersionSwitcherBar() {
                 aria-pressed={active}
                 className={`h-7 px-2 rounded-md text-[11px] font-mono font-semibold whitespace-nowrap transition-colors ${
                   active
-                    ? ver === 'v1.0.7'
-                      ? 'bg-[#0F2544] dark:bg-[#F4762C] text-white shadow-xs'
-                      : ver === 'v1.0.6'
-                        ? 'bg-[#E45A0D] text-white shadow-xs'
-                        : 'bg-[#16181D] dark:bg-[#F3F2EE] text-white dark:text-[#16181D] shadow-xs'
+                    ? ver === 'v1.1.0'
+                      ? 'bg-[#111214] dark:bg-[#F5F6F8] text-white dark:text-[#111214] shadow-xs'
+                      : ver === 'v1.0.7'
+                        ? 'bg-[#0F2544] dark:bg-[#F4762C] text-white shadow-xs'
+                        : ver === 'v1.0.6'
+                          ? 'bg-[#E45A0D] text-white shadow-xs'
+                          : 'bg-[#16181D] dark:bg-[#F3F2EE] text-white dark:text-[#16181D] shadow-xs'
                     : 'text-[#5D626E] dark:text-[#989DA8] hover:text-[#16181D] dark:hover:text-[#F3F2EE]'
                 }`}
               >

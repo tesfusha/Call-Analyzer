@@ -37,7 +37,7 @@ export function CategoryTabs<T extends string>({
 }) {
   const isFiveTabs = items.length === 5;
   const isOverflowTabs = items.length > 5;
-  const layoutClass = GRID_CLASS[items.length] ?? 'flex overflow-x-auto no-scrollbar md:grid md:grid-cols-4';
+  const layoutClass = GRID_CLASS[items.length] ?? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4';
   const containerBg =
     variant === 'inset'
       ? 'bg-[#EEF2F6] dark:bg-[var(--dark-canvas)]'
@@ -73,7 +73,7 @@ export function CategoryTabs<T extends string>({
               onChange(item.key);
             }}
             className={`relative min-h-[42px] ${fiveTabSpanClass} ${
-              isOverflowTabs ? 'shrink-0 sm:shrink sm:min-w-0 px-3 sm:px-2.5' : 'min-w-0 px-2 sm:px-3'
+              isOverflowTabs ? 'min-w-0 px-2.5' : 'min-w-0 px-2 sm:px-3'
             } py-2 rounded-xl text-[11.5px] sm:text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors duration-100 ${
               active
                 ? 'bg-[#FF6A00] text-white shadow-sm'

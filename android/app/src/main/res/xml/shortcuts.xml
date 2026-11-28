@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="shortcut_reminders"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_reminders"
+        android:shortcutShortLabel="@string/shortcut_reminders_short"
+        android:shortcutLongLabel="@string/shortcut_reminders_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.callanalyzer.eth"
+            android:targetClass="com.callanalyzer.eth.MainActivity"
+            android:data="callanalyzer://shortcut/reminders" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="shortcut_analytics"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_analytics"
+        android:shortcutShortLabel="@string/shortcut_analytics_short"
+        android:shortcutLongLabel="@string/shortcut_analytics_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.callanalyzer.eth"
+            android:targetClass="com.callanalyzer.eth.MainActivity"
+            android:data="callanalyzer://shortcut/analytics" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="shortcut_usage"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_usage"
+        android:shortcutShortLabel="@string/shortcut_usage_short"
+        android:shortcutLongLabel="@string/shortcut_usage_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.callanalyzer.eth"
+            android:targetClass="com.callanalyzer.eth.MainActivity"
+            android:data="callanalyzer://shortcut/usage" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="shortcut_calendar"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_calendar"
+        android:shortcutShortLabel="@string/shortcut_calendar_short"
+        android:shortcutLongLabel="@string/shortcut_calendar_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.callanalyzer.eth"
+            android:targetClass="com.callanalyzer.eth.MainActivity"
+            android:data="callanalyzer://shortcut/calendar" />
+    </shortcut>
+</shortcuts>

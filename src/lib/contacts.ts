@@ -4,9 +4,11 @@ import {
   isNativeCapacitor,
   pickNativePhoneContacts,
   syncAllNativePhoneContacts,
+  syncAllNativePhoneContactsIfGranted,
 } from '@/src/lib/capacitor';
 import { normaliseEthPhone } from '@/src/lib/ethiopia';
 import { toEthiopianDate, toGregorianJsDate } from '@/src/lib/ethiopianCalendar';
+import { isPhoneLikeName } from '@/src/lib/format';
 import { contactStats } from '@/src/lib/stats';
 import type {
   CalendarKind,
@@ -54,6 +56,42 @@ const MS_PER_DAY = 86_400_000;
 export function getContactKey(number: string): string {
   const norm = normaliseEthPhone(number);
   return norm || number.trim();
+}
+
+/**
+ * Finds other saved contact profiles that share the exact same real (non-phone)
+ * contact name (e.g. a friend "Amane" who has two phone numbers saved).
+ */
+export function findSiblingContactProfiles(
+  contacts: Record<string, ContactProfile>,
+  currentKey: string,
+  contactName: string | null | undefined,
+): ContactProfile[] {
+  const cleanName = contactName?.trim() ?? '';
+  if (!cleanName || isPhoneLikeName(cleanName)) return [];
+  const lower = cleanName.toLowerCase();
+  return Object.values(contacts).filter((profile) => {
+    if (profile.key === currentKey) return false;
+    const pName = profile.name?.trim() ?? '';
+    return pName.toLowerCase() === lower && !isPhoneLikeName(pName, profile.number);
+  });
+}
+
+/**
+ * Returns a map from normalized lowercase contact name -> count of saved phone numbers
+ * for names that appear more than once in the contacts directory.
+ */
+export function countLinkedNumbersByName(
+  profiles: ContactProfile[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  profiles.forEach((p) => {
+    const clean = p.name?.trim();
+    if (!clean || isPhoneLikeName(clean, p.number)) return;
+    const key = clean.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+  return counts;
 }
 
 function startOfDayMs(d: Date): number {
@@ -650,20 +688,30 @@ export function parseVCardContacts(vcfText: string): ContactProfile[] {
       }
     });
 
-    const primaryPhone = phones[0];
-    if (!primaryPhone) return;
-    const key = getContactKey(primaryPhone);
-    const resolvedName = fnName || structuredName || primaryPhone;
+    const uniquePhones: string[] = [];
+    const seenKeys = new Set<string>();
+    phones.forEach((rawPhone) => {
+      const key = getContactKey(rawPhone);
+      if (!key || seenKeys.has(key)) return;
+      seenKeys.add(key);
+      uniquePhones.push(rawPhone);
+    });
+    if (uniquePhones.length === 0) return;
 
-    profiles.push({
-      key,
-      number: primaryPhone,
-      name: resolvedName,
-      tag,
-      birthday,
-      events,
-      notes,
-      updatedAt: Date.now(),
+    const now = Date.now();
+    uniquePhones.forEach((phone, idx) => {
+      const key = getContactKey(phone);
+      const resolvedName = fnName || structuredName || phone;
+      profiles.push({
+        key,
+        number: phone,
+        name: resolvedName,
+        tag,
+        birthday,
+        events: events.map((ev, eIdx) => ({ ...ev, id: `${ev.id}-${idx}-${eIdx}` })),
+        notes,
+        updatedAt: now,
+      });
     });
   });
 
@@ -713,6 +761,31 @@ function parseCsvRows(source: string): string[][] {
   return rows;
 }
 
+function isPhoneCsvHeader(normalizedHeader: string): boolean {
+  if (!normalizedHeader) return false;
+  if (
+    normalizedHeader.includes('phonetic') ||
+    normalizedHeader.includes('type') ||
+    normalizedHeader.includes('label') ||
+    normalizedHeader.includes('country')
+  ) {
+    return false;
+  }
+  return (
+    normalizedHeader === 'phone' ||
+    normalizedHeader === 'mobile' ||
+    normalizedHeader === 'number' ||
+    normalizedHeader === 'phonenumber' ||
+    normalizedHeader === 'cell' ||
+    normalizedHeader === 'tel' ||
+    normalizedHeader === 'telephone' ||
+    /^phone\d*value$/.test(normalizedHeader) ||
+    /^phone\d+$/.test(normalizedHeader) ||
+    /^mobile\d+$/.test(normalizedHeader) ||
+    /^(secondary|other|work|home|alt|alternate)phone\d*$/.test(normalizedHeader)
+  );
+}
+
 export function parseCsvContacts(csvText: string): ContactProfile[] {
   const rows = parseCsvRows(csvText.replace(/^\uFEFF/, ''));
   if (rows.length < 2) return [];
@@ -724,17 +797,22 @@ export function parseCsvContacts(csvText: string): ContactProfile[] {
   const nameIdx = findCol(['name', 'fullname', 'displayname']);
   const firstIdx = findCol(['givenname', 'firstname']);
   const lastIdx = findCol(['familyname', 'lastname']);
-  const phoneIdx = findCol(['phone1value', 'phone', 'mobile', 'number', 'phonenumber']);
+  const phoneColIndices = headers
+    .map((h, idx) => (isPhoneCsvHeader(h) ? idx : -1))
+    .filter((idx) => idx >= 0);
+  if (phoneColIndices.length === 0) {
+    const fallbackIdx = findCol(['phone1value', 'phone', 'mobile', 'number', 'phonenumber']);
+    if (fallbackIdx >= 0) phoneColIndices.push(fallbackIdx);
+  }
   const bdayIdx = findCol(['birthday', 'bday', 'dob']);
   const tagIdx = findCol(['groupmembership', 'tag', 'category', 'relationship']);
   const noteIdx = findCol(['notes', 'note']);
 
-  if (phoneIdx === -1) return [];
+  if (phoneColIndices.length === 0) return [];
 
   const profiles: ContactProfile[] = [];
+  const now = Date.now();
   rows.slice(1).forEach((row) => {
-    const phone = row[phoneIdx]?.trim();
-    if (!phone) return;
     const rawName = decodeIfQuotedPrintableText(
       (nameIdx >= 0 ? row[nameIdx] : '') ||
         [firstIdx >= 0 ? row[firstIdx] : '', lastIdx >= 0 ? row[lastIdx] : '']
@@ -745,15 +823,27 @@ export function parseCsvContacts(csvText: string): ContactProfile[] {
     const tag = tagIdx >= 0 ? normaliseRelationshipTag(decodeIfQuotedPrintableText(row[tagIdx] ?? '')) : '';
     const notes = noteIdx >= 0 ? decodeIfQuotedPrintableText(row[noteIdx] ?? '') : '';
 
-    profiles.push({
-      key: getContactKey(phone),
-      number: phone,
-      name: rawName.trim() || phone,
-      tag,
-      birthday,
-      events: [],
-      notes,
-      updatedAt: Date.now(),
+    const seenKeys = new Set<string>();
+    phoneColIndices.forEach((colIdx) => {
+      const cellValue = row[colIdx]?.trim();
+      if (!cellValue) return;
+      // Google Contacts CSV sometimes puts multiple numbers in one cell separated by " ::: "
+      const candidates = cellValue.split(/\s*:::\s*/).map((s) => s.trim()).filter(Boolean);
+      candidates.forEach((phone) => {
+        const key = getContactKey(phone);
+        if (!key || seenKeys.has(key)) return;
+        seenKeys.add(key);
+        profiles.push({
+          key,
+          number: phone,
+          name: rawName.trim() || phone,
+          tag,
+          birthday,
+          events: [],
+          notes,
+          updatedAt: now,
+        });
+      });
     });
   });
 
@@ -825,19 +915,26 @@ export async function pickPhoneContacts(): Promise<{
   try {
     const entries = await nav.contacts.select(['name', 'tel'], { multiple: true });
     const profiles: ContactProfile[] = [];
+    const now = Date.now();
     entries.forEach((entry) => {
-      const tel = entry.tel?.[0]?.trim();
-      if (!tel) return;
-      const name = entry.name?.[0]?.trim() || tel;
-      profiles.push({
-        key: getContactKey(tel),
-        number: tel,
-        name,
-        tag: '',
-        birthday: null,
-        events: [],
-        notes: 'Imported from phone contacts',
-        updatedAt: Date.now(),
+      const tels = (entry.tel ?? []).map((t) => t?.trim()).filter(Boolean) as string[];
+      if (tels.length === 0) return;
+      const seenKeys = new Set<string>();
+      const baseName = entry.name?.[0]?.trim() || '';
+      tels.forEach((tel) => {
+        const key = getContactKey(tel);
+        if (!key || seenKeys.has(key)) return;
+        seenKeys.add(key);
+        profiles.push({
+          key,
+          number: tel,
+          name: baseName || tel,
+          tag: '',
+          birthday: null,
+          events: [],
+          notes: 'Imported from phone contacts',
+          updatedAt: now,
+        });
       });
     });
     return { supported: true, contacts: profiles };
@@ -849,6 +946,25 @@ export async function pickPhoneContacts(): Promise<{
 
 export function canSyncAllPhoneContacts(): boolean {
   return hasNativeBulkContactsSync();
+}
+
+function mapNativeContactsToProfiles(
+  rawContacts: Array<{ name: string; number: string; birthday: string | null }>,
+): ContactProfile[] {
+  const now = Date.now();
+  return rawContacts.map((entry) => {
+    const parsedBday = entry.birthday ? parseDateTuple(entry.birthday) : null;
+    return {
+      key: getContactKey(entry.number),
+      number: entry.number,
+      name: entry.name || entry.number,
+      tag: '',
+      birthday: parsedBday,
+      events: [],
+      notes: 'Loaded from phone contacts',
+      updatedAt: now,
+    };
+  });
 }
 
 export async function loadAllPhoneContacts(): Promise<{
@@ -878,25 +994,27 @@ export async function loadAllPhoneContacts(): Promise<{
         error: 'Contacts permission was denied. Allow Contacts permission in Android settings to load saved contacts.',
       };
     }
-    const now = Date.now();
-    const profiles: ContactProfile[] = res.contacts.map((entry) => {
-      const parsedBday = entry.birthday ? parseDateTuple(entry.birthday) : null;
-      return {
-        key: getContactKey(entry.number),
-        number: entry.number,
-        name: entry.name || entry.number,
-        tag: '',
-        birthday: parsedBday,
-        events: [],
-        notes: 'Loaded from phone contacts',
-        updatedAt: now,
-      };
-    });
-    return { supported: true, granted: true, contacts: profiles };
+    return { supported: true, granted: true, contacts: mapNativeContactsToProfiles(res.contacts) };
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Could not load saved contacts from your phone.';
     return { supported: true, granted: false, contacts: [], error: message };
+  }
+}
+
+export async function loadAllPhoneContactsIfGranted(): Promise<{
+  granted: boolean;
+  contacts: ContactProfile[];
+}> {
+  if (!hasNativeBulkContactsSync()) {
+    return { granted: false, contacts: [] };
+  }
+  try {
+    const res = await syncAllNativePhoneContactsIfGranted();
+    if (!res.granted) return { granted: false, contacts: [] };
+    return { granted: true, contacts: mapNativeContactsToProfiles(res.contacts) };
+  } catch {
+    return { granted: false, contacts: [] };
   }
 }
 

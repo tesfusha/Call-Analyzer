@@ -16,16 +16,19 @@ import {
   Megaphone,
   MessageSquare,
   PauseCircle,
+  Pencil,
   PlayCircle,
   RefreshCw,
   Search,
   Send,
   ShieldCheck,
+  Sparkles,
   Trash2,
   TrendingUp,
   UserCheck,
   UserX,
   Users,
+  X,
 } from 'lucide-react';
 import {
   BroadcastBannerCard,
@@ -37,6 +40,7 @@ import { CollapsibleSection } from '@/src/components/CollapsibleSection';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { PromoVideoStudio } from '@/src/components/PromoVideoStudio';
+import { APP_TELEGRAM_HANDLE, APP_TELEGRAM_URL, APP_VERSION_NAME } from '@/src/lib/appInfo';
 import { formatEthiopianShort } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile } from '@/src/lib/export';
 import { firstGraphemes, formatDateTime } from '@/src/lib/format';
@@ -109,6 +113,63 @@ const PREVIEW_VARIANTS: Array<{
     label: 'Business v1.0.7',
     tag: 'CRM & Lead SLA',
     note: 'Work vs personal split, lead queue, callback SLA & deals',
+  },
+  {
+    version: 'v1.1.0',
+    label: 'Craft v1.1.0',
+    tag: 'Emil Design Eng',
+    note: 'Spring motion, tactile scale(0.97), smart dates, Vaul filter sheet & shortcuts',
+  },
+];
+
+type BroadcastSamplePreset = {
+  id: string;
+  chipLabel: string;
+  kind: BroadcastKind;
+  displayMode: BroadcastDisplayMode;
+  audience: BroadcastAudience;
+  title: string;
+  message: string;
+  actionLabel: string;
+  actionUrl: string;
+};
+
+const BROADCAST_SAMPLES: BroadcastSamplePreset[] = [
+  {
+    id: 'telegram-channel',
+    chipLabel: 'Telegram Channel',
+    kind: 'announcement',
+    displayMode: 'banner',
+    audience: 'all',
+    title: 'Join Our Official Telegram Channel',
+    message:
+      'Follow @callanalyzer_eth on Telegram for new APK releases, carrier tariff tips, and instant feature updates.',
+    actionLabel: 'Join Telegram',
+    actionUrl: APP_TELEGRAM_URL,
+  },
+  {
+    id: 'app-update-ticker',
+    chipLabel: 'APK Update Ticker',
+    kind: 'update',
+    displayMode: 'ticker',
+    audience: 'android',
+    title: `Call Analyzer v${APP_VERSION_NAME} Update`,
+    message:
+      'Faster session startup, biometric auto-lock, 5 modern fonts, and streak cards are live — download the latest build on Telegram.',
+    actionLabel: 'Get APK on Telegram',
+    actionUrl: APP_TELEGRAM_URL,
+  },
+  {
+    id: 'security-tip',
+    chipLabel: 'Quick Tip Strip',
+    kind: 'tip',
+    displayMode: 'ribbon',
+    audience: 'all',
+    title: 'Keep Call History Private',
+    message:
+      'Turn on Fingerprint or 4-digit PIN lock with 5-minute auto-lock in Settings → Security.',
+    actionLabel: '',
+    actionUrl: '',
   },
 ];
 
@@ -303,6 +364,7 @@ export function AdminTab() {
     fetchDailyActiveRecords,
     fetchAllBroadcasts,
     createBroadcast,
+    updateBroadcast,
     toggleBroadcastActive,
     deleteBroadcast,
     calendarPrefs,
@@ -338,7 +400,9 @@ export function AdminTab() {
   const [chatFilter, setChatFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Broadcast composer state
+  // Broadcast composer & editor state
+  const [bcEditingId, setBcEditingId] = useState<string | null>(null);
+  const [bcEditingActive, setBcEditingActive] = useState<boolean>(true);
   const [bcTitle, setBcTitle] = useState('');
   const [bcMessage, setBcMessage] = useState('');
   const [bcKind, setBcKind] = useState<BroadcastKind>('update');
@@ -350,6 +414,7 @@ export function AdminTab() {
   const [bcError, setBcError] = useState<string | null>(null);
   const [bcBusyId, setBcBusyId] = useState<string | null>(null);
   const [bcConfirmDeleteId, setBcConfirmDeleteId] = useState<string | null>(null);
+  const bcComposerRef = useRef<HTMLFormElement>(null);
 
   const loadAdminData = useCallback(async () => {
     if (!isAdmin) return;
@@ -744,6 +809,45 @@ export function AdminTab() {
     }
   };
 
+  const applyBroadcastSample = (sample: BroadcastSamplePreset) => {
+    triggerHaptic('tap');
+    setBcKind(sample.kind);
+    setBcDisplayMode(sample.displayMode);
+    setBcAudience(sample.audience);
+    setBcTitle(sample.title);
+    setBcMessage(sample.message);
+    setBcActionLabel(sample.actionLabel);
+    setBcActionUrl(sample.actionUrl);
+    setBcError(null);
+  };
+
+  const handleStartEditBroadcast = (item: BroadcastMessage) => {
+    triggerHaptic('tap');
+    setBcEditingId(item.id);
+    setBcEditingActive(item.active);
+    setBcKind(item.kind);
+    setBcDisplayMode(item.displayMode);
+    setBcAudience(item.audience);
+    setBcTitle(item.title);
+    setBcMessage(item.message);
+    setBcActionLabel(item.actionLabel ?? '');
+    setBcActionUrl(item.actionUrl ?? '');
+    setBcError(null);
+    setBcConfirmDeleteId(null);
+    bcComposerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  const handleCancelEditBroadcast = () => {
+    triggerHaptic('tap');
+    setBcEditingId(null);
+    setBcEditingActive(true);
+    setBcTitle('');
+    setBcMessage('');
+    setBcActionLabel('');
+    setBcActionUrl('');
+    setBcError(null);
+  };
+
   const handlePublishBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     setBcError(null);
@@ -767,23 +871,63 @@ export function AdminTab() {
 
     setBcSubmitting(true);
     try {
-      const created = await createBroadcast({
-        title,
-        message,
-        kind: bcKind,
-        displayMode: bcDisplayMode,
-        audience: bcAudience,
-        actionLabel: actionLabel || null,
-        actionUrl: actionUrl || null,
-        active: true,
-      });
-      setBroadcasts((prev) => [created, ...prev]);
-      setBcTitle('');
-      setBcMessage('');
-      setBcActionLabel('');
-      setBcActionUrl('');
-      triggerHaptic('success');
-      showNotice('Broadcast published to users.', 'success');
+      if (bcEditingId) {
+        await updateBroadcast(bcEditingId, {
+          title,
+          message,
+          kind: bcKind,
+          displayMode: bcDisplayMode,
+          audience: bcAudience,
+          actionLabel: actionLabel || null,
+          actionUrl: actionUrl || null,
+          active: bcEditingActive,
+        });
+        const updatedAtMs = Date.now();
+        setBroadcasts((prev) =>
+          prev.map((b) =>
+            b.id === bcEditingId
+              ? {
+                  ...b,
+                  title,
+                  message,
+                  kind: bcKind,
+                  displayMode: bcDisplayMode,
+                  audience: bcAudience,
+                  actionLabel: actionLabel || null,
+                  actionUrl: actionUrl || null,
+                  active: bcEditingActive,
+                  updatedAtMs,
+                }
+              : b,
+          ),
+        );
+        setBcEditingId(null);
+        setBcEditingActive(true);
+        setBcTitle('');
+        setBcMessage('');
+        setBcActionLabel('');
+        setBcActionUrl('');
+        triggerHaptic('success');
+        showNotice('Broadcast updated.', 'success');
+      } else {
+        const created = await createBroadcast({
+          title,
+          message,
+          kind: bcKind,
+          displayMode: bcDisplayMode,
+          audience: bcAudience,
+          actionLabel: actionLabel || null,
+          actionUrl: actionUrl || null,
+          active: true,
+        });
+        setBroadcasts((prev) => [created, ...prev]);
+        setBcTitle('');
+        setBcMessage('');
+        setBcActionLabel('');
+        setBcActionUrl('');
+        triggerHaptic('success');
+        showNotice('Broadcast published to users.', 'success');
+      }
     } catch (err) {
       setBcError(parseFirestoreReason(err));
     } finally {
@@ -801,6 +945,9 @@ export function AdminTab() {
           b.id === item.id ? { ...b, active: nextActive, updatedAtMs: Date.now() } : b,
         ),
       );
+      if (bcEditingId === item.id) {
+        setBcEditingActive(nextActive);
+      }
       showNotice(nextActive ? 'Broadcast activated.' : 'Broadcast paused.');
     } catch (err) {
       showNotice(`Failed to update broadcast: ${parseFirestoreReason(err)}`);
@@ -815,6 +962,9 @@ export function AdminTab() {
       await deleteBroadcast(id);
       setBroadcasts((prev) => prev.filter((b) => b.id !== id));
       setBcConfirmDeleteId(null);
+      if (bcEditingId === id) {
+        handleCancelEditBroadcast();
+      }
       showNotice('Broadcast deleted.');
     } catch (err) {
       showNotice(`Failed to delete broadcast: ${parseFirestoreReason(err)}`);
@@ -1667,13 +1817,13 @@ export function AdminTab() {
 
                     {/* Quick Replies + Composer */}
                     <div className="p-3 border-t border-[#EEF2F6] dark:border-[var(--dark-border)] space-y-2">
-                      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {ADMIN_QUICK_REPLIES.map((qr) => (
                           <button
                             key={qr}
                             type="button"
                             onClick={() => setReplyText(qr)}
-                            className="px-2.5 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 text-[10px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] whitespace-nowrap shrink-0 transition-colors"
+                            className="px-2.5 py-1 rounded-lg bg-[#EEF2F6] dark:bg-[var(--dark-canvas)] hover:bg-[#FFF0E6] dark:hover:bg-[#FF6A00]/15 text-[10px] font-medium text-[#4B5563] dark:text-[var(--dark-text-secondary)] transition-colors"
                           >
                             {qr}
                           </button>
@@ -1709,28 +1859,72 @@ export function AdminTab() {
 
         {activeCategory === 'broadcasts' && (
           <div className="space-y-4">
-            {/* Compose Broadcast Form */}
+            {/* Compose / Edit Broadcast Form */}
             <form
+              ref={bcComposerRef}
               onSubmit={handlePublishBroadcast}
-              className="rounded-2xl bg-white dark:bg-[var(--dark-surface)] border border-[#DDE4EA] dark:border-[var(--dark-border)] p-5 space-y-4"
+              className={`rounded-2xl bg-white dark:bg-[var(--dark-surface)] border p-5 space-y-4 transition-colors ${
+                bcEditingId
+                  ? 'border-[#FF6A00] ring-1 ring-[#FF6A00]/25'
+                  : 'border-[#DDE4EA] dark:border-[var(--dark-border)]'
+              }`}
             >
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-9 h-9 rounded-xl bg-[#FFF0E6] dark:bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center shrink-0">
-                    <Megaphone size={18} />
+                    {bcEditingId ? <Pencil size={17} /> : <Megaphone size={18} />}
                   </div>
                   <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-[#08246B] dark:text-white">
-                      New Broadcast Message
+                      {bcEditingId ? 'Edit Broadcast Message' : 'New Broadcast Message'}
                     </h3>
                     <p className="text-xs text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                      Users see active broadcasts on launch until they dismiss them
+                      {bcEditingId
+                        ? 'Update any field below and save your changes live'
+                        : 'Users see active broadcasts on launch until they dismiss them'}
                     </p>
                   </div>
                 </div>
-                <span className="text-[11px] font-mono tabular-nums text-[#FF6A00] font-semibold shrink-0">
-                  {activeBroadcastCount} live
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {bcEditingId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditBroadcast}
+                      className="min-h-[30px] px-2.5 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white inline-flex items-center gap-1 transition-colors"
+                    >
+                      <X size={12} />
+                      Cancel Edit
+                    </button>
+                  )}
+                  <span className="text-[11px] font-mono tabular-nums text-[#FF6A00] font-semibold shrink-0">
+                    {activeBroadcastCount} live
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Sample Presets (click to load & edit) */}
+              <div className="rounded-xl bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] border border-[#EEF2F6] dark:border-[var(--dark-border)] p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#08246B] dark:text-white">
+                    <Sparkles size={12} className="text-[#FF6A00]" />
+                    Broadcast Samples (click to load &amp; edit)
+                  </span>
+                  <span className="text-[10px] font-mono text-[#8A93A0]">
+                    {APP_TELEGRAM_HANDLE}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {BROADCAST_SAMPLES.map((sample) => (
+                    <button
+                      key={sample.id}
+                      type="button"
+                      onClick={() => applyBroadcastSample(sample)}
+                      className="min-h-[30px] px-2.5 py-1 rounded-lg border border-[#DDE4EA] dark:border-[var(--dark-border)] bg-white dark:bg-[var(--dark-surface)] hover:border-[#FF6A00] hover:text-[#FF6A00] text-[11px] font-semibold text-[#08246B] dark:text-white inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <span>{sample.chipLabel}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -1806,7 +2000,7 @@ export function AdminTab() {
                   maxLength={100}
                   value={bcTitle}
                   onChange={(e) => setBcTitle(e.target.value)}
-                  placeholder="e.g. Call Analyzer v1.0.6 is now available"
+                  placeholder={`e.g. Call Analyzer v${APP_VERSION_NAME} is now available`}
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
                 />
               </div>
@@ -1853,19 +2047,34 @@ export function AdminTab() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label
-                    htmlFor="admin-bc-action-url"
-                    className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]"
-                  >
-                    Action Link (optional, https:// only)
-                  </label>
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <label
+                      htmlFor="admin-bc-action-url"
+                      className="text-[11px] font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]"
+                    >
+                      Action Link (optional, https:// only)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        setBcActionUrl(APP_TELEGRAM_URL);
+                        if (!bcActionLabel.trim()) {
+                          setBcActionLabel('Join Telegram');
+                        }
+                      }}
+                      className="text-[10px] font-semibold text-[#FF6A00] hover:underline"
+                    >
+                      Use {APP_TELEGRAM_HANDLE}
+                    </button>
+                  </div>
                   <input
                     id="admin-bc-action-url"
                     type="url"
                     maxLength={300}
                     value={bcActionUrl}
                     onChange={(e) => setBcActionUrl(e.target.value)}
-                    placeholder="https://t.me/..."
+                    placeholder={APP_TELEGRAM_URL}
                     className="w-full min-h-[40px] px-3 rounded-xl bg-[#F5F7FA] dark:bg-[var(--dark-canvas)] border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs text-[#08246B] dark:text-white placeholder:text-[#8A93A0] focus:outline-none focus:border-[#FF6A00]"
                   />
                 </div>
@@ -1881,7 +2090,7 @@ export function AdminTab() {
                 {(() => {
                   const previewItem: BroadcastMessage = {
                     id: 'admin-preview',
-                    title: bcTitle.trim() || 'Call Analyzer v1.0.6 Update',
+                    title: bcTitle.trim() || `Call Analyzer v${APP_VERSION_NAME} Update`,
                     message:
                       bcMessage.trim() ||
                       'Please keep your app updated for faster sync & fingerprint security',
@@ -1928,15 +2137,47 @@ export function AdminTab() {
                 </p>
               )}
 
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={bcSubmitting}
-                  className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition-colors"
-                >
-                  <Send size={14} />
-                  {bcSubmitting ? 'Publishing...' : 'Publish Broadcast'}
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {bcEditingId ? (
+                  <label className="inline-flex items-center gap-2 text-xs font-medium text-[#08246B] dark:text-white cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={bcEditingActive}
+                      onChange={(e) => setBcEditingActive(e.target.checked)}
+                      className="w-4 h-4 rounded accent-[#FF6A00]"
+                    />
+                    <span>Active (visible to users)</span>
+                  </label>
+                ) : (
+                  <span />
+                )}
+
+                <div className="flex items-center gap-2 ml-auto">
+                  {bcEditingId && (
+                    <button
+                      type="button"
+                      disabled={bcSubmitting}
+                      onClick={handleCancelEditBroadcast}
+                      className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#DDE4EA] dark:border-[var(--dark-border)] text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)] hover:text-[#08246B] dark:hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={bcSubmitting}
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#E65F00] disabled:opacity-50 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <Send size={14} />
+                    {bcSubmitting
+                      ? bcEditingId
+                        ? 'Saving...'
+                        : 'Publishing...'
+                      : bcEditingId
+                        ? 'Save Changes'
+                        : 'Publish Broadcast'}
+                  </button>
+                </div>
               </div>
             </form>
 
@@ -1962,9 +2203,17 @@ export function AdminTab() {
                     const KindIcon = meta.icon;
                     const busy = bcBusyId === item.id;
                     const confirmingDelete = bcConfirmDeleteId === item.id;
+                    const isBeingEdited = bcEditingId === item.id;
 
                     return (
-                      <div key={item.id} className="py-3.5 space-y-2">
+                      <div
+                        key={item.id}
+                        className={`py-3.5 space-y-2 transition-colors ${
+                          isBeingEdited
+                            ? 'bg-[#FFF8F3] dark:bg-[#FF6A00]/10 -mx-2 px-2 rounded-xl'
+                            : ''
+                        }`}
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="flex items-start gap-3 min-w-0 flex-1">
                             <div
@@ -2007,6 +2256,14 @@ export function AdminTab() {
                                 >
                                   {item.active ? 'Live' : 'Paused'}
                                 </span>
+                                {isBeingEdited && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="font-semibold text-[#FF6A00]">
+                                      Editing
+                                    </span>
+                                  </>
+                                )}
                               </div>
                               <p className="text-sm font-semibold text-[#08246B] dark:text-white break-words">
                                 {item.title}
@@ -2031,7 +2288,22 @@ export function AdminTab() {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleStartEditBroadcast(item)}
+                              aria-label={`Edit broadcast ${item.title}`}
+                              className={`min-h-[34px] px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-50 ${
+                                isBeingEdited
+                                  ? 'border-[#FF6A00] bg-[#FFF0E6] dark:bg-[#FF6A00]/20 text-[#FF6A00]'
+                                  : 'border-[#DDE4EA] dark:border-[var(--dark-border)] bg-[#F8FAFC] dark:bg-[var(--dark-canvas)] hover:border-[#FF6A00] text-[#08246B] dark:text-white'
+                              }`}
+                            >
+                              <Pencil size={12} />
+                              Edit
+                            </button>
+
                             <button
                               type="button"
                               disabled={busy}

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-export type DesignVersion = 'v1.0.3' | 'v1.0.5' | 'v1.0.6' | 'v1.0.7';
+export type DesignVersion = 'v1.0.3' | 'v1.0.5' | 'v1.0.6' | 'v1.0.7' | 'v1.1.0';
 
 const STORAGE_KEY = 'callanalyzer.designPreviewVersion.v4';
 
@@ -23,8 +23,17 @@ function readInitialVersion(): DesignVersion {
     if (param === 'v1.0.7' || param === '1.0.7' || param === 'business' || param === 'biz') {
       return 'v1.0.7';
     }
+    if (param === 'v1.1.0' || param === '1.1.0' || param === 'craft' || param === 'emil') {
+      return 'v1.1.0';
+    }
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === 'v1.0.3' || stored === 'v1.0.5' || stored === 'v1.0.6' || stored === 'v1.0.7') {
+    if (
+      stored === 'v1.0.3' ||
+      stored === 'v1.0.5' ||
+      stored === 'v1.0.6' ||
+      stored === 'v1.0.7' ||
+      stored === 'v1.1.0'
+    ) {
       return stored;
     }
   } catch {

@@ -13,10 +13,11 @@ import {
   Voicemail,
   X,
 } from 'lucide-react';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { ImportPreviewModal, type PendingImportState } from '@/src/components/ImportPreviewModal';
 import { hasNativeCallLogSyncPlugin } from '@/src/lib/capacitor';
 import { readUploadedTextFile } from '@/src/lib/contacts';
-import { avatarColor, dayKey, dayLabel, formatDuration, formatTime, initials } from '@/src/lib/format';
+import { dayKey, dayLabel, formatDuration, formatTime } from '@/src/lib/format';
 import { buildImportPreview, parseBackupImport } from '@/src/lib/import';
 import { unreturnedMissedCalls } from '@/src/lib/reminders';
 import { formatDisplayNameOrPhone } from '@/src/lib/security';
@@ -408,10 +409,9 @@ export function CallsHomeV106({
                         type="button"
                         onClick={() => onSelectContact(call.number)}
                         aria-label={`Open profile for ${displayName}`}
-                        className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0 transition-transform active:scale-95"
-                        style={{ backgroundColor: avatarColor(call.number) }}
+                        className="rounded-full shrink-0 transition-transform active:scale-95"
                       >
-                        {initials(call.name, call.number)}
+                        <ContactAvatar name={call.name} number={call.number} size="md" />
                       </button>
 
                       <button

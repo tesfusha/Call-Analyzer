@@ -5,6 +5,7 @@ import {
   Check,
   KeyRound,
   Lock,
+  Mail,
   Phone,
   Share2,
   User,
@@ -39,6 +40,7 @@ export function ProfileEditModal({
     userPhotoUrl,
     updateUserProfile,
     changeUserPassword,
+    sendPasswordReset,
     showNotice,
   } = useCalls();
 
@@ -62,7 +64,9 @@ export function ProfileEditModal({
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
+  const [sendingResetEmail, setSendingResetEmail] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordInfo, setPasswordInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -75,6 +79,7 @@ export function ProfileEditModal({
     setNewPassword('');
     setConfirmPassword('');
     setPasswordError(null);
+    setPasswordInfo(null);
   }, [open, resolvedCurrentName, userPhone, resolvedCurrentPhoto]);
 
   useEffect(() => {
@@ -153,6 +158,23 @@ export function ProfileEditModal({
       onClose();
     } finally {
       setSavingPassword(false);
+    }
+  };
+
+  const handleSendPasswordReset = async () => {
+    if (!authUser?.email || sendingResetEmail) return;
+    setPasswordError(null);
+    setPasswordInfo(null);
+    setSendingResetEmail(true);
+    try {
+      const res = await sendPasswordReset(authUser.email);
+      if (!res.ok) {
+        setPasswordError(res.error || 'Could not send password reset email.');
+        return;
+      }
+      setPasswordInfo(`Password reset link sent to ${authUser.email}. Check your inbox or spam folder.`);
+    } finally {
+      setSendingResetEmail(false);
     }
   };
 
@@ -428,11 +450,29 @@ export function ProfileEditModal({
                             {passwordError}
                           </div>
                         )}
+                        {passwordInfo && (
+                          <div className="rounded-xl bg-[#10B981]/10 border border-[#10B981]/30 px-3.5 py-2.5 text-xs font-medium text-[#059669] dark:text-[#34D399]">
+                            {passwordInfo}
+                          </div>
+                        )}
 
                         <label className="block space-y-1">
-                          <span className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
-                            Current password
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-[#4B5563] dark:text-[var(--dark-text-secondary)]">
+                              Current password
+                            </span>
+                            {authUser?.email && (
+                              <button
+                                type="button"
+                                disabled={sendingResetEmail || savingPassword}
+                                onClick={() => void handleSendPasswordReset()}
+                                className="text-[11px] font-semibold text-[#FF6A00] hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                              >
+                                <Mail size={12} />
+                                {sendingResetEmail ? 'Sending...' : 'Forgot password?'}
+                              </button>
+                            )}
+                          </div>
                           <input
                             type="password"
                             required

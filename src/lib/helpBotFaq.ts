@@ -1,3 +1,5 @@
+import type { SettingsSectionId, TabKey } from '@/src/types/call';
+
 export type HelpFaqCategory =
   | 'getting-started'
   | 'reminders'
@@ -6,6 +8,13 @@ export type HelpFaqCategory =
   | 'analytics'
   | 'privacy'
   | 'appearance';
+
+export type HelpFaqAction = {
+  label: string;
+  kind: 'tab' | 'settings-section' | 'reminders' | 'guide' | 'admin-chat';
+  tab?: TabKey;
+  settingsSection?: SettingsSectionId;
+};
 
 export type HelpFaqEntry = {
   id: string;
@@ -17,6 +26,7 @@ export type HelpFaqEntry = {
   steps?: string[];
   keywords: string[];
   followUps: string[];
+  action?: HelpFaqAction;
 };
 
 export const HELP_FAQ_CATEGORIES: Array<{
@@ -28,8 +38,8 @@ export const HELP_FAQ_CATEGORIES: Array<{
   { key: 'tariffs', label: 'SIM & ETB Costs' },
   { key: 'calendar', label: 'Ethiopian Calendar' },
   { key: 'analytics', label: 'Stats & Contacts' },
-  { key: 'privacy', label: 'Privacy & Backup' },
-  { key: 'appearance', label: 'Theme & Header' },
+  { key: 'privacy', label: 'Security & Backup' },
+  { key: 'appearance', label: 'Themes & Fonts' },
 ];
 
 export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
@@ -46,7 +56,7 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'Analytics: Track talk time, call counts, Ethio Telecom / Safaricom ETB spend, peak hours, and top contacts.',
       'Usage: Compare SIM 1 vs SIM 2 airtime, voice bundle usage, and monthly budget progress.',
       'Calendar: Full Ethiopian & Gregorian calendar with holidays, contact birthdays, and 1-tap SMS/Telegram/WhatsApp wishes.',
-      'Settings: Customize theme, font size, header date placement, SIM tariffs, 4-digit PIN lock, and full JSON/CSV/PDF backups.',
+      'Settings: Customize theme, 5 modern fonts, header date placement, SIM tariffs, Biometric/PIN lock, and full JSON/CSV/PDF backups.',
     ],
     keywords: [
       'tour',
@@ -62,8 +72,13 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'help',
       'menu',
       'possible',
+      'walkthrough',
     ],
     followUps: ['sync-calls', 'schedule-reminder', 'ethiopian-calendar', 'sim-tariffs'],
+    action: {
+      label: 'Launch Interactive Tour',
+      kind: 'guide',
+    },
   },
   {
     id: 'sync-calls',
@@ -72,11 +87,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     shortLabel: 'Sync Android Calls',
     whereToFind: 'Calls tab → Sync button (or pull down to refresh)',
     answer:
-      'On the Android APK, Call Analyzer - ETH reads your phone call log locally after you grant Call Log and Contacts permissions. New calls sync automatically when you open the app or tap Sync.',
+      'On the Android APK, Call Analyzer - ETH automatically syncs new call logs AND saved phonebook contacts (including contacts with multiple phone numbers) whenever Call Log and Contacts permissions are granted.',
     steps: [
-      'Tap Settings → Reminders / Android Setup to verify Call Log, Contacts, and Notification permissions.',
-      'On the Calls tab, pull down or tap Refresh/Sync to pull the latest calls immediately.',
-      'Using the Web version? You can import a JSON/CSV backup from Settings → Contacts & Call History Backup.',
+      'Tap Settings → Contacts or Load all phone contacts once to grant Contacts permission — after that, new contacts and secondary numbers auto-sync on launch and resume.',
+      'On the Calls tab, pull down or tap Sync to pull your latest calls immediately.',
+      'Using the Web version? You can import .vcf / CSV contacts or a JSON backup from Settings.',
     ],
     keywords: [
       'sync',
@@ -91,6 +106,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'apk',
     ],
     followUps: ['missed-alerts', 'backup-export', 'privacy-local'],
+    action: {
+      label: 'Go to Calls Tab',
+      kind: 'tab',
+      tab: 'calls',
+    },
   },
   {
     id: 'schedule-reminder',
@@ -119,6 +139,10 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'ማስታወሻ',
     ],
     followUps: ['missed-alerts', 'quiet-hours', 'troubleshoot-notifications'],
+    action: {
+      label: 'Open Reminders Bell',
+      kind: 'reminders',
+    },
   },
   {
     id: 'missed-alerts',
@@ -146,6 +170,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'follow up',
     ],
     followUps: ['schedule-reminder', 'quiet-hours', 'long-gap-quiet'],
+    action: {
+      label: 'Open Reminders Settings',
+      kind: 'settings-section',
+      settingsSection: 'reminders',
+    },
   },
   {
     id: 'quiet-hours',
@@ -162,6 +191,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['quiet hours', 'sleep', 'night', 'snooze', 'mute', 'do not disturb', 'dnd'],
     followUps: ['missed-alerts', 'schedule-reminder'],
+    action: {
+      label: 'Configure Quiet Hours',
+      kind: 'settings-section',
+      settingsSection: 'reminders',
+    },
   },
   {
     id: 'sim-tariffs',
@@ -197,6 +231,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'ብር',
     ],
     followUps: ['analytics-usage', 'ussd-codes'],
+    action: {
+      label: 'Open SIM & Tariffs',
+      kind: 'settings-section',
+      settingsSection: 'sim_tariffs',
+    },
   },
   {
     id: 'ussd-codes',
@@ -213,6 +252,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['ussd', 'balance', 'recharge', 'emergency', 'hotline', '991', '804', '999', '704', 'code'],
     followUps: ['sim-tariffs', 'tour-overview'],
+    action: {
+      label: 'Open Calls Tab',
+      kind: 'tab',
+      tab: 'calls',
+    },
   },
   {
     id: 'ethiopian-calendar',
@@ -247,6 +291,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'በዓል',
     ],
     followUps: ['birthdays-wishes', 'header-date-style'],
+    action: {
+      label: 'Open Calendar Tab',
+      kind: 'tab',
+      tab: 'calendar',
+    },
   },
   {
     id: 'birthdays-wishes',
@@ -263,6 +312,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['birthday', 'wish', 'wishes', 'greeting', 'telegram', 'whatsapp', 'sms', 'template', 'anniversary', 'ልደት'],
     followUps: ['ethiopian-calendar', 'contacts-vips'],
+    action: {
+      label: 'Open Calendar Tab',
+      kind: 'tab',
+      tab: 'calendar',
+    },
   },
   {
     id: 'analytics-usage',
@@ -279,6 +333,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['analytics', 'stats', 'chart', 'graph', 'top contact', 'peak hour', 'usage', 'talk time', 'duration', 'report'],
     followUps: ['sim-tariffs', 'long-gap-quiet', 'streaks-badges'],
+    action: {
+      label: 'Open Analytics Tab',
+      kind: 'tab',
+      tab: 'analytics',
+    },
   },
   {
     id: 'contacts-vips',
@@ -291,10 +350,15 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     steps: [
       'Tap any call row to add a note or tag (you can also create your own custom tags).',
       'Tap the Star icon on a contact to pin them in your VIPs list.',
-      'Have two numbers for the same person? Open the contact detail to manage or merge profiles.',
+      'Has two phone numbers under one name? All numbers sync automatically and appear linked inside that contact’s detail card.',
     ],
     keywords: ['vip', 'favorite', 'star', 'tag', 'note', 'contact', 'merge', 'duplicate', 'rename', 'profile'],
     followUps: ['long-gap-quiet', 'birthdays-wishes'],
+    action: {
+      label: 'Open Calls Tab',
+      kind: 'tab',
+      tab: 'calls',
+    },
   },
   {
     id: 'long-gap-quiet',
@@ -311,22 +375,31 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['quiet', 'reconnect', 'long gap', '30 days', 'back in touch', 'silence', 'weekly goal'],
     followUps: ['streaks-badges', 'contacts-vips'],
+    action: {
+      label: 'Open Reminders Bell',
+      kind: 'reminders',
+    },
   },
   {
     id: 'streaks-badges',
     category: 'analytics',
-    title: 'Daily Streaks, Score, Badges & Contact Milestones',
+    title: 'Daily Streaks, General Points & Contact Streaks',
     shortLabel: 'Streaks & Badges',
-    whereToFind: 'Settings → Score & Badges (tap to view Achievements)',
+    whereToFind: 'Calls tab top card · Settings → Score & Badges',
     answer:
-      'Earn points and unlock badges for checking in daily, returning missed calls quickly, adding notes/tags, and hitting call milestones with your closest contacts.',
+      'Track your Daily Streak and General Points alongside your top Contact Streak right from the Calls screen, or open Score & Badges and Contact Streaks to see all milestones.',
     steps: [
-      'Open Settings and tap your Score / Streak summary card at the top.',
-      'Track your current streak, unlocked badges, and point history.',
-      'Share celebration cards when you hit special milestones with a contact.',
+      'On the Calls tab, tap Score & Badges or Contact Streaks in the top card.',
+      'Earn points for checking in daily, returning missed calls quickly, and adding notes/tags.',
+      'Share celebration cards whenever you unlock a multi-day milestone with a contact.',
     ],
-    keywords: ['streak', 'score', 'points', 'badge', 'achievement', 'milestone', 'trophy', 'gamification'],
+    keywords: ['streak', 'score', 'points', 'badge', 'achievement', 'milestone', 'trophy', 'gamification', 'contact streak'],
     followUps: ['analytics-usage', 'tour-overview'],
+    action: {
+      label: 'Open Score & Badges',
+      kind: 'settings-section',
+      settingsSection: 'score_badges',
+    },
   },
   {
     id: 'header-date-style',
@@ -344,54 +417,109 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['header', 'top bar', 'date placement', 'banner', 'strip', 'sub-bar', 'hide date', 'logo', 'appearance'],
     followUps: ['theme-font', 'ethiopian-calendar'],
+    action: {
+      label: 'Open Appearance Settings',
+      kind: 'settings-section',
+      settingsSection: 'appearance',
+    },
   },
   {
     id: 'theme-font',
     category: 'appearance',
-    title: 'Dark Mode, Bright Mode, Font Size & Vibration',
-    shortLabel: 'Theme & Font Size',
-    whereToFind: 'Settings → Appearance, Theme & Font Size',
+    title: 'Dark Mode, 5 Modern Fonts, Text Size & Vibration',
+    shortLabel: 'Themes & 5 Fonts',
+    whereToFind: 'Settings → Appearance, Theme, Fonts & Size',
     answer:
-      'Switch between Auto (follows your phone), Bright, and Dark themes, choose from 3 comfortable text sizes (Default, Larger, Biggest), and toggle haptic vibration feedback.',
+      'Switch between Auto, Bright, and Dark themes, pick from 5 modern typefaces (Plus Jakarta Sans, Outfit, Manrope, Space Grotesk, or DM Sans), adjust text size, and toggle haptics.',
     steps: [
-      'Open Settings → Appearance, Theme & Font Size.',
+      'Open Settings → Appearance, Theme, Fonts & Size.',
       'Select Auto, Bright, or Dark under Theme Style.',
-      'Choose Default, Larger, or Biggest under Font Size and preview text live.',
+      'Choose any of the 5 Modern Font Styles with a live Aa preview, plus Default, Larger, or Biggest text size.',
     ],
-    keywords: ['theme', 'dark', 'light', 'bright', 'mode', 'font', 'text size', 'bigger', 'smaller', 'vibration', 'haptic'],
+    keywords: [
+      'theme',
+      'dark',
+      'light',
+      'bright',
+      'mode',
+      'font',
+      'fonts',
+      'typeface',
+      'jakarta',
+      'outfit',
+      'manrope',
+      'space grotesk',
+      'dm sans',
+      'text size',
+      'bigger',
+      'smaller',
+      'vibration',
+      'haptic',
+    ],
     followUps: ['header-date-style', 'pin-lock'],
+    action: {
+      label: 'Customize Theme & Fonts',
+      kind: 'settings-section',
+      settingsSection: 'appearance',
+    },
   },
   {
     id: 'privacy-local',
     category: 'privacy',
     title: 'Privacy — Where Is My Call History Stored?',
     shortLabel: 'Privacy & Storage',
-    whereToFind: '100% Local on your phone (IndexedDB)',
+    whereToFind: '100% Local on your phone (IndexedDB) · Privacy Policy in Settings → About',
     answer:
       'Your call logs, phone numbers, contact names, notes, and scheduled reminders NEVER leave your device. Only your account email, theme, and tariff preferences sync to your account.',
     steps: [
       'All call history and contact profiles stay strictly on your phone.',
       'Before switching phones or uninstalling, export a JSON backup from Settings → Backup.',
-      'You can wipe local call data anytime from Settings → Contacts & Call History Backup.',
+      'You can wipe local call data or delete your cloud account permanently anytime from Settings → Backup.',
     ],
-    keywords: ['privacy', 'cloud', 'server', 'safe', 'secure', 'local', 'stored', 'data', 'private', 'delete data'],
+    keywords: ['privacy', 'policy', 'cloud', 'server', 'safe', 'secure', 'local', 'stored', 'data', 'private', 'delete data', 'delete account'],
     followUps: ['backup-export', 'pin-lock'],
+    action: {
+      label: 'Open Backup & Privacy',
+      kind: 'settings-section',
+      settingsSection: 'backup',
+    },
   },
   {
     id: 'pin-lock',
     category: 'privacy',
-    title: '4-Digit Screen Lock PIN',
-    shortLabel: 'Screen Lock PIN',
-    whereToFind: 'Settings → Screen Lock PIN',
+    title: 'Biometric Unlock, 4-Digit PIN & 5-Min Auto-Lock',
+    shortLabel: 'Biometric & PIN Lock',
+    whereToFind: 'Settings → Security, Biometric & PIN Lock',
     answer:
-      'Add a 4-digit passcode lock to protect your call analytics from casual glances when someone borrows your phone.',
+      'Protect your call log with Fingerprint/Face unlock and a 4-digit PIN. By default, the app auto-locks after 5 minutes away or idle, and supports Forgot PIN recovery via your account password or Google.',
     steps: [
-      'Go to Settings → Screen Lock PIN and set a 4-digit PIN.',
-      'Once enabled, tap the Lock icon in the top bar anytime to lock immediately.',
-      'Forgot your PIN? You can reset it from the lock screen (requires re-verifying your account).',
+      'Go to Settings → Security, Biometric & PIN Lock to set a 4-digit PIN and enable Biometric Sign-In / Unlock.',
+      'Adjust the Auto-Lock timeout (1 min, 5 min default, 15 min, or Never).',
+      'Forgot your PIN? Tap "Forgot PIN?" on the lock screen to verify your password or Google sign-in and reset it safely.',
     ],
-    keywords: ['pin', 'lock', 'password', 'passcode', 'security', 'protect', 'unlock', '4-digit'],
+    keywords: [
+      'pin',
+      'lock',
+      'biometric',
+      'fingerprint',
+      'face unlock',
+      'auto lock',
+      '5 min',
+      'timeout',
+      'forgot pin',
+      'reset pin',
+      'passcode',
+      'security',
+      'protect',
+      'unlock',
+      '4-digit',
+    ],
     followUps: ['privacy-local', 'account-updates'],
+    action: {
+      label: 'Open Security Settings',
+      kind: 'settings-section',
+      settingsSection: 'security',
+    },
   },
   {
     id: 'backup-export',
@@ -408,21 +536,32 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
     ],
     keywords: ['backup', 'export', 'restore', 'import', 'json', 'csv', 'pdf', 'html', 'vcard', 'vcf', 'new phone', 'transfer'],
     followUps: ['privacy-local', 'sync-calls'],
+    action: {
+      label: 'Open Backup & Export',
+      kind: 'settings-section',
+      settingsSection: 'backup',
+    },
   },
   {
     id: 'account-updates',
     category: 'getting-started',
-    title: 'Account Sign-In, Updates & Contacting Admin',
+    title: 'Account Sign-In, Password Reset, Updates & Admin Chat',
     shortLabel: 'Account & Updates',
-    whereToFind: 'Settings → About App, Updates & Contact · Support Chat tab',
+    whereToFind: 'Profile Menu · Settings → About App, Updates & Contact',
     answer:
-      'Sign in with Google or Email/Password (with email verification) to keep your settings synced. You can check for new APK versions or chat directly with the admin right inside this Help window.',
+      'Sign in with Google or Email/Password (with email verification & Forgot Password reset email) to keep your settings synced. Check for new APK updates or chat directly with Admin inside this Help window.',
     steps: [
+      'Forgot your password? Tap "Forgot password?" on the Sign-In screen or inside Profile → Password.',
       'Open Settings → About App, Updates & Contact and tap "Check for Updates".',
-      'Need direct help or want to report an issue? Switch to the "Chat with Admin" tab at the top of this window.',
+      'Need direct help? Switch to the "Chat with Admin" tab at the top of this window.',
     ],
-    keywords: ['account', 'login', 'sign in', 'google', 'email', 'verify', 'update', 'version', 'admin', 'contact', 'support', 'bug', 'feedback'],
+    keywords: ['account', 'login', 'sign in', 'google', 'email', 'password', 'forgot password', 'verify', 'update', 'version', 'admin', 'contact', 'support', 'bug', 'feedback'],
     followUps: ['tour-overview', 'troubleshoot-notifications'],
+    action: {
+      label: 'Open About & Updates',
+      kind: 'settings-section',
+      settingsSection: 'about',
+    },
   },
   {
     id: 'troubleshoot-notifications',
@@ -454,6 +593,11 @@ export const HELP_FAQ_ENTRIES: HelpFaqEntry[] = [
       'delay',
     ],
     followUps: ['schedule-reminder', 'sync-calls', 'account-updates'],
+    action: {
+      label: 'Open Reminders Settings',
+      kind: 'settings-section',
+      settingsSection: 'reminders',
+    },
   },
 ];
 
@@ -493,6 +637,57 @@ const GREETING_WORDS = new Set([
   'ameseginalehu',
 ]);
 
+function scoreFaqEntry(entry: HelpFaqEntry, norm: string, tokens: string[]): number {
+  let score = 0;
+  const titleNorm = normalizeQuery(entry.title);
+  const shortNorm = normalizeQuery(entry.shortLabel);
+  const answerNorm = normalizeQuery(entry.answer);
+  const whereNorm = normalizeQuery(entry.whereToFind);
+
+  if (shortNorm === norm || titleNorm === norm) {
+    score += 30;
+  } else if (titleNorm.includes(norm) && norm.length >= 3) {
+    score += 14;
+  }
+
+  for (const kw of entry.keywords) {
+    const kwNorm = normalizeQuery(kw);
+    if (!kwNorm) continue;
+    if (norm === kwNorm) {
+      score += 24;
+    } else if (norm.includes(kwNorm)) {
+      score += kwNorm.includes(' ') ? 14 : 9;
+    } else if (kwNorm.includes(norm) && norm.length >= 3) {
+      score += 8;
+    } else if (tokens.some((tok) => kwNorm.includes(tok) && tok.length >= 3)) {
+      score += 4;
+    }
+  }
+
+  for (const tok of tokens) {
+    if (shortNorm.includes(tok)) score += 6;
+    if (titleNorm.includes(tok)) score += 5;
+    if (whereNorm.includes(tok)) score += 3;
+    if (answerNorm.includes(tok)) score += 2;
+  }
+
+  return score;
+}
+
+export function searchHelpFaqs(rawQuery: string, limit = 5): HelpFaqEntry[] {
+  const norm = normalizeQuery(rawQuery);
+  if (!norm) return [];
+  const tokens = norm.split(' ').filter((t) => t.length >= 2);
+  return HELP_FAQ_ENTRIES.map((entry) => ({
+    entry,
+    score: scoreFaqEntry(entry, norm, tokens),
+  }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((item) => item.entry);
+}
+
 export function matchHelpFaq(rawQuery: string): HelpBotMatchResult {
   const norm = normalizeQuery(rawQuery);
   if (!norm) {
@@ -509,39 +704,18 @@ export function matchHelpFaq(rawQuery: string): HelpBotMatchResult {
       related: [
         getFaqById('tour-overview')!,
         getFaqById('sync-calls')!,
-        getFaqById('schedule-reminder')!,
-        getFaqById('ethiopian-calendar')!,
+        getFaqById('pin-lock')!,
+        getFaqById('theme-font')!,
       ].filter(Boolean),
       isGreeting: true,
     };
   }
 
   const tokens = norm.split(' ').filter((t) => t.length >= 2);
-  const scored = HELP_FAQ_ENTRIES.map((entry) => {
-    let score = 0;
-    const titleNorm = normalizeQuery(entry.title);
-    const answerNorm = normalizeQuery(entry.answer);
-
-    // Exact phrase matches on keywords get high priority
-    for (const kw of entry.keywords) {
-      const kwNorm = normalizeQuery(kw);
-      if (!kwNorm) continue;
-      if (norm === kwNorm) {
-        score += 20;
-      } else if (norm.includes(kwNorm)) {
-        score += kwNorm.includes(' ') ? 12 : 8;
-      } else if (tokens.some((tok) => kwNorm.includes(tok) && tok.length >= 3)) {
-        score += 4;
-      }
-    }
-
-    for (const tok of tokens) {
-      if (titleNorm.includes(tok)) score += 5;
-      if (answerNorm.includes(tok)) score += 2;
-    }
-
-    return { entry, score };
-  })
+  const scored = HELP_FAQ_ENTRIES.map((entry) => ({
+    entry,
+    score: scoreFaqEntry(entry, norm, tokens),
+  }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score);
 
@@ -552,7 +726,7 @@ export function matchHelpFaq(rawQuery: string): HelpBotMatchResult {
         getFaqById('tour-overview')!,
         getFaqById('sync-calls')!,
         getFaqById('schedule-reminder')!,
-        getFaqById('sim-tariffs')!,
+        getFaqById('pin-lock')!,
       ].filter(Boolean),
       isGreeting: false,
     };

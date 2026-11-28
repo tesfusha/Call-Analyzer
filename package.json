@@ -1,7 +1,7 @@
 {
   "name": "call-analyzer-eth",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "lint:rules": "eslint firestore.rules"
+    "lint:rules": "eslint firestore.rules",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",

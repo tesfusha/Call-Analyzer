@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { CategoryPanel, CategoryTabs, type CategoryItem } from '@/src/components/CategoryTabs';
+import { ContactAvatar } from '@/src/components/ContactAvatar';
 import { CustomSelect } from '@/src/components/CustomSelect';
 import { FlaticonIcon } from '@/src/components/FlaticonIcon';
 import { SimpleScheduleTimePicker } from '@/src/components/SimpleScheduleTimePicker';
@@ -42,7 +43,7 @@ import {
   getHolidaysInGregorianYearOrUpcoming,
 } from '@/src/lib/ethiopianCalendar';
 import { downloadTextFile } from '@/src/lib/export';
-import { avatarColor, formatDateTime, formatDuration, initials } from '@/src/lib/format';
+import { formatDateTime, formatDuration } from '@/src/lib/format';
 import { exportCallHistoryPdfReport } from '@/src/lib/pdfExport';
 import {
   buildPeriodReport,
@@ -1542,12 +1543,12 @@ export function RemindersModal({
                           }}
                           className="min-w-0 text-left flex items-center gap-3 flex-1"
                         >
-                          <div
-                            className="w-11 h-11 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm"
-                            style={{ backgroundColor: avatarColor(item.number) }}
-                          >
-                            {initials(item.name || item.number, item.number)}
-                          </div>
+                          <ContactAvatar
+                            name={item.name}
+                            number={item.number}
+                            size="lg"
+                            className="shadow-sm"
+                          />
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <p className="text-sm font-bold text-[#08246B] dark:text-white truncate">
                               {display}

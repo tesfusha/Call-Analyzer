@@ -1,7 +1,7 @@
 {
-  "versionCode": 14,
-  "versionName": "1.0.6",
-  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-1.0.6.apk",
-  "notes": "Call Analyzer - ETH v1.0.6: Standalone Fingerprint App Lock (no PIN required, locks on launch & background resume), Scrolling Ticker Bar & Compact Accent Strip broadcast styles, live Admin broadcast preview, and accurate update-check reporting.",
+  "versionCode": 15,
+  "versionName": "1.0.7",
+  "apkUrl": "https://youthful-limiter-kjk7s.web.app/downloads/call-analyzer-eth-1.0.7.apk",
+  "notes": "Call Analyzer - ETH v1.0.7 (Build 15): 5-minute Biometric & PIN auto-lock with Forgot PIN recovery, 5 modern fonts, Score & Contact Streak card layout, interactive App Helper & FAQ Bot, Telegram broadcast samples with Edit mode, and wrapped non-clipping option bars.",
   "mandatory": false
 }
